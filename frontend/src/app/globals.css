@@ -1,0 +1,101 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-primary: #E31E24;
+  --color-primary-dark: #B71C1C;
+  --color-primary-light: #FFEBEE;
+  --color-white: #FFFFFF;
+  --color-text-dark: #1A1A2E;
+  --color-text-muted: #6B7280;
+  --color-background: #F9FAFB;
+  --color-success: #16A34A;
+  --color-warning: #F59E0B;
+  --color-error: #DC2626;
+  --color-border: #E5E7EB;
+}
+
+@layer base {
+  html {
+    @apply antialiased;
+  }
+
+  body {
+    @apply bg-brand-background text-brand-text-dark;
+    font-feature-settings: 'rlig' 1, 'calt' 1;
+  }
+
+  * {
+    @apply border-brand-border;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-binny-red hover:bg-binny-red-dark text-white font-medium rounded-lg
+           transition-colors duration-200 focus:outline-none focus:ring-2
+           focus:ring-binny-red focus:ring-offset-2 disabled:opacity-50
+           disabled:cursor-not-allowed;
+  }
+
+  .btn-secondary {
+    @apply bg-white hover:bg-gray-50 text-brand-text-dark border border-brand-border
+           font-medium rounded-lg transition-colors duration-200 focus:outline-none
+           focus:ring-2 focus:ring-binny-red focus:ring-offset-2;
+  }
+
+  .input-field {
+    @apply w-full rounded-lg border border-brand-border bg-white px-4 py-2.5
+           text-brand-text-dark placeholder:text-brand-text-muted
+           focus:border-binny-red focus:outline-none focus:ring-2
+           focus:ring-binny-red/20 transition-all duration-200;
+  }
+
+  .card {
+    @apply bg-white rounded-xl border border-brand-border shadow-sm;
+  }
+
+  .sidebar-link {
+    @apply flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium
+           text-brand-text-muted hover:text-brand-text-dark hover:bg-gray-100
+           transition-colors duration-200;
+  }
+
+  .sidebar-link-active {
+    @apply flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium
+           text-binny-red bg-binny-red-light;
+  }
+}
+
+@layer utilities {
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* QR Scanner overlay styles */
+.qr-scanner-overlay {
+  position: relative;
+}
+
+.qr-scanner-overlay::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 2px solid rgba(227, 30, 36, 0.5);
+  border-radius: 12px;
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* Mobile safe area padding */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
