@@ -14,7 +14,7 @@ import { reportService } from '@/services/report.service';
 import { useApiQuery } from '@/hooks/useApi';
 import { keepPreviousData } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
-import { formatDateTime } from '@/lib/utils';
+import { formatDateTime, formatCurrency } from '@/lib/utils';
 
 type TabId = 'stock' | 'cartons' | 'dispatch' | 'daily';
 
@@ -48,10 +48,29 @@ interface CartonRow {
   destination: string | null;
 }
 
+interface DispatchItemDetail {
+  article_name: string;
+  colour: string;
+  sizes: string;
+  mrp: number;
+  carton_count: number;
+  box_count: number;
+}
+
+interface CustomerDispatchGroup {
+  customer_id: string | null;
+  customer_name: string;
+  total_cartons: number;
+  total_dispatches: number;
+  dispatch_dates: string[];
+  destinations: string[];
+  items: DispatchItemDetail[];
+}
+
 interface DispatchSummary {
   total_dispatches: number;
-  total_cartons: number;
-  by_destination: Array<{ destination: string; count: number }>;
+  total_cartons_dispatched: number;
+  by_customer: CustomerDispatchGroup[];
 }
 
 interface DailyActivityRow {
@@ -226,7 +245,7 @@ export default function ReportsPage() {
             onClick={() => setActiveTab(tab.id)}
             className={`px-4 py-2 text-sm font-medium border-b-2 whitespace-nowrap ${
               activeTab === tab.id
-                ? 'border-binny-red text-binny-red'
+                ? 'border-binny-navy text-binny-navy'
                 : 'border-transparent text-brand-text-muted hover:text-brand-text-dark'
             }`}
           >
@@ -478,6 +497,8 @@ function DispatchTab({
   onFromDateChange: (val: string) => void;
   onToDateChange: (val: string) => void;
 }) {
+  const [expandedCustomer, setExpandedCustomer] = useState<string | null>(null);
+
   return (
     <>
       <Card className="p-4 mb-6">
@@ -510,29 +531,93 @@ function DispatchTab({
             </Card>
             <Card className="p-5">
               <p className="text-sm text-brand-text-muted mb-1">Total Cartons Dispatched</p>
-              <p className="text-3xl font-bold text-brand-text-dark">{data.total_cartons}</p>
+              <p className="text-3xl font-bold text-brand-text-dark">{data.total_cartons_dispatched}</p>
             </Card>
           </div>
 
-          {data.by_destination && data.by_destination.length > 0 && (
-            <Card className="p-6">
-              <h3 className="font-semibold text-brand-text-dark mb-4">By Destination</h3>
-              <div className="space-y-2">
-                {data.by_destination.map((dest, idx) => (
-                  <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                    <span className="text-sm font-medium text-brand-text-dark">
-                      {dest.destination || 'Unknown'}
-                    </span>
-                    <span className="text-sm font-bold text-brand-text-dark">{dest.count}</span>
-                  </div>
-                ))}
-              </div>
-            </Card>
-          )}
+          {data.by_customer && data.by_customer.length > 0 ? (
+            <div className="space-y-4">
+              <h3 className="font-semibold text-brand-text-dark">By Customer</h3>
+              {data.by_customer.map((group, idx) => {
+                const key = group.customer_id ?? `walk-in-${idx}`;
+                const isExpanded = expandedCustomer === key;
+                return (
+                  <Card key={key} className="overflow-hidden">
+                    <div
+                      className="flex items-center justify-between p-4 cursor-pointer hover:bg-gray-50 transition-colors"
+                      onClick={() => setExpandedCustomer(isExpanded ? null : key)}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="font-semibold text-brand-text-dark">{group.customer_name}</p>
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1 text-xs text-brand-text-muted">
+                          <span>{group.total_cartons} carton{group.total_cartons !== 1 ? 's' : ''}</span>
+                          {group.destinations.length > 0 && (
+                            <span>to {group.destinations.join(', ')}</span>
+                          )}
+                          <span>
+                            {group.dispatch_dates.length === 1
+                              ? group.dispatch_dates[0]
+                              : `${group.dispatch_dates[0]} — ${group.dispatch_dates[group.dispatch_dates.length - 1]}`}
+                          </span>
+                        </div>
+                      </div>
+                      <span className="text-2xl font-bold text-brand-text-dark shrink-0 ml-4">
+                        {group.total_cartons}
+                      </span>
+                    </div>
 
-          {(!data.by_destination || data.by_destination.length === 0) && data.total_dispatches === 0 && (
+                    {isExpanded && group.items.length > 0 && (
+                      <div className="border-t border-brand-border">
+                        {/* Mobile view */}
+                        <div className="lg:hidden divide-y divide-brand-border">
+                          {group.items.map((item, iIdx) => (
+                            <div key={iIdx} className="p-3 text-sm">
+                              <p className="font-medium text-brand-text-dark">{item.article_name}</p>
+                              <div className="grid grid-cols-2 gap-1 mt-1 text-xs text-brand-text-muted">
+                                <span>Colour: {item.colour}</span>
+                                <span>Sizes: {item.sizes}</span>
+                                <span>MRP: {formatCurrency(item.mrp)}</span>
+                                <span>{item.carton_count} carton{item.carton_count !== 1 ? 's' : ''} / {item.box_count} box{item.box_count !== 1 ? 'es' : ''}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        {/* Desktop view */}
+                        <div className="hidden lg:block">
+                          <Table>
+                            <TableHead>
+                              <TableRow>
+                                <TableHeader>Article</TableHeader>
+                                <TableHeader>Colour</TableHeader>
+                                <TableHeader>Sizes</TableHeader>
+                                <TableHeader className="text-right">MRP</TableHeader>
+                                <TableHeader className="text-right">Cartons</TableHeader>
+                                <TableHeader className="text-right">Boxes</TableHeader>
+                              </TableRow>
+                            </TableHead>
+                            <TableBody>
+                              {group.items.map((item, iIdx) => (
+                                <TableRow key={iIdx}>
+                                  <TableCell className="font-medium">{item.article_name}</TableCell>
+                                  <TableCell>{item.colour}</TableCell>
+                                  <TableCell>{item.sizes}</TableCell>
+                                  <TableCell className="text-right">{formatCurrency(item.mrp)}</TableCell>
+                                  <TableCell className="text-right">{item.carton_count}</TableCell>
+                                  <TableCell className="text-right">{item.box_count}</TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      </div>
+                    )}
+                  </Card>
+                );
+              })}
+            </div>
+          ) : data.total_dispatches === 0 ? (
             <p className="text-center text-brand-text-muted py-8">No dispatch data for the selected period</p>
-          )}
+          ) : null}
         </>
       ) : (
         <p className="text-center text-brand-text-muted py-8">No dispatch data available</p>

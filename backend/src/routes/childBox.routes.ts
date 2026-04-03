@@ -7,6 +7,7 @@ import { USER_ROLES } from '../config/constants';
 import {
   createChildBoxSchema,
   createBulkChildBoxSchema,
+  createBulkMultiSizeChildBoxSchema,
   childBoxIdParamSchema,
   childBoxListQuerySchema,
 } from '../models/schemas/childBox.schema';
@@ -27,6 +28,13 @@ router.post(
   authorize(USER_ROLES.ADMIN, USER_ROLES.SUPERVISOR, USER_ROLES.WAREHOUSE_OPERATOR),
   validate({ body: createBulkChildBoxSchema }),
   childBoxController.createBulkChildBoxes
+);
+
+router.post(
+  '/bulk-multi-size',
+  authorize(USER_ROLES.ADMIN, USER_ROLES.SUPERVISOR, USER_ROLES.WAREHOUSE_OPERATOR),
+  validate({ body: createBulkMultiSizeChildBoxSchema }),
+  childBoxController.createBulkMultiSizeChildBoxes
 );
 
 router.get(

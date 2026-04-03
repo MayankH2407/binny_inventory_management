@@ -38,4 +38,14 @@ export const productService = {
   async delete(id: string): Promise<void> {
     await api.delete(`/products/${id}`);
   },
+
+  async getColours(productId: string): Promise<{ colour: string; product_id: string }[]> {
+    const response = await api.get<{ colour: string; product_id: string }[]>(`/products/${productId}/colours`);
+    return response.data;
+  },
+
+  async getSizes(productId: string): Promise<Product[]> {
+    const response = await api.get<Product[]>(`/products/${productId}/sizes`);
+    return response.data;
+  },
 };

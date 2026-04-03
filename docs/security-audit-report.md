@@ -3,9 +3,9 @@
 **Project:** QR-Based Inventory Management System
 **Client:** Binny Footwear
 **Prepared by:** Basiq360 Security Engineering
-**Date:** 2026-03-16 (Updated with Customer Master & Product expansion)
+**Date:** 2026-03-20 (Updated with Multi-Size QR Batch Generation, Customer Master & Product expansion)
 **Classification:** Confidential
-**Version:** 1.1
+**Version:** 1.2
 
 ---
 
@@ -181,6 +181,7 @@ The JWT payload must contain only non-sensitive identifiers:
 | Generate reports | Full | Own warehouse | None | None |
 | System configuration | Full | None | None | None |
 | QR code generation | Full | Full | None | None |
+| Bulk multi-size child box generation | Yes | Yes | Yes | No |
 
 **Enforcement layers:**
 
@@ -1131,6 +1132,24 @@ For scan-triggered operations where two warehouse operators might scan the same 
 | Operator packs a box while another dispatches the carton | Inconsistent child count in dispatched carton | `SELECT ... FOR UPDATE` on carton row; status check within transaction |
 | Two operators dispatch the same carton simultaneously | Duplicate dispatch records | `SELECT ... FOR UPDATE` on carton row; status transition validation |
 | Rapid double-tap on scan button | Duplicate API calls | Backend deduplication via 3-second cooldown; frontend button debounce (500ms) |
+
+### 9.4 Bulk Multi-Size Child Box Generation
+
+**Endpoint:** `POST /api/child-boxes/bulk-multi-size`
+
+**Security controls implemented:**
+
+1. **RBAC enforcement:** Only Admin, Supervisor, and Warehouse Operator roles can access this endpoint (same as existing bulk create).
+2. **Input validation (Zod):** Request body validated — `product_id` must be UUID, `sizes` array must have 1-50 entries, each `count` must be positive integer, `quantity` must be positive integer up to 10000.
+3. **Total count cap:** Server-side validation enforces a maximum of 500 child boxes per request (sum of all size counts). Returns 400 Bad Request if exceeded.
+4. **Size existence validation:** Each requested size is verified against actual product records (same article_name + colour). Returns 404 if a size doesn't exist for the product family.
+5. **Transaction atomicity:** All child boxes across all sizes are created in a single PostgreSQL transaction. If any insert fails, the entire batch rolls back — no partial creation.
+6. **Audit logging:** A single audit log entry records the full operation: product_id, quantity, sizes array, and total count.
+7. **Inventory transaction logging:** Each child box creation generates an individual inventory transaction record for traceability.
+
+**Potential risk:** A malicious user could attempt to exhaust server resources by repeatedly calling this endpoint with max batch sizes.
+
+**Mitigation:** Existing rate limiting (1000 requests per 15 minutes) applies. The 500-per-request cap limits the maximum child boxes created per call. Authentication is required for access.
 
 ---
 

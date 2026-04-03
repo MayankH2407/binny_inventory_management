@@ -164,26 +164,40 @@ export async function getMasterCartons(
   let paramIndex = 1;
 
   if (filters.status) {
-    conditions.push(`status = $${paramIndex++}`);
+    conditions.push(`mc.status = $${paramIndex++}`);
     values.push(filters.status);
   }
   if (filters.search) {
-    conditions.push(`carton_barcode ILIKE $${paramIndex}`);
+    conditions.push(`mc.carton_barcode ILIKE $${paramIndex}`);
     values.push(`%${filters.search}%`);
     paramIndex++;
   }
 
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
-  const countResult = await query(`SELECT COUNT(*) FROM master_cartons ${whereClause}`, values);
+  const countResult = await query(`SELECT COUNT(*) FROM master_cartons mc ${whereClause}`, values);
   const total = parseInt(countResult.rows[0].count, 10);
 
   const offset = (page - 1) * limit;
   values.push(limit, offset);
 
   const result = await query(
-    `SELECT * FROM master_cartons ${whereClause}
-     ORDER BY created_at DESC
+    `SELECT mc.*,
+       ps.article_summary, ps.colour_summary, ps.size_summary, ps.mrp_summary
+     FROM master_cartons mc
+     LEFT JOIN LATERAL (
+       SELECT
+         string_agg(DISTINCT p.article_name, ', ') as article_summary,
+         string_agg(DISTINCT p.colour, ', ') as colour_summary,
+         string_agg(DISTINCT p.size, ', ') as size_summary,
+         MIN(p.mrp) as mrp_summary
+       FROM carton_child_mapping ccm
+       JOIN child_boxes cb ON cb.id = ccm.child_box_id
+       JOIN products p ON p.id = cb.product_id
+       WHERE ccm.master_carton_id = mc.id AND ccm.is_active = true
+     ) ps ON true
+     ${whereClause}
+     ORDER BY mc.created_at DESC
      LIMIT $${paramIndex++} OFFSET $${paramIndex}`,
     values
   );
@@ -193,7 +207,8 @@ export async function getMasterCartons(
 
 export async function getCartonChildren(cartonId: string): Promise<CartonChildMapping[]> {
   const result = await query(
-    `SELECT ccm.*, cb.barcode, p.article_name as product_name, p.sku as product_sku, p.size, p.colour, cb.quantity
+    `SELECT ccm.*, cb.barcode, cb.status, cb.quantity,
+            p.article_name, p.article_code, p.sku, p.size, p.colour, p.mrp
      FROM carton_child_mapping ccm
      JOIN child_boxes cb ON cb.id = ccm.child_box_id
      JOIN products p ON p.id = cb.product_id

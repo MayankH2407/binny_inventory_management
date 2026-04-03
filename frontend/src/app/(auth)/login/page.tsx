@@ -58,70 +58,75 @@ export default function LoginPage() {
 
   return (
     <div className="w-full max-w-md">
-      <div className="bg-white rounded-2xl shadow-lg border border-brand-border p-8">
-        <div className="flex flex-col items-center mb-8">
-          <div className="w-20 h-20 mb-4 relative">
-            <Image
-              src="/BinnyLogo.png"
-              alt="Binny Footwear"
-              fill
-              className="object-contain"
-              priority
-            />
+      <div className="bg-white rounded-2xl shadow-2xl overflow-hidden animate-scale-in">
+        {/* Accent stripe */}
+        <div className="h-1.5" style={{ background: 'linear-gradient(90deg, #E31E24 0%, #2D2A6E 100%)' }} />
+
+        <div className="p-8">
+          <div className="flex flex-col items-center mb-8">
+            <div className="w-20 h-20 mb-4 relative">
+              <Image
+                src="/monogram.png"
+                alt="Binny Footwear"
+                fill
+                className="object-contain"
+                priority
+              />
+            </div>
+            <h1 className="text-2xl font-bold text-brand-text-dark">Binny Inventory</h1>
+            <p className="text-sm text-brand-text-muted mt-1">
+              Sign in to manage your inventory
+            </p>
           </div>
-          <h1 className="text-2xl font-bold text-brand-text-dark">Binny Inventory</h1>
-          <p className="text-sm text-brand-text-muted mt-1">
-            Sign in to manage your inventory
-          </p>
+
+          <form onSubmit={handleSubmit} className="space-y-5">
+            <Input
+              label="Email Address"
+              type="email"
+              placeholder="Enter your email"
+              value={email}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                if (errors.email) setErrors((prev) => ({ ...prev, email: undefined }));
+              }}
+              error={errors.email}
+              leftIcon={<Mail className="h-4 w-4" />}
+              autoComplete="email"
+              autoFocus
+            />
+
+            <Input
+              label="Password"
+              type={showPassword ? 'text' : 'password'}
+              placeholder="Enter your password"
+              value={password}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                if (errors.password) setErrors((prev) => ({ ...prev, password: undefined }));
+              }}
+              error={errors.password}
+              leftIcon={<Lock className="h-4 w-4" />}
+              rightIcon={
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="hover:text-brand-text-dark transition-colors"
+                  tabIndex={-1}
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              }
+              autoComplete="current-password"
+            />
+
+            <Button type="submit" fullWidth isLoading={isLoading} size="lg">
+              Sign In
+            </Button>
+          </form>
         </div>
-
-        <form onSubmit={handleSubmit} className="space-y-5">
-          <Input
-            label="Email Address"
-            type="email"
-            placeholder="Enter your email"
-            value={email}
-            onChange={(e) => {
-              setEmail(e.target.value);
-              if (errors.email) setErrors((prev) => ({ ...prev, email: undefined }));
-            }}
-            error={errors.email}
-            leftIcon={<Mail className="h-4 w-4" />}
-            autoComplete="email"
-            autoFocus
-          />
-
-          <Input
-            label="Password"
-            type={showPassword ? 'text' : 'password'}
-            placeholder="Enter your password"
-            value={password}
-            onChange={(e) => {
-              setPassword(e.target.value);
-              if (errors.password) setErrors((prev) => ({ ...prev, password: undefined }));
-            }}
-            error={errors.password}
-            leftIcon={<Lock className="h-4 w-4" />}
-            rightIcon={
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="hover:text-brand-text-dark transition-colors"
-                tabIndex={-1}
-              >
-                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
-            }
-            autoComplete="current-password"
-          />
-
-          <Button type="submit" fullWidth isLoading={isLoading} size="lg">
-            Sign In
-          </Button>
-        </form>
       </div>
 
-      <p className="text-center text-xs text-brand-text-muted mt-6">
+      <p className="text-center text-xs text-white/60 mt-6">
         Powered by Basiq360 &mdash; Inventory Management for Binny Footwear
       </p>
     </div>

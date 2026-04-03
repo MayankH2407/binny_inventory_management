@@ -28,7 +28,7 @@ interface TableCellProps extends TdHTMLAttributes<HTMLTableCellElement> {
 
 export function Table({ className, children, ...props }: TableProps) {
   return (
-    <div className="overflow-x-auto rounded-lg border border-brand-border">
+    <div className="overflow-x-auto overflow-hidden rounded-lg border border-brand-border">
       <table className={cn('w-full text-sm', className)} {...props}>
         {children}
       </table>
@@ -38,7 +38,7 @@ export function Table({ className, children, ...props }: TableProps) {
 
 export function TableHead({ className, children, ...props }: TableHeadProps) {
   return (
-    <thead className={cn('bg-gray-50 border-b border-brand-border', className)} {...props}>
+    <thead className={cn('bg-binny-navy-50 border-b border-brand-border', className)} {...props}>
       {children}
     </thead>
   );
@@ -56,8 +56,8 @@ export function TableRow({ className, children, clickable, ...props }: TableRowP
   return (
     <tr
       className={cn(
-        'bg-white',
-        clickable && 'hover:bg-gray-50 cursor-pointer transition-colors',
+        'bg-white transition-colors duration-150',
+        clickable && 'hover:bg-binny-navy-50 cursor-pointer',
         className
       )}
       {...props}

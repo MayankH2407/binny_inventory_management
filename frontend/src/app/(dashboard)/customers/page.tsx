@@ -9,6 +9,7 @@ import { Table, TableHead, TableBody, TableRow, TableHeader, TableCell } from '@
 import Badge from '@/components/ui/Badge';
 import Modal from '@/components/ui/Modal';
 import PageHeader from '@/components/layout/PageHeader';
+import { SkeletonTable } from '@/components/ui/Spinner';
 import { useAuth } from '@/hooks/useAuth';
 import { useApiQuery, useApiMutation } from '@/hooks/useApi';
 import { useDebounce } from '@/hooks/useDebounce';
@@ -28,7 +29,7 @@ const emptyForm: CreateCustomerRequest = {
 };
 
 export default function CustomersPage() {
-  const { isManager } = useAuth();
+  const { isAdmin, isManager } = useAuth();
 
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -144,14 +145,16 @@ export default function CustomersPage() {
         title="Customers"
         description="Manage customer master records"
         action={
-          <Button leftIcon={<Plus className="h-4 w-4" />} onClick={() => setShowCreateModal(true)}>
-            Add Customer
-          </Button>
+          isAdmin ? (
+            <Button leftIcon={<Plus className="h-4 w-4" />} onClick={() => setShowCreateModal(true)}>
+              Add Customer
+            </Button>
+          ) : undefined
         }
       />
 
       <Card padding={false}>
-        <div className="p-4 border-b border-brand-border">
+        <div className="p-4 border-b border-brand-border bg-binny-navy-50/50">
           <div className="relative max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-brand-text-muted" />
             <input
@@ -165,7 +168,9 @@ export default function CustomersPage() {
         </div>
 
         {isLoading ? (
-          <div className="p-8 text-center text-brand-text-muted">Loading customers...</div>
+          <div className="p-4">
+            <SkeletonTable />
+          </div>
         ) : customers.length === 0 ? (
           <div className="p-8 text-center text-brand-text-muted">
             {search ? 'No customers match your search.' : 'No customers yet. Add your first customer.'}
@@ -183,7 +188,7 @@ export default function CustomersPage() {
                     <TableHeader>Contact Person</TableHeader>
                     <TableHeader>Mobile</TableHeader>
                     <TableHeader>Status</TableHeader>
-                    <TableHeader>Actions</TableHeader>
+                    {isAdmin && <TableHeader>Actions</TableHeader>}
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -199,6 +204,7 @@ export default function CustomersPage() {
                           {customer.is_active ? 'Active' : 'Inactive'}
                         </Badge>
                       </TableCell>
+                      {isAdmin && (
                       <TableCell>
                         <div className="flex items-center gap-2">
                           <Button size="sm" variant="outline" onClick={() => openEdit(customer)}>
@@ -216,6 +222,7 @@ export default function CustomersPage() {
                           </button>
                         </div>
                       </TableCell>
+                      )}
                     </TableRow>
                   ))}
                 </TableBody>
@@ -243,12 +250,14 @@ export default function CustomersPage() {
                   {customer.gstin && (
                     <p className="text-xs font-mono text-brand-text-muted">GSTIN: {customer.gstin}</p>
                   )}
+                  {isAdmin && (
                   <div className="flex gap-2 pt-1">
                     <Button size="sm" variant="outline" onClick={() => openEdit(customer)}>Edit</Button>
                     <Button size="sm" variant="outline" onClick={() => toggleStatus(customer)}>
                       {customer.is_active ? 'Deactivate' : 'Activate'}
                     </Button>
                   </div>
+                  )}
                 </div>
               ))}
             </div>

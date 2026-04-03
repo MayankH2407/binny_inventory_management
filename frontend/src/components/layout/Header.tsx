@@ -14,12 +14,8 @@ interface HeaderProps {
 export default function Header({ title, onMenuToggle }: HeaderProps) {
   const { user, logout } = useAuthStore();
 
-  const roleColor = user
-    ? ROLE_COLORS[user.role] || { bg: 'bg-gray-100', text: 'text-gray-700' }
-    : null;
-
   return (
-    <header className="sticky top-0 z-30 flex items-center justify-between h-16 px-4 sm:px-6 bg-white border-b border-brand-border">
+    <header className="sticky top-0 z-30 flex items-center justify-between h-16 px-4 sm:px-6 bg-white/80 backdrop-blur-md border-b border-brand-border shadow-card">
       <div className="flex items-center gap-4">
         <button
           onClick={onMenuToggle}
@@ -28,17 +24,23 @@ export default function Header({ title, onMenuToggle }: HeaderProps) {
           <Menu className="h-5 w-5" />
         </button>
         {title && (
-          <h1 className="text-lg sm:text-xl font-semibold text-brand-text-dark">{title}</h1>
+          <h1 className="text-lg sm:text-xl font-semibold text-brand-text-dark pl-3 border-l-2" style={{ borderColor: '#2D2A6E' }}>
+            {title}
+          </h1>
         )}
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2">
         <button className="relative p-2 rounded-lg text-brand-text-muted hover:text-brand-text-dark hover:bg-gray-100 transition-colors">
           <Bell className="h-5 w-5" />
+          <span
+            className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full animate-pulse-dot"
+            style={{ backgroundColor: '#E31E24' }}
+          />
         </button>
 
         {user && (
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 ml-1 pl-3 border-l border-brand-border">
             <div className="hidden sm:flex flex-col items-end">
               <span className="text-sm font-medium text-brand-text-dark">{user.name}</span>
               <Badge
@@ -55,7 +57,10 @@ export default function Header({ title, onMenuToggle }: HeaderProps) {
               </Badge>
             </div>
 
-            <div className="h-9 w-9 rounded-full bg-binny-red flex items-center justify-center text-white text-sm font-semibold">
+            <div
+              className="h-9 w-9 rounded-full flex items-center justify-center text-white text-sm font-semibold shadow-sm"
+              style={{ background: 'linear-gradient(135deg, #2D2A6E 0%, #4845A0 100%)' }}
+            >
               {getInitials(user.name)}
             </div>
 

@@ -49,6 +49,13 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
 
   checkAuth: async () => {
     try {
+      // If already authenticated with a valid user, skip the API call
+      const state = get();
+      if (state.isAuthenticated && state.user && state.token) {
+        if (state.isLoading) set({ isLoading: false });
+        return;
+      }
+
       const token = localStorage.getItem('binny_token');
       const userStr = localStorage.getItem('binny_user');
 
@@ -57,14 +64,23 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
         return;
       }
 
-      set({ token, isLoading: true });
+      // Try to use cached user from localStorage first to avoid loading flash
+      const cachedUser = JSON.parse(userStr) as User;
+      set({ token, user: cachedUser, isAuthenticated: true, isLoading: false });
 
-      const user = await authService.getProfile();
-      localStorage.setItem('binny_user', JSON.stringify(user));
-      set({
-        user,
-        isAuthenticated: true,
-        isLoading: false,
+      // Validate token in background (don't block rendering)
+      authService.getProfile().then((user) => {
+        localStorage.setItem('binny_user', JSON.stringify(user));
+        set({ user });
+      }).catch(() => {
+        localStorage.removeItem('binny_token');
+        localStorage.removeItem('binny_user');
+        set({
+          user: null,
+          token: null,
+          isAuthenticated: false,
+          isLoading: false,
+        });
       });
     } catch {
       localStorage.removeItem('binny_token');

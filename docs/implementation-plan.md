@@ -2,8 +2,8 @@
 
 **Client:** Binny Footwear (Mahavir Polymers Pvt. Ltd.)
 **Vendor:** Basiq360
-**Document Version:** 1.1
-**Date:** March 16, 2026 (Updated with client requirements — Customer Master, Product Master expansion, Label redesign)
+**Document Version:** 1.3
+**Date:** April 3, 2026 (Updated with Phase 2 UI Enhancement Plan, UAT bug fixes)
 **Classification:** Internal / Confidential
 
 ---
@@ -838,7 +838,7 @@ Used to generate human-readable codes: `CB-{zero-padded sequence}`, `MC-{zero-pa
 
 **Week 2 Deliverables:**
 - Product master fully functional
-- Bulk QR code generation (can generate 500+ in one batch)
+- Bulk QR code generation (single-size up to 500, multi-size across all sizes in one batch)
 - 40x60mm TSPL label template working with TSC printer
 - Child box list with search/filter
 - Child box detail page
@@ -1151,6 +1151,23 @@ Create a new product.
 - **Auth Required:** Yes
 - **Response 200:** Product details
 
+#### `GET /api/products/:id/sizes`
+
+Get all sibling products (same article_name + colour, different sizes) for a given product.
+
+- **Auth Required:** Yes
+- **Roles:** All authenticated users
+- **Response 200:**
+  ```json
+  {
+    "success": true,
+    "data": [
+      { "id": "uuid", "sku": "BF-BLK-6", "article_name": "Sports Shoe", "colour": "Black", "size": "6", "mrp": 999 },
+      { "id": "uuid", "sku": "BF-BLK-7", "article_name": "Sports Shoe", "colour": "Black", "size": "7", "mrp": 999 }
+    ]
+  }
+  ```
+
 #### `PUT /api/products/:id`
 
 - **Auth Required:** Yes
@@ -1244,6 +1261,37 @@ Bulk generate child box QR codes.
         { "id": "uuid", "qrCode": "CB-000101", "status": "CREATED" }
       ]
     }
+  }
+  ```
+
+#### `POST /api/child-boxes/bulk-multi-size`
+
+Bulk generate child box QR codes across multiple sizes of one product in a single transaction.
+
+- **Auth Required:** Yes
+- **Roles:** `admin`, `supervisor`, `warehouse_operator`
+- **Request Body:**
+  ```json
+  {
+    "product_id": "uuid (required) — any product in the article+colour family",
+    "quantity": "number (optional, default 1) — pairs per box",
+    "sizes": [
+      { "size": "6", "count": 10 },
+      { "size": "7", "count": 5 },
+      { "size": "8", "count": 8 }
+    ]
+  }
+  ```
+- **Validation:** Zod schema. Total count across all sizes must not exceed 500. Each size must correspond to an existing product with same article_name + colour.
+- **Response 201:**
+  ```json
+  {
+    "success": true,
+    "message": "23 child boxes created across multiple sizes",
+    "data": [
+      { "id": "uuid", "barcode": "BINNY-CB-{uuid}", "product_id": "uuid", "size": "6", "colour": "Black", "qr_data_uri": "data:image/png;base64,..." },
+      "..."
+    ]
   }
   ```
 
@@ -2334,6 +2382,95 @@ LOG_FILE=/var/log/binny/app.log
 | 4 | Store, unpack, repack, dispatch workflows end-to-end. Traceability timeline. |
 | 5 | Dashboard KPIs, all reports with filters, CSV export |
 | 6 | PWA install on phone, offline scanning, UAT feedback incorporated, production deployment |
+
+---
+
+## Appendix C: Change Log
+
+| Version | Date | Changes |
+|---------|------|---------|
+| 1.0 | March 12, 2026 | Initial release — Phase 1 implementation plan |
+| 1.1 | March 16, 2026 | Customer Master, Product expansion, Label redesign (Phase 1.5) |
+| 1.2 | March 20, 2026 | Multi-Size QR Batch Generation — new `POST /child-boxes/bulk-multi-size` endpoint, `GET /products/:id/sizes` endpoint, frontend generate page rewrite with per-size quantity inputs |
+| 1.3 | April 3, 2026 | UAT bug fixes (button visibility, print labels, searchable dropdown, customer-centric dispatches). Phase 2 UI Enhancement Plan added (Section 17) |
+
+---
+
+## 17. Phase 2: UI/UX Enhancement Plan
+
+**Status:** Planned (April 2026)
+**Scope:** Frontend-only visual modernization using existing dependencies (Tailwind CSS, lucide-react). No new npm packages. No business logic changes.
+
+### 17.1 Motivation
+
+During UAT (April 3, 2026), the UI was flagged as functional but visually bland. Root causes identified:
+- Limited use of the color palette (navy primary barely differentiated, red accent underused)
+- Flat design with minimal shadows (`shadow-sm` everywhere)
+- No animations or micro-interactions
+- No skeleton loaders (plain spinner on all loading states)
+- No glassmorphism or depth hierarchy
+- Every page uses identical white cards with thin gray borders
+- Conservative typography and spacing
+
+### 17.2 Design System Foundation
+
+**Files:** `frontend/tailwind.config.ts`, `frontend/src/app/globals.css`
+
+| Enhancement | Details |
+|-------------|---------|
+| Brand-tinted shadow scale | 3-tier system: `shadow-card` (resting), `shadow-card-hover` (interactive), `shadow-elevated` (modals). Navy-tinted rgba for brand cohesion |
+| CSS-only animations | `fade-in`, `slide-up`, `scale-in` (GPU-composited, transform/opacity only), `shimmer` (skeleton loader sweep) |
+| Intermediate color tones | `binny-navy-50` (#F5F4FF), `binny-navy-200` (#D8D6F0) — fill gap between light and dark navy |
+| Skeleton loader utility | `.skeleton` class using shimmer animation for loading states |
+| Gradient button | `.btn-primary` uses `linear-gradient(135deg, #2D2A6E, #3D3A8E)` |
+| Enhanced focus states | Inputs get `ring-2 ring-binny-navy/10 shadow-sm` on focus |
+
+### 17.3 Core Component Enhancements
+
+| Component | File | Changes |
+|-----------|------|---------|
+| Card | `components/ui/Card.tsx` | `shadow-card` default, new `interactive` prop (hover lift), new `accent` prop (left border color) |
+| Button | `components/ui/Button.tsx` | Gradient primary, `active:scale-[0.98]` press feedback, `transition-all` |
+| Input/Select | `components/ui/Input.tsx`, `Select.tsx` | `bg-gray-50/50` default, transitions to `bg-white` on focus |
+| Table | `components/ui/Table.tsx` | Navy-tinted header (`bg-binny-navy-50`), branded hover state |
+| Spinner | `components/ui/Spinner.tsx` | New `SkeletonLine`, `SkeletonCard`, `SkeletonTable` exports |
+| Badge | `components/ui/Badge.tsx` | Subtle matching border, `font-semibold` |
+
+### 17.4 Layout Enhancements
+
+| Component | File | Changes |
+|-----------|------|---------|
+| Sidebar | `components/layout/Sidebar.tsx` | Gradient active item + red left indicator, `bg-binny-navy-50` hover |
+| Header | `components/layout/Header.tsx` | `backdrop-blur-md` glass effect, red notification dot on bell, title left accent |
+| MobileNav | `components/layout/MobileNav.tsx` | `backdrop-blur-lg` glass, lighter dot-style active indicator |
+| PageHeader | `components/layout/PageHeader.tsx` | Small gradient accent bar (red-to-navy) above title |
+
+### 17.5 Page-Specific Enhancements
+
+| Page | Changes |
+|------|---------|
+| Dashboard | Welcome banner (navy gradient with greeting), staggered card animations, gradient icon containers, timeline connector on recent activity |
+| List pages | Skeleton loaders replace spinners, branded filter bar bg, mobile cards with status-colored left borders, enhanced empty states |
+| Form pages | Section headers with icon pills, scanned items gradient bg, sticky bottom submit on mobile |
+| Reports | Pill-style tab navigation |
+| Login | Radial red glow, card scale-in animation |
+
+### 17.6 PWA Enhancements
+
+| Enhancement | File | Details |
+|-------------|------|---------|
+| Branded splash | `public/manifest.json` | `background_color: #2D2A6E` for navy splash on install |
+| Offline page | `app/offline/page.tsx` | Navy gradient bg, branded card with accent stripe |
+| Loading state | `app/(dashboard)/layout.tsx` | Branded splash with centered logo + navy bg during auth check |
+| Toast notifications | `components/providers/ToastProvider.tsx` | Left accent borders (green=success, red=error) |
+
+### 17.7 Implementation Sequence
+
+1. **Foundation** (~30 min): tailwind.config.ts + globals.css
+2. **Core Components** (~45 min): Card, Button, Input, Select, Table, Spinner, Badge
+3. **Layout** (~30 min): Sidebar, Header, MobileNav, PageHeader
+4. **Pages** (~60 min): Dashboard hero, list pages, form pages, reports
+5. **PWA & Polish** (~20 min): manifest, offline page, loading state, toasts, login
 
 ---
 

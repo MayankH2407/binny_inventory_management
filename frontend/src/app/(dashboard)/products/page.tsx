@@ -10,6 +10,7 @@ import { Table, TableHead, TableBody, TableRow, TableHeader, TableCell } from '@
 import Badge from '@/components/ui/Badge';
 import Modal from '@/components/ui/Modal';
 import PageHeader from '@/components/layout/PageHeader';
+import { SkeletonTable } from '@/components/ui/Spinner';
 import { PRODUCT_CATEGORIES, PRODUCT_SECTIONS, PRODUCT_LOCATIONS } from '@/constants';
 import { useAuth } from '@/hooks/useAuth';
 import { useApiQuery, useApiMutation } from '@/hooks/useApi';
@@ -164,7 +165,7 @@ export default function ProductsPage() {
       />
 
       <Card padding={false}>
-        <div className="p-4 border-b border-brand-border">
+        <div className="p-4 border-b border-brand-border bg-binny-navy-50/50">
           <div className="relative max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-brand-text-muted" />
             <input
@@ -178,7 +179,9 @@ export default function ProductsPage() {
         </div>
 
         {isLoading ? (
-          <div className="p-8 text-center text-brand-text-muted">Loading products...</div>
+          <div className="p-4">
+            <SkeletonTable />
+          </div>
         ) : products.length === 0 ? (
           <div className="p-8 text-center text-brand-text-muted">
             {search ? 'No products match your search.' : 'No products yet. Add your first product.'}

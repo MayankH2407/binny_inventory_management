@@ -13,8 +13,8 @@ test.describe('TC-AUTH: Authentication & Authorization', () => {
     await page.getByRole('button', { name: 'Sign In' }).click();
 
     // Dashboard redirect: /dashboard → / (route group)
-    await page.waitForLoadState('networkidle');
-    await expect(page.getByText('Total Child Boxes')).toBeVisible({ timeout: 15000 });
+    // First login can be slow — wait for dashboard data to load
+    await expect(page.getByText('Total Child Boxes')).toBeVisible({ timeout: 30000 });
   });
 
   test('TC-AUTH-003: Login with invalid email', async ({ page }) => {

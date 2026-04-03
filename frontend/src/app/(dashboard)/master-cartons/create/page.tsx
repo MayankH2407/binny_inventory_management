@@ -10,10 +10,13 @@ import PageHeader from '@/components/layout/PageHeader';
 import QRScanner from '@/components/scanning/QRScanner';
 import { ROUTES } from '@/constants';
 import { masterCartonService } from '@/services/masterCarton.service';
+import { childBoxService } from '@/services/childBox.service';
 import { useApiMutation } from '@/hooks/useApi';
 import { useScanStore } from '@/store/scanStore';
+import { formatCurrency } from '@/lib/utils';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
+import type { ChildBoxWithProduct } from '@/types';
 
 export default function CreateMasterCartonPage() {
   const router = useRouter();
@@ -21,6 +24,7 @@ export default function CreateMasterCartonPage() {
   const [showScanner, setShowScanner] = useState(false);
   const [manualBarcode, setManualBarcode] = useState('');
   const { scannedItems, addItem, removeItem, clearItems } = useScanStore();
+  const [itemDetails, setItemDetails] = useState<Record<string, ChildBoxWithProduct>>({});
 
   const { mutate: createCarton, isPending } = useApiMutation(
     () =>
@@ -33,22 +37,49 @@ export default function CreateMasterCartonPage() {
       invalidateKeys: [['master-cartons'], ['child-boxes'], ['dashboard-stats']],
       onSuccess: (data) => {
         clearItems();
+        setItemDetails({});
         router.push(ROUTES.MASTER_CARTON_DETAIL(data.id));
       },
     }
   );
 
   const handleScan = useCallback(
-    (qrCode: string) => {
+    async (qrCode: string) => {
       const added = addItem(qrCode);
-      if (added) {
-        toast.success(`Added: ${qrCode}`);
-      } else {
+      if (!added) {
         toast.error('Already scanned');
+        return;
+      }
+
+      toast.success(`Added: ${qrCode}`);
+
+      // Fetch child box details in background
+      try {
+        const details = await childBoxService.getByBarcode(qrCode);
+        setItemDetails((prev) => ({ ...prev, [qrCode]: details }));
+      } catch {
+        // Details fetch failed — barcode is still added, just no details shown
       }
     },
     [addItem]
   );
+
+  const handleRemoveItem = useCallback(
+    (barcode: string) => {
+      removeItem(barcode);
+      setItemDetails((prev) => {
+        const next = { ...prev };
+        delete next[barcode];
+        return next;
+      });
+    },
+    [removeItem]
+  );
+
+  const handleClearAll = useCallback(() => {
+    clearItems();
+    setItemDetails({});
+  }, [clearItems]);
 
   const handleCreate = () => {
     if (scannedItems.length === 0) {
@@ -79,7 +110,12 @@ export default function CreateMasterCartonPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="space-y-6">
           <Card className="p-6">
-            <h3 className="font-semibold text-brand-text-dark mb-4">Carton Settings</h3>
+            <div className="flex items-center gap-2 mb-4">
+              <div className="p-2 rounded-lg" style={{ backgroundColor: '#F5F4FF' }}>
+                <Package className="h-4 w-4" style={{ color: '#2D2A6E' }} />
+              </div>
+              <h3 className="font-semibold text-brand-text-dark">Carton Settings</h3>
+            </div>
             <Input
               label="Max Capacity"
               type="number"
@@ -91,7 +127,12 @@ export default function CreateMasterCartonPage() {
 
           <Card className="p-6">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold text-brand-text-dark">Scan Child Boxes</h3>
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-lg" style={{ backgroundColor: '#F5F4FF' }}>
+                  <ScanLine className="h-4 w-4" style={{ color: '#2D2A6E' }} />
+                </div>
+                <h3 className="font-semibold text-brand-text-dark">Scan Child Boxes</h3>
+              </div>
               <Button
                 variant={showScanner ? 'secondary' : 'primary'}
                 size="sm"
@@ -143,11 +184,16 @@ export default function CreateMasterCartonPage() {
         <div>
           <Card className="p-6">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold text-brand-text-dark">
-                Scanned Items ({scannedItems.length}/{maxCapacity})
-              </h3>
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-lg" style={{ backgroundColor: '#F5F4FF' }}>
+                  <Package className="h-4 w-4" style={{ color: '#2D2A6E' }} />
+                </div>
+                <h3 className="font-semibold text-brand-text-dark">
+                  Scanned Items ({scannedItems.length}/{maxCapacity})
+                </h3>
+              </div>
               {scannedItems.length > 0 && (
-                <Button variant="ghost" size="sm" onClick={clearItems}>
+                <Button variant="ghost" size="sm" onClick={handleClearAll}>
                   Clear All
                 </Button>
               )}
@@ -155,7 +201,7 @@ export default function CreateMasterCartonPage() {
 
             <div className="w-full bg-gray-200 rounded-full h-2 mb-4">
               <div
-                className="bg-binny-red rounded-full h-2 transition-all duration-300"
+                className="bg-binny-navy rounded-full h-2 transition-all duration-300"
                 style={{
                   width: `${Math.min((scannedItems.length / maxCapacity) * 100, 100)}%`,
                 }}
@@ -171,27 +217,40 @@ export default function CreateMasterCartonPage() {
               </div>
             ) : (
               <div className="space-y-2 max-h-[400px] overflow-y-auto scrollbar-hide">
-                {scannedItems.map((item, index) => (
-                  <div
-                    key={item}
-                    className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <span className="text-xs font-medium text-brand-text-muted w-6">
-                        {index + 1}.
-                      </span>
-                      <span className="text-sm font-mono text-brand-text-dark truncate">
-                        {item}
-                      </span>
-                    </div>
-                    <button
-                      onClick={() => removeItem(item)}
-                      className="p-1 rounded text-brand-text-muted hover:text-brand-error hover:bg-red-50 transition-colors shrink-0"
+                {scannedItems.map((item, index) => {
+                  const details = itemDetails[item];
+                  return (
+                    <div
+                      key={item}
+                      className="flex items-start justify-between p-3 bg-gray-50 rounded-lg"
                     >
-                      <X className="h-4 w-4" />
-                    </button>
-                  </div>
-                ))}
+                      <div className="flex items-start gap-3 min-w-0">
+                        <span className="text-xs font-medium text-brand-text-muted w-6 pt-0.5">
+                          {index + 1}.
+                        </span>
+                        <div className="min-w-0">
+                          <span className="text-sm font-mono text-brand-text-dark block truncate">
+                            {item}
+                          </span>
+                          {details && (
+                            <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
+                              <span className="text-xs text-brand-text-muted">{details.article_name}</span>
+                              <span className="text-xs text-brand-text-muted">{details.colour}</span>
+                              <span className="text-xs text-brand-text-muted">Size {details.size}</span>
+                              <span className="text-xs text-brand-text-muted">{formatCurrency(details.mrp)}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => handleRemoveItem(item)}
+                        className="p-1 rounded text-brand-text-muted hover:text-brand-error hover:bg-red-50 transition-colors shrink-0"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             )}
 

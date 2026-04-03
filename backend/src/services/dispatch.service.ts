@@ -213,10 +213,23 @@ export async function getDispatches(
   values.push(limit, offset);
 
   const result = await query(
-    `SELECT dr.*, mc.carton_barcode, c.firm_name AS customer_firm_name
+    `SELECT dr.*, mc.carton_barcode, mc.child_count,
+       c.firm_name AS customer_firm_name,
+       ps.article_summary, ps.colour_summary, ps.size_summary, ps.mrp_summary
      FROM dispatch_records dr
      JOIN master_cartons mc ON mc.id = dr.master_carton_id
      LEFT JOIN customers c ON c.id = dr.customer_id
+     LEFT JOIN LATERAL (
+       SELECT
+         string_agg(DISTINCT p.article_name, ', ') as article_summary,
+         string_agg(DISTINCT p.colour, ', ') as colour_summary,
+         string_agg(DISTINCT p.size, ', ') as size_summary,
+         MIN(p.mrp) as mrp_summary
+       FROM carton_child_mapping ccm
+       JOIN child_boxes cb ON cb.id = ccm.child_box_id
+       JOIN products p ON p.id = cb.product_id
+       WHERE ccm.master_carton_id = mc.id
+     ) ps ON true
      ${whereClause}
      ORDER BY dr.dispatch_date DESC, dr.created_at DESC
      LIMIT $${paramIndex++} OFFSET $${paramIndex}`,

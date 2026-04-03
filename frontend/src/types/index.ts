@@ -87,6 +87,10 @@ export interface MasterCarton {
   updated_at: string;
   child_boxes?: ChildBoxWithProduct[];
   creator?: User;
+  article_summary?: string | null;
+  colour_summary?: string | null;
+  size_summary?: string | null;
+  mrp_summary?: number | null;
 }
 
 // ---------- Dispatch ----------
@@ -126,6 +130,10 @@ export interface DispatchRecord {
   carton_barcode?: string;
   child_count?: number;
   customer_firm_name?: string;
+  article_summary?: string | null;
+  colour_summary?: string | null;
+  size_summary?: string | null;
+  mrp_summary?: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -237,6 +245,12 @@ export interface BulkCreateChildBoxRequest {
   product_id: string;
   count: number;
   quantity?: number;
+}
+
+export interface BulkCreateMultiSizeRequest {
+  product_id: string;
+  quantity?: number;
+  sizes: Array<{ size: string; count: number }>;
 }
 
 export interface CreateMasterCartonRequest {

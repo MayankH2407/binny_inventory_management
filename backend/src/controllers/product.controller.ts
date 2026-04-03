@@ -74,3 +74,29 @@ export async function deleteProduct(
     next(error);
   }
 }
+
+export async function getProductColours(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const colours = await productService.getColoursByProduct(req.params.id);
+    sendSuccess(res, colours, 'Product colours retrieved successfully');
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getProductSizes(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const products = await productService.getSiblingProducts(req.params.id);
+    sendSuccess(res, products, 'Product sizes retrieved successfully');
+  } catch (error) {
+    next(error);
+  }
+}

@@ -61,7 +61,7 @@ export function buildChildBoxLabelHtml(data: ChildBoxLabelData): string {
       </tr>
       <tr>
         <td>Colour: ${data.colour}</td>
-        <td rowspan="2" class="size-cell" style="width:30%;">
+        <td class="size-cell" style="width:30%;">
           <div class="size-label">Size:</div>
           <div class="size-value">${data.size}</div>
         </td>
@@ -71,12 +71,12 @@ export function buildChildBoxLabelHtml(data: ChildBoxLabelData): string {
           <div class="mrp-line">M.R.P.: &#8377; ${mrpFormatted}</div>
           <div class="mrp-sub">(Inc of all taxes)</div>
         </td>
+        <td rowspan="3" class="qr-cell">
+          <img src="${data.qrDataUri}" alt="QR" />
+        </td>
       </tr>
       <tr>
         <td>Packed on: ${data.packedOn}</td>
-        <td rowspan="2" class="qr-cell">
-          <img src="${data.qrDataUri}" alt="QR" />
-        </td>
       </tr>
       <tr>
         <td>Content: ${contentText}</td>

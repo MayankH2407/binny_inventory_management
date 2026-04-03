@@ -1,9 +1,11 @@
-import { type ReactNode, type HTMLAttributes } from 'react';
+import { type ReactNode, type HTMLAttributes, type CSSProperties } from 'react';
 import { cn } from '@/lib/utils';
 
 interface CardProps extends HTMLAttributes<HTMLDivElement> {
   children: ReactNode;
   padding?: boolean;
+  interactive?: boolean;
+  accent?: string;
 }
 
 interface CardHeaderProps extends HTMLAttributes<HTMLDivElement> {
@@ -19,14 +21,21 @@ interface CardFooterProps extends HTMLAttributes<HTMLDivElement> {
   children: ReactNode;
 }
 
-export function Card({ className, children, padding = true, ...props }: CardProps) {
+export function Card({ className, children, padding = true, interactive = false, accent, style, ...props }: CardProps) {
+  const accentStyle: CSSProperties | undefined = accent
+    ? { borderLeft: `3px solid ${accent}`, ...style }
+    : style;
+
   return (
     <div
       className={cn(
-        'bg-white rounded-xl border border-brand-border shadow-sm',
+        'bg-white rounded-xl border border-brand-border shadow-card',
+        interactive && 'hover:shadow-card-hover hover:-translate-y-0.5 cursor-pointer',
+        'transition-all duration-200',
         padding && 'p-6',
         className
       )}
+      style={accentStyle}
       {...props}
     >
       {children}

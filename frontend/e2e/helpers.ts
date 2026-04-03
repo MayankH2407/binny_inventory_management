@@ -7,9 +7,12 @@ export const BASE_API = 'http://localhost:3001/api/v1';
 // Cache login credentials across tests to avoid rate limiting
 let cachedToken: string | null = null;
 let cachedUser: object | null = null;
+let tokenTimestamp: number = 0;
+const TOKEN_MAX_AGE_MS = 10 * 60 * 1000; // Refresh token after 10 minutes
 
 async function fetchLoginCredentials(page: Page): Promise<{ token: string; user: object }> {
-  if (cachedToken && cachedUser) {
+  const now = Date.now();
+  if (cachedToken && cachedUser && (now - tokenTimestamp) < TOKEN_MAX_AGE_MS) {
     return { token: cachedToken, user: cachedUser };
   }
 
@@ -24,6 +27,7 @@ async function fetchLoginCredentials(page: Page): Promise<{ token: string; user:
   const body = await response.json();
   cachedToken = body.data.accessToken;
   cachedUser = body.data.user;
+  tokenTimestamp = Date.now();
   return { token: cachedToken!, user: cachedUser! };
 }
 
@@ -57,7 +61,6 @@ export async function loginViaAPI(page: Page) {
 
   // Navigate to root (dashboard)
   await page.goto('/');
-  await page.waitForLoadState('networkidle');
   await expect(page.getByText('Total Child Boxes')).toBeVisible({ timeout: 15000 });
 }
 

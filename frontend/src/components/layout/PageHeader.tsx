@@ -12,6 +12,10 @@ export default function PageHeader({ title, description, action, className }: Pa
   return (
     <div className={cn('flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6', className)}>
       <div>
+        <div
+          className="h-1 w-8 rounded-full mb-2"
+          style={{ background: 'linear-gradient(90deg, #E31E24 0%, #2D2A6E 100%)' }}
+        />
         <h1 className="text-xl sm:text-2xl font-bold text-brand-text-dark">{title}</h1>
         {description && (
           <p className="mt-1 text-sm text-brand-text-muted">{description}</p>

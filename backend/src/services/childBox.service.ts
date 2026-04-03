@@ -2,10 +2,10 @@ import { v4 as uuidv4 } from 'uuid';
 import { query, getClient } from '../config/database';
 import { ChildBox } from '../types';
 import { CHILD_BOX_STATUS, TRANSACTION_TYPES } from '../config/constants';
-import { NotFoundError } from '../utils/errors';
+import { BadRequestError, NotFoundError } from '../utils/errors';
 import { generateChildBoxQR } from '../utils/qrGenerator';
 import { createAuditLog } from './auditLog.service';
-import { CreateChildBoxInput, CreateBulkChildBoxInput } from '../models/schemas/childBox.schema';
+import { CreateChildBoxInput, CreateBulkChildBoxInput, CreateBulkMultiSizeChildBoxInput } from '../models/schemas/childBox.schema';
 import { logger } from '../utils/logger';
 
 export async function createChildBox(
@@ -129,9 +129,110 @@ export async function createBulkChildBoxes(
   }
 }
 
+export async function createBulkMultiSizeChildBoxes(
+  input: CreateBulkMultiSizeChildBoxInput,
+  createdBy: string
+): Promise<Array<ChildBox & { qr_data_uri: string; product_name: string; product_sku: string; size: string; colour: string }>> {
+  // Get the base product to find article_name and colour
+  const baseProductResult = await query(
+    'SELECT id, article_name, colour FROM products WHERE id = $1 AND is_active = true',
+    [input.product_id]
+  );
+  if (baseProductResult.rows.length === 0) {
+    throw new NotFoundError('Product not found or inactive');
+  }
+
+  const baseProduct = baseProductResult.rows[0];
+
+  // Find all sibling products (same article_name + colour) and index by size
+  const siblingsResult = await query(
+    `SELECT id, article_name, sku, size, colour, mrp FROM products
+     WHERE article_name = $1 AND colour = $2 AND is_active = true`,
+    [baseProduct.article_name, baseProduct.colour]
+  );
+  const productBySize = new Map<string, typeof siblingsResult.rows[0]>();
+  for (const row of siblingsResult.rows) {
+    productBySize.set(row.size, row);
+  }
+
+  // Validate all requested sizes exist
+  for (const sizeEntry of input.sizes) {
+    if (!productBySize.has(sizeEntry.size)) {
+      throw new NotFoundError(`No product found for size "${sizeEntry.size}" with article "${baseProduct.article_name}" and colour "${baseProduct.colour}"`);
+    }
+  }
+
+  // Calculate total count for validation
+  const totalCount = input.sizes.reduce((sum, s) => sum + s.count, 0);
+  if (totalCount > 500) {
+    throw new BadRequestError('Total count across all sizes must not exceed 500');
+  }
+
+  const client = await getClient();
+  const childBoxes: Array<ChildBox & { qr_data_uri: string; product_name: string; product_sku: string; size: string; colour: string }> = [];
+
+  try {
+    await client.query('BEGIN');
+
+    for (const sizeEntry of input.sizes) {
+      const product = productBySize.get(sizeEntry.size)!;
+
+      for (let i = 0; i < sizeEntry.count; i++) {
+        const id = uuidv4();
+        const barcode = `BINNY-CB-${id}`;
+        const qrDataUri = await generateChildBoxQR(id);
+
+        const result = await client.query(
+          `INSERT INTO child_boxes (id, barcode, product_id, quantity, status, created_by)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           RETURNING *`,
+          [id, barcode, product.id, input.quantity, CHILD_BOX_STATUS.FREE, createdBy]
+        );
+
+        await client.query(
+          `INSERT INTO inventory_transactions (transaction_type, child_box_id, performed_by, notes)
+           VALUES ($1, $2, $3, $4)`,
+          [TRANSACTION_TYPES.CHILD_CREATED, id, createdBy, `Multi-size bulk child box created with barcode ${barcode}`]
+        );
+
+        childBoxes.push({
+          ...result.rows[0],
+          qr_data_uri: qrDataUri,
+          product_name: product.article_name,
+          product_sku: product.sku,
+          size: product.size,
+          colour: product.colour,
+        });
+      }
+    }
+
+    await client.query('COMMIT');
+
+    await createAuditLog({
+      userId: createdBy,
+      action: 'BULK_MULTI_SIZE_CREATE_CHILD_BOX',
+      entityType: 'child_box',
+      newValues: {
+        product_id: input.product_id,
+        quantity: input.quantity,
+        sizes: input.sizes,
+        total_count: totalCount,
+      },
+    });
+
+    logger.info(`Multi-size bulk created ${totalCount} child boxes for article ${baseProduct.article_name}`);
+    return childBoxes;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 export async function getChildBoxById(id: string): Promise<ChildBox & { product_name: string; product_sku: string; size: string; colour: string }> {
   const result = await query(
-    `SELECT cb.*, p.article_name as product_name, p.sku as product_sku, p.size, p.colour
+    `SELECT cb.*, p.article_name, p.article_code, p.sku, p.size, p.colour, p.mrp
      FROM child_boxes cb
      JOIN products p ON p.id = cb.product_id
      WHERE cb.id = $1`,
@@ -145,7 +246,7 @@ export async function getChildBoxById(id: string): Promise<ChildBox & { product_
 
 export async function getChildBoxByQR(barcode: string): Promise<ChildBox & { product_name: string; product_sku: string; size: string; colour: string }> {
   const result = await query(
-    `SELECT cb.*, p.article_name as product_name, p.sku as product_sku, p.size, p.colour
+    `SELECT cb.*, p.article_name, p.article_code, p.sku, p.size, p.colour, p.mrp
      FROM child_boxes cb
      JOIN products p ON p.id = cb.product_id
      WHERE cb.barcode = $1`,
@@ -196,7 +297,7 @@ export async function getChildBoxes(
   values.push(limit, offset);
 
   const result = await query(
-    `SELECT cb.*, p.article_name as product_name, p.sku as product_sku, p.size, p.colour
+    `SELECT cb.*, p.article_name, p.article_code, p.sku, p.size, p.colour, p.mrp
      FROM child_boxes cb
      JOIN products p ON p.id = cb.product_id
      ${whereClause}
@@ -251,7 +352,7 @@ export async function getFreeChildBoxes(
   values.push(limit, offset);
 
   const result = await query(
-    `SELECT cb.*, p.article_name as product_name, p.sku as product_sku, p.size, p.colour
+    `SELECT cb.*, p.article_name, p.article_code, p.sku, p.size, p.colour, p.mrp
      FROM child_boxes cb
      JOIN products p ON p.id = cb.product_id
      ${whereClause}

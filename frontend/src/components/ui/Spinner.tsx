@@ -15,7 +15,7 @@ export default function Spinner({ size = 'md', className }: SpinnerProps) {
   return (
     <div
       className={cn(
-        'animate-spin rounded-full border-binny-red border-t-transparent',
+        'animate-spin rounded-full border-binny-navy border-t-transparent',
         sizeStyles[size],
         className
       )}
@@ -33,6 +33,40 @@ export function PageSpinner() {
       <div className="flex flex-col items-center gap-3">
         <Spinner size="lg" />
         <p className="text-sm text-brand-text-muted">Loading...</p>
+      </div>
+    </div>
+  );
+}
+
+export function SkeletonLine({ className }: { className?: string }) {
+  return <div className={cn('skeleton h-4 w-full', className)} />;
+}
+
+export function SkeletonCard() {
+  return (
+    <div className="bg-white rounded-xl border border-brand-border shadow-card p-6 space-y-3">
+      <div className="skeleton h-4 w-1/3" />
+      <div className="skeleton h-8 w-1/2" />
+      <div className="skeleton h-3 w-2/3" />
+    </div>
+  );
+}
+
+export function SkeletonTable({ rows = 5 }: { rows?: number }) {
+  return (
+    <div className="bg-white rounded-xl border border-brand-border shadow-card overflow-hidden">
+      <div className="p-4 border-b border-brand-border">
+        <div className="skeleton h-10 w-full rounded-lg" />
+      </div>
+      <div className="divide-y divide-brand-border">
+        {Array.from({ length: rows }).map((_, i) => (
+          <div key={i} className="flex gap-4 p-4">
+            <div className="skeleton h-4 w-1/4" />
+            <div className="skeleton h-4 w-1/6" />
+            <div className="skeleton h-4 w-1/5" />
+            <div className="skeleton h-4 w-1/6" />
+          </div>
+        ))}
       </div>
     </div>
   );

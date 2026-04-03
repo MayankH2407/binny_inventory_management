@@ -29,6 +29,18 @@ router.get(
 );
 
 router.get(
+  '/:id/colours',
+  validate({ params: productIdParamSchema }),
+  productController.getProductColours
+);
+
+router.get(
+  '/:id/sizes',
+  validate({ params: productIdParamSchema }),
+  productController.getProductSizes
+);
+
+router.get(
   '/:id',
   validate({ params: productIdParamSchema }),
   productController.getProductById

@@ -96,3 +96,16 @@ export async function getFreeChildBoxes(
     next(error);
   }
 }
+
+export async function createBulkMultiSizeChildBoxes(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const childBoxes = await childBoxService.createBulkMultiSizeChildBoxes(req.body, req.user!.userId);
+    sendSuccess(res, childBoxes, `${childBoxes.length} child boxes created across multiple sizes`, 201);
+  } catch (error) {
+    next(error);
+  }
+}

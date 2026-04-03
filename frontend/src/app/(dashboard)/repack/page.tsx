@@ -9,6 +9,7 @@ import StatusBadge from '@/components/ui/StatusBadge';
 import PageHeader from '@/components/layout/PageHeader';
 import { masterCartonService } from '@/services/masterCarton.service';
 import type { MasterCarton, ChildBoxWithProduct } from '@/types';
+import { formatCurrency } from '@/lib/utils';
 import toast from 'react-hot-toast';
 
 export default function RepackPage() {
@@ -209,9 +210,11 @@ export default function RepackPage() {
                       className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                     />
                     <div className="flex-1 min-w-0">
-                      <span className="font-mono text-xs">{box.barcode}</span>
-                      <p className="text-xs text-brand-text-muted truncate">
+                      <p className="text-xs font-medium text-brand-text-dark">
                         {box.article_name} - {box.colour} - {box.size}
+                      </p>
+                      <p className="text-xs text-brand-text-muted">
+                        {formatCurrency(box.mrp)} &middot; <span className="font-mono">{box.barcode}</span>
                       </p>
                     </div>
                     {selectedBoxIds.has(box.id) && (

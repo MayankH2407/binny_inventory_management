@@ -29,10 +29,11 @@ api.interceptors.response.use(
     const body = response.data;
     if (body && typeof body === 'object' && 'success' in body) {
       // For paginated responses keep pagination alongside data
-      if (body.pagination) {
+      const pagination = body.pagination || body.meta;
+      if (pagination) {
         response.data = {
           data: body.data,
-          ...body.pagination,
+          ...pagination,
         };
       } else {
         response.data = body.data;

@@ -6,11 +6,92 @@
 
 ---
 
-## Project Status: PHASE 1 COMPLETE — PHASE 1.5 COMPLETE (All Tests Passing)
+## Project Status: PHASE 1 COMPLETE — PHASE 1.5 COMPLETE — PHASE 2 (UI ENHANCEMENT) IN PROGRESS — DEPLOYMENT PENDING
 
 ---
 
 ## Activity Log
+
+### April 3, 2026 — UAT Bug Fixes & UI Enhancement Plan
+
+#### UAT Bug Fixes
+| # | Activity | Status | Notes |
+|---|----------|--------|-------|
+| 144 | Fix: Buttons not visible across app | Done | Added inline style fallbacks (backgroundColor, color) to Button.tsx for all variants (primary, secondary, outline, danger). Ensures buttons render even if Tailwind JIT fails to generate custom `bg-binny-navy` classes |
+| 145 | Fix: Separate search bar replaced with searchable dropdown | Done | child-boxes/generate/page.tsx — removed separate search `<input>` + `<Select>`. Replaced with single searchable dropdown combo: type to filter, click to select, outside-click-to-close, chevron indicator |
+| 146 | Fix: Print label blank screen and error | Done | Fixed `QRCodeSVG` being called as plain function (breaks React 18+). Now uses `createElement(QRCodeSVG, {...})`. Pre-renders HTML before opening print window. Added `printWindow.onload` callback before `print()` |
+| 147 | Verified: Label formatting matches spec | Done | Existing label template already includes all required fields: Article No, Colour, Size, MRP (inc. tax), Packed on date, Content (pairs), MFG Address, QR code. No changes needed |
+| 148 | Fix: Dispatch list made customer-centric | Done | Rewrote dispatches/page.tsx — records grouped by customer showing total cartons, boxes, destinations, latest date. Click to expand shows individual carton dispatch details |
+
+#### UI Enhancement — Initial Attempt
+| # | Activity | Status | Notes |
+|---|----------|--------|-------|
+| 149 | Sidebar: Navy gradient header + solid navy active nav items | Done | Sidebar.tsx — gradient header, active items use solid navy bg with white text, hover shows white card with shadow |
+| 150 | Header: Subtle shadow + gradient avatar + border separator | Done | Header.tsx — shadow-sm, navy gradient avatar, user area separated by left border |
+| 151 | Login: Gradient background + card accent stripe | Done | Auth layout: navy gradient bg. Login card: red-to-navy gradient top stripe, shadow-2xl, white/translucent "Powered by" text |
+| 152 | Dashboard: Stat card left accent borders + quick action hover animations | Done | page.tsx — colored left border on stat cards (navy, blue, green, purple), hover lift + arrow animation on quick actions |
+| 153 | Mobile nav: Navy active pill + upward shadow | Done | MobileNav.tsx — active tab has solid navy pill bg, nav bar has upward box shadow |
+| 154 | Global CSS: Background color to blue-tinted gray + fallback CSS | Done | globals.css — background `#F5F6FA`, btn-primary CSS fallback, sidebar-link-active with navy bg |
+| 155 | Docker: Added tailwind.config.ts volume mount | Done | docker-compose.yml — frontend now mounts tailwind.config.ts for live config changes |
+
+#### UI Enhancement — Comprehensive Plan (Phase 2)
+| # | Activity | Status | Notes |
+|---|----------|--------|-------|
+| 156 | Deep UI audit completed | Done | Audited all 28+ frontend files. Identified root causes: limited color palette, flat design, zero animations, basic shadows, no glassmorphism, no skeleton loaders, conservative accent color usage |
+| 157 | Phase 2 UI Enhancement Plan documented | Done | 5-phase plan documented in implementation-plan.md Section 17 |
+
+#### Phase 2 UI Enhancement — Implementation
+| # | Activity | Status | Notes |
+|---|----------|--------|-------|
+| 158 | Phase 1: Design System Foundation | Done | tailwind.config.ts: brand-tinted shadow scale (card, card-hover, elevated, nav), 5 animation keyframes (fade-in, slide-up, scale-in, shimmer, pulse-dot), intermediate colors (navy-50, navy-200). globals.css: .skeleton shimmer utility, gradient .btn-primary, .card-interactive class, enhanced focus states |
+| 159 | Phase 2: Core Components | Done | Card.tsx: shadow-card + interactive/accent props. Button.tsx: gradient primary/danger + active:scale-[0.98]. Input.tsx/Select.tsx: bg-gray-50/50 + focus:bg-white + focus:shadow-sm. Table.tsx: bg-binny-navy-50 header + branded hover. Spinner.tsx: SkeletonLine/SkeletonCard/SkeletonTable. Badge.tsx: color borders + font-semibold |
+| 160 | Phase 3: Layout Enhancements | Done | Sidebar.tsx: full navy gradient bg, white active items with red left indicator, white/70 inactive text. Header.tsx: backdrop-blur-md glass, red pulse notification dot, navy title accent. MobileNav.tsx: backdrop-blur-lg glass, red dot active indicator. PageHeader.tsx: red-to-navy gradient accent bar |
+| 161 | Phase 4: Page Enhancements | Done | Dashboard: welcome banner + skeleton loading + stat card accents + gradient icon containers + timeline connector + summary left borders. List pages (master-cartons, dispatches, products, customers): SkeletonTable loaders + bg-binny-navy-50/50 filter bars. Form pages (dispatch, master-carton create): icon pill section headers |
+| 162 | Phase 5: PWA & Polish | Done | manifest.json: navy background_color + split icon purposes. offline/page.tsx: branded gradient + accent stripe card + WifiOff icon. Dashboard layout: branded splash loading. Auth layout: radial red glow. Login: animate-scale-in. ToastProvider: green/red left accent borders + elevated shadow |
+| 163 | Sidebar: Inverted to navy bg with white active items | Done | User feedback: changed from white sidebar to full navy gradient (180deg #2D2A6E→#1E1A5F), inactive items white/70, active item white bg with navy text + red indicator, borders white/10 |
+| 164 | Fix: Child Box list product name blank | Done | Backend childBox.service.ts: all 4 SELECT queries aliased `p.article_name as product_name` but frontend expects `article_name`. Changed to `p.article_name, p.article_code, p.sku, p.size, p.colour, p.mrp` (no aliasing). Also added missing article_code and mrp columns |
+
+### April 2, 2026 — Dispatch Enhancements, Admin Restrictions, Product Details & Customer-Centric Report
+| # | Activity | Status | Notes |
+|---|----------|--------|-------|
+| 135 | Dispatch Carton button added to Dispatches list page | Done | Added "Dispatch Carton" action button (Truck icon) in /dispatches page header, links to /dispatch creation page |
+| 136 | Add Customer restricted to Admin only | Done | Changed customers page: Supervisors can view customer list but only Admin sees "Add Customer" button, Edit, and Activate/Deactivate actions |
+| 137 | Product details in Master Carton list | Done | Backend: added LATERAL JOIN to getMasterCartons() returning article_summary, colour_summary, size_summary, mrp_summary. Frontend: master cartons table now shows Article, Colour, Sizes, MRP above the barcode |
+| 138 | Product details in Dispatch module | Done | Dispatch creation page: scanned cartons show article, colour, sizes, MRP from child_boxes. Dispatches list: table and mobile cards show product summaries + customer name |
+| 139 | Product details in Repack module | Done | Repack page: child box list now shows article/colour/size prominently with MRP, barcode de-emphasized |
+| 140 | Dispatch Report: customer-centric view | Done | Backend: getDispatchSummary() now groups by customer with product breakdown (article, colour, sizes, MRP, carton/box counts). Frontend: expandable customer cards with nested product detail table |
+| 141 | Dispatch CSV export: customer-centric | Done | exportDispatchCSV() now includes Customer, Article, Colour, Size, MRP columns grouped by customer |
+| 142 | E2E test fixes for updated UI | Done | Fixed 03-child-boxes.spec.ts (4 tests: Product Article+Colour → 3-step flow), 01-auth.spec.ts (timeout increase for cold start) |
+| 143 | Playwright E2E full suite — 64/64 passed (Chromium) | Done | 10 spec files, 64 tests, 5.5 min. All passing after all changes. 0 TS errors on both backend and frontend |
+
+### March 31, 2026 — Child Box Label QR Layout Fix
+| # | Activity | Status | Notes |
+|---|----------|--------|-------|
+| 134 | Child Box Label: QR layout updated per client wireframe | Done | Matched label to "Child Box label information.jpeg" wireframe. Size cell now spans 1 row (next to Colour only). QR code now spans 3 rows (MRP + Packed on + Content) instead of 2. Updated both frontend (generate/page.tsx handlePrint) and backend (labelTemplates.ts buildChildBoxLabelHtml). 0 TS errors on both |
+
+### March 25, 2026 — Child Box Enhancements, Master Carton Bug Fixes & Enhancements
+| # | Activity | Status | Notes |
+|---|----------|--------|-------|
+| 129 | Child Box Generate: Colour field added | Done | Refactored product selection to 3-step flow: Article dropdown → Colour pill selector → Size grid. Backend: new `GET /products/:id/colours` endpoint (returns distinct colours for an article). Frontend: colour buttons with selected state (navy highlight), sizes only shown after colour selected |
+| 130 | Child Box Generate: Search bar added | Done | Real-time search input above product dropdown — filters by product name, SKU, article code. Uses Lucide Search icon, preserves existing selection logic |
+| 131 | Master Carton Detail: Fixed ₹NaN price bug | Done | Root cause: `getCartonChildren` SQL query did not SELECT `p.mrp`, `p.article_code`, `cb.status` — also aliased `article_name` as `product_name` and `sku` as `product_sku`. Fixed query to select all needed fields with correct names matching `ChildBoxWithProduct` type |
+| 132 | Master Carton Create: Scanned item details panel | Done | After scanning/entering a barcode, fetches child box details via API (`getByBarcode`). Displays Product Name, Colour, Size, MRP alongside barcode in the scanned items list. Details stored in local state map, cleared on remove/clear all |
+| 133 | TypeScript compilation verified | Done | 0 errors on both frontend and backend |
+
+### March 23, 2026 — Test Cases, Bug Fixes, Theme & Favicon Update
+| # | Activity | Status | Notes |
+|---|----------|--------|-------|
+| 118 | Logo changed to monogram.png | Done | Replaced BinnyLogo.png with monogram.png on login page and sidebar |
+| 119 | Theme updated: Navy primary + Red accent | Done | Primary: Navy #2D2A6E (buttons, sidebar, inputs, spinner). Accent: Red #E31E24 (QR scanner, timeline). Updated tailwind, globals.css, manifest, layout themeColor |
+| 120 | Favicon + PWA icons regenerated from monogram.png | Done | favicon.ico (32x32), icon-192x192.png, icon-512x512.png — all from monogram.png |
+| 121 | Bug fix: API interceptor pagination field mismatch | Done | Backend sends `meta` but interceptor checked `body.pagination`. Fixed to check `body.pagination \|\| body.meta`. This was breaking paginated data across products, customers, child boxes list pages |
+| 122 | Bug fix: Auth checkAuth() blocking page render | Done | `checkAuth()` called `getProfile()` synchronously, setting `isLoading: true` on every route change → page stuck on spinner. Fixed to use cached user from localStorage immediately and validate token in background |
+| 123 | New E2E tests: Customer Master (09-customers.spec.ts) | Done | 7 tests: page load, add customer modal, create customer, GSTIN validation, mobile validation, search, all form fields |
+| 124 | New E2E tests: Product Management (10-products.spec.ts) | Done | 9 tests: page load, add product modal, all expanded fields, category/section/location dropdowns, create product, search, table columns |
+| 125 | Updated E2E tests: Multi-Size QR (03-child-boxes.spec.ts) | Done | Replaced old single-product TC-CB-004 with 5 multi-size tests: TC-MSQR-001 to 005 (dropdown load, size table, live summary, button disabled, bulk generate) |
+| 126 | Auth helper: token refresh for long test runs | Done | Added 10-min TTL cache in helpers.ts to prevent JWT expiry during test suite |
+| 127 | Rate limit increased for testing | Done | AUTH_MAX_REQUESTS + MAX_REQUESTS → 50000 to support full 64-test suite |
+| 128 | Playwright E2E full suite — 64/64 passed (Chromium) | Done | 10 spec files, 64 tests, 4.9 min. All passing: Auth (8), Dashboard (5), Child Boxes + Multi-Size (10), Master Cartons (6), Lifecycle (7), Reports (6), Traceability (3), Scan (3), Customers (7), Products (9) |
 
 ### March 16, 2026 — Updated Client Requirements
 | # | Activity | Status | Notes |
@@ -47,6 +128,26 @@
 | 107 | Playwright E2E retest after all fixes | Done | 44/44 passed (Chromium). 0 TS errors on both backend and frontend |
 | 108 | Auth rate limit increased for dev/testing | Done | AUTH_MAX_REQUESTS: 200 → 500 (constants.ts). Playwright tests + manual API calls were exhausting the 15-min auth window |
 | 109 | Git repository initialized | Done | .gitignore configured, initial commit with full Phase 1 + Phase 1.5 codebase |
+| 110 | GitHub remote configured & pushed | Done | https://github.com/kanikabehl/binny-inventory-management — 185 files, 37,894 lines on main branch |
+| 111 | SSH deploy key generated | Done | .ssh/binny-deploy (ed25519) — public key ready, private key stays local. .ssh/ is gitignored |
+| 112 | Deployment preparation | Pending | Server: 76.13.245.90 (srv1409601.hstgr.cloud, Hostinger VPS). Need: SSH private key or password to connect. Docker install + deploy planned for next session |
+
+### March 23, 2026 — Logo & Theme Update
+| # | Activity | Status | Notes |
+|---|----------|--------|-------|
+| 118 | Logo changed to monogram.png | Done | Replaced BinnyLogo.png with monogram.png on login page and sidebar. Logo has red B icon + navy BINNY text |
+| 119 | Theme updated: Navy primary + Red accent | Done | Extracted colors from monogram.png. Primary: Navy #2D2A6E (buttons, sidebar active, inputs, spinner, progress bars). Accent: Red #E31E24 (QR scanner overlay, timeline dots). Updated tailwind.config.ts, globals.css, manifest.json, layout.tsx themeColor |
+| 120 | UI components updated for new theme | Done | Button (primary/outline variants), Input, Select, Spinner, Header (avatar), Sidebar (active links), MobileNav (active links), offline page — all switched from red to navy |
+| 121 | Dashboard + pages updated | Done | Stat cards, quick actions, hover states, report tabs, master carton progress bar, child box generate page (pills, summary, focus rings) — all navy primary. 0 TS errors |
+
+### March 20, 2026 — Multi-Size QR Batch Generation
+| # | Activity | Status | Notes |
+|---|----------|--------|-------|
+| 113 | Multi-size batch generation — Backend: GET /products/:id/sizes | Done | Added getSiblingProducts() to product.service.ts (finds all products with same article_name + colour), getProductSizes controller, route added before /:id to avoid conflict |
+| 114 | Multi-size batch generation — Backend: POST /child-boxes/bulk-multi-size | Done | Zod schema (product_id, quantity, sizes[{size, count}]), createBulkMultiSizeChildBoxes service (resolves sibling products by size, validates sizes exist, 500 total cap, single DB transaction), controller, route with RBAC (Admin+Supervisor+Warehouse Operator) |
+| 115 | Multi-size batch generation — Frontend types + services | Done | BulkCreateMultiSizeRequest type, getSizes() in product.service.ts, bulkCreateMultiSize() in childBox.service.ts |
+| 116 | Multi-size batch generation — Generate page rewrite | Done | Rewrote generate/page.tsx: article+colour dropdown (deduplicated), auto-loads sibling sizes via API, per-size label count table (sorted numerically), live summary panel with total count, 500-label cap validation, success view with size-grouped pill badges, print labels preserved. 0 TS errors on both backend and frontend |
+| 117 | Documentation update — All 6 docs | Done | Updated implementation-plan.md (v1.2: new endpoints, Week 2 deliverable, changelog), project-brief.md (v1.2: API table, features, document control), test-cases.md (v1.2: 10 new test cases TC-MSQR-001–010, summary updated to 235 total), security-audit-report.md (v1.2: new §9.4 bulk multi-size security controls, RBAC row), sql-migration-plan.md (noted no migration needed), phase-1.5-optimization-report.md (noted findings #6 and #8 resolved) |
 
 ---
 
@@ -252,6 +353,8 @@ Client provided updated wireframes and requirements for:
 - [x] Frontend: Dispatch page — customer selection — Phase 5
 - [x] Logo asset integration (monogram.png) — Phase 7
 - [x] Testing for all new features — 44/44 Playwright E2E tests passing
+- [x] GitHub repo pushed — https://github.com/kanikabehl/binny-inventory-management
+- [ ] Production deployment to Hostinger VPS (76.13.245.90) — next session
 
 ---
 

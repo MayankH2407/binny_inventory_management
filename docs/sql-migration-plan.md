@@ -2,7 +2,7 @@
 
 **Database:** PostgreSQL 15+
 **Schema:** `public`
-**Date:** 2026-03-16 (Updated with Customer Master & Product expansion)
+**Date:** 2026-03-20 (Updated March 20 — no migration needed for Multi-Size QR Batch Generation; March 16 — Customer Master & Product expansion)
 **Author:** Database Architecture Team
 
 ---

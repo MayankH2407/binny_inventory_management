@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, type FormEvent } from 'react';
-import { Truck, ScanLine, X, Search, Plus } from 'lucide-react';
+import { Truck, ScanLine, X, Search, Plus, Package } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import Select from '@/components/ui/Select';
@@ -12,10 +12,11 @@ import { dispatchService } from '@/services/dispatch.service';
 import { masterCartonService } from '@/services/masterCarton.service';
 import { customerService } from '@/services/customer.service';
 import { useApiQuery, useApiMutation } from '@/hooks/useApi';
-import type { MasterCarton } from '@/types';
+import type { MasterCarton, ChildBoxWithProduct } from '@/types';
 import toast from 'react-hot-toast';
 import { ROUTES } from '@/constants';
 import { useRouter } from 'next/navigation';
+import { formatCurrency } from '@/lib/utils';
 
 export default function DispatchPage() {
   const router = useRouter();
@@ -127,7 +128,12 @@ export default function DispatchPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="space-y-6">
           <Card className="p-6">
-            <h3 className="font-semibold text-brand-text-dark mb-4">Dispatch Details</h3>
+            <div className="flex items-center gap-2 mb-4">
+              <div className="p-2 rounded-lg bg-binny-navy-50" style={{ backgroundColor: '#F5F4FF' }}>
+                <Truck className="h-4 w-4 text-binny-navy" style={{ color: '#2D2A6E' }} />
+              </div>
+              <h3 className="font-semibold text-brand-text-dark">Dispatch Details</h3>
+            </div>
             <form className="space-y-4" onSubmit={handleSubmit}>
               <Select
                 label="Customer (Optional)"
@@ -201,7 +207,12 @@ export default function DispatchPage() {
         <div className="space-y-6">
           <Card className="p-6">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold text-brand-text-dark">Scan Master Cartons</h3>
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-lg" style={{ backgroundColor: '#F5F4FF' }}>
+                  <ScanLine className="h-4 w-4" style={{ color: '#2D2A6E' }} />
+                </div>
+                <h3 className="font-semibold text-brand-text-dark">Scan Master Cartons</h3>
+              </div>
               <Button
                 variant={showScanner ? 'secondary' : 'primary'}
                 size="sm"
@@ -241,9 +252,14 @@ export default function DispatchPage() {
           </Card>
 
           <Card className="p-6">
-            <h3 className="font-semibold text-brand-text-dark mb-4">
-              Cartons to Dispatch ({scannedCartons.length})
-            </h3>
+            <div className="flex items-center gap-2 mb-4">
+              <div className="p-2 rounded-lg" style={{ backgroundColor: '#F5F4FF' }}>
+                <Package className="h-4 w-4" style={{ color: '#2D2A6E' }} />
+              </div>
+              <h3 className="font-semibold text-brand-text-dark">
+                Cartons to Dispatch ({scannedCartons.length})
+              </h3>
+            </div>
 
             {scannedCartons.length === 0 ? (
               <div className="text-center py-8">
@@ -254,13 +270,29 @@ export default function DispatchPage() {
               </div>
             ) : (
               <div className="space-y-2 max-h-[400px] overflow-y-auto scrollbar-hide">
-                {scannedCartons.map((carton) => (
+                {scannedCartons.map((carton) => {
+                  // Extract product summary from child_boxes if available
+                  const boxes = carton.child_boxes ?? [];
+                  const articles = Array.from(new Set(boxes.map((b: ChildBoxWithProduct) => b.article_name))).join(', ');
+                  const colours = Array.from(new Set(boxes.map((b: ChildBoxWithProduct) => b.colour))).join(', ');
+                  const sizes = Array.from(new Set(boxes.map((b: ChildBoxWithProduct) => b.size))).sort().join(', ');
+                  const mrps = Array.from(new Set(boxes.map((b: ChildBoxWithProduct) => b.mrp)));
+                  return (
                   <div
                     key={carton.id}
                     className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
                   >
                     <div className="min-w-0">
-                      <p className="text-sm font-mono text-brand-text-dark">
+                      {articles && (
+                        <p className="text-sm font-medium text-brand-text-dark">{articles}</p>
+                      )}
+                      {(colours || sizes) && (
+                        <p className="text-xs text-brand-text-muted">
+                          {[colours, sizes].filter(Boolean).join(' | ')}
+                          {mrps.length > 0 ? ` | ${formatCurrency(mrps[0])}` : ''}
+                        </p>
+                      )}
+                      <p className="text-xs font-mono text-brand-text-muted mt-0.5">
                         {carton.carton_barcode}
                       </p>
                       <p className="text-xs text-brand-text-muted">
@@ -274,7 +306,8 @@ export default function DispatchPage() {
                       <X className="h-4 w-4" />
                     </button>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </Card>

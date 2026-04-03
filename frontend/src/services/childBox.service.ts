@@ -1,5 +1,5 @@
 import api from './api';
-import type { ChildBox, ChildBoxWithProduct, BulkCreateChildBoxRequest } from '@/types';
+import type { ChildBox, ChildBoxWithProduct, BulkCreateChildBoxRequest, BulkCreateMultiSizeRequest } from '@/types';
 
 export interface ChildBoxListResponse {
   data: ChildBoxWithProduct[];
@@ -43,6 +43,11 @@ export const childBoxService = {
 
   async getFree(): Promise<ChildBoxWithProduct[]> {
     const response = await api.get<ChildBoxWithProduct[]>('/child-boxes/free');
+    return response.data;
+  },
+
+  async bulkCreateMultiSize(data: BulkCreateMultiSizeRequest): Promise<ChildBoxWithProduct[]> {
+    const response = await api.post<ChildBoxWithProduct[]>('/child-boxes/bulk-multi-size', data);
     return response.data;
   },
 };

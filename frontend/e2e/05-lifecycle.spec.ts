@@ -30,12 +30,17 @@ test.describe('TC-LIFE: Lifecycle Workflows (Storage, Unpack, Dispatch)', () => 
     await expect(page.getByText(/Dispatch Details/i)).toBeVisible();
   });
 
-  test('TC-DISP-002: Dispatch page has required fields', async ({ page }) => {
+  test('TC-DISP-002: Dispatch page has required fields and section headers', async ({ page }) => {
     await page.goto('/dispatch');
 
+    // Section headers with icon pills
+    await expect(page.getByText(/Dispatch Details/i)).toBeVisible();
+    await expect(page.getByText(/Scan Master Cartons/i)).toBeVisible();
+    await expect(page.getByText(/Cartons to Dispatch/i)).toBeVisible();
+
+    // Form fields
     await expect(page.getByLabel(/Destination/i)).toBeVisible();
     await expect(page.getByLabel(/Vehicle Number/i)).toBeVisible();
-    await expect(page.getByText(/Scan Master Cartons/i)).toBeVisible();
   });
 
   test('TC-DISP-003: Dispatches list page loads', async ({ page }) => {

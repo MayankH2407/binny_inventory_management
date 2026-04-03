@@ -1,8 +1,10 @@
 # Phase 1.5 — Optimization & Improvement Report
 
-**Date:** March 16, 2026
+**Date:** March 16, 2026 (Updated March 20 — noted multi-size generate page changes)
 **Scope:** Code audit of all Phase 1.5 changes (7 phases: Product expansion, Customer Master, Dispatch link, Label redesigns)
 **Status:** All 44/44 Playwright E2E tests passing. 0 TypeScript errors. This report identifies improvements that do NOT break existing functionality.
+
+> **Note (March 20):** The generate page (`child-boxes/generate/page.tsx`) referenced in findings #6 and #8 has been substantially rewritten for the Multi-Size QR Batch Generation feature. Finding #6 (QR placeholder) is now resolved — actual QR SVGs are rendered via `qrcode.react` + `renderToStaticMarkup`. Finding #8 (product management page) was already resolved in Phase 1.5 fix #8.
 
 ---
 

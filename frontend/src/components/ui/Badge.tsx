@@ -12,13 +12,13 @@ interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
 }
 
 const variantStyles: Record<BadgeVariant, string> = {
-  default: 'bg-gray-100 text-gray-700',
-  red: 'bg-red-100 text-red-700',
-  green: 'bg-green-100 text-green-700',
-  blue: 'bg-blue-100 text-blue-700',
-  yellow: 'bg-yellow-100 text-yellow-700',
-  orange: 'bg-orange-100 text-orange-700',
-  gray: 'bg-gray-100 text-gray-600',
+  default: 'bg-gray-100 text-gray-700 border border-gray-200',
+  red: 'bg-red-100 text-red-700 border border-red-200',
+  green: 'bg-green-100 text-green-700 border border-green-200',
+  blue: 'bg-blue-100 text-blue-700 border border-blue-200',
+  yellow: 'bg-yellow-100 text-yellow-700 border border-yellow-200',
+  orange: 'bg-orange-100 text-orange-700 border border-orange-200',
+  gray: 'bg-gray-100 text-gray-600 border border-gray-200',
 };
 
 const dotColors: Record<BadgeVariant, string> = {
@@ -47,7 +47,7 @@ export default function Badge({
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1.5 font-medium rounded-full whitespace-nowrap',
+        'inline-flex items-center gap-1.5 font-semibold rounded-full whitespace-nowrap',
         variantStyles[variant],
         sizeStyles[size],
         className

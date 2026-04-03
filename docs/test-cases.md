@@ -1,8 +1,8 @@
 # Basiq360 QR-Based Inventory Management System — Test Cases
 
 **Project:** Binny Footwear Inventory Management
-**Version:** 1.1
-**Date:** 2026-03-16 (Updated with Customer Master, Product Master expansion, Label redesign)
+**Version:** 1.3
+**Date:** 2026-04-03 (Updated with Phase 2 UI Enhancement tests, UAT bug fix validations, searchable dropdown, customer-centric dispatches)
 **Prepared By:** QA Engineering Team
 **Tech Stack:** Next.js + Express.js + PostgreSQL (PWA)
 
@@ -28,8 +28,11 @@
 16. [Product Master — Expanded Fields (NEW)](#16-product-master--expanded-fields-new)
 17. [Label Redesign — Child Box (NEW)](#17-label-redesign--child-box-new)
 18. [Label Redesign — Master Carton (NEW)](#18-label-redesign--master-carton-new)
-19. [Edge Cases & Negative Tests](#19-edge-cases--negative-tests)
-20. [Performance Tests](#20-performance-tests)
+19. [Multi-Size QR Batch Generation (NEW)](#19-multi-size-qr-batch-generation-new)
+20. [Edge Cases & Negative Tests](#20-edge-cases--negative-tests)
+21. [Performance Tests](#21-performance-tests)
+22. [Phase 2 UI Enhancement Tests (NEW)](#22-phase-2-ui-enhancement-tests-new)
+23. [UAT Bug Fix Validation Tests (NEW)](#23-uat-bug-fix-validation-tests-new)
 
 ---
 
@@ -2712,7 +2715,121 @@
 
 ---
 
-## 19. Edge Cases & Negative Tests
+## 19. Multi-Size QR Batch Generation (NEW)
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-MSQR-001 |
+| Module | Multi-Size QR Generation |
+| Title | Select product and view available sizes |
+| Priority | Critical |
+| Preconditions | Logged in as Admin or Warehouse Operator. Multiple products exist with same article_name + colour but different sizes (e.g., sizes 6-10). |
+| Steps | 1. Navigate to Generate Labels page. 2. Select a product (article + colour) from dropdown. |
+| Expected Result | All sibling sizes for that article+colour are fetched and displayed in a table with size, MRP, and a quantity input per row. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-MSQR-002 |
+| Module | Multi-Size QR Generation |
+| Title | Enter quantities per size and view live summary |
+| Priority | Critical |
+| Preconditions | Product selected with sizes displayed |
+| Steps | 1. Enter 10 for size 6, 5 for size 7, 8 for size 8. Leave other sizes as 0. |
+| Expected Result | Summary section shows: "Sizes selected: 6 (×10), 7 (×5), 8 (×8)" and "Total labels: 23". Sizes with 0 are excluded from summary. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-MSQR-003 |
+| Module | Multi-Size QR Generation |
+| Title | Confirm & Generate creates child boxes across multiple sizes |
+| Priority | Critical |
+| Preconditions | Product selected, quantities entered for multiple sizes |
+| Steps | 1. Enter quantities for 3+ sizes. 2. Click "Confirm & Generate." |
+| Expected Result | All child boxes are created in a single transaction. Success view shows total count and per-size breakdown (pill badges). Each child box has correct product_id for its size. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-MSQR-004 |
+| Module | Multi-Size QR Generation |
+| Title | Generate button disabled when no sizes have quantities |
+| Priority | High |
+| Preconditions | Product selected, all size quantities at 0 |
+| Steps | 1. Select product. 2. Leave all quantities at 0. 3. Observe "Confirm & Generate" button. |
+| Expected Result | Button is disabled. Summary section is hidden. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-MSQR-005 |
+| Module | Multi-Size QR Generation |
+| Title | Total count validation — max 500 |
+| Priority | High |
+| Preconditions | Product selected with sizes displayed |
+| Steps | 1. Enter quantities totaling more than 500 across all sizes. 2. Click "Confirm & Generate." |
+| Expected Result | Validation error displayed: "Total labels must not exceed 500." No API call is made. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-MSQR-006 |
+| Module | Multi-Size QR Generation |
+| Title | Backend validates sizes exist for the product family |
+| Priority | High |
+| Preconditions | API access |
+| Steps | 1. Call POST /child-boxes/bulk-multi-size with a size that doesn't exist for the given article+colour. |
+| Expected Result | 404 error: "No product found for size X with article Y and colour Z." |
+| Type | Integration |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-MSQR-007 |
+| Module | Multi-Size QR Generation |
+| Title | All child boxes created in single transaction (atomicity) |
+| Priority | Critical |
+| Preconditions | API access |
+| Steps | 1. Call POST /child-boxes/bulk-multi-size for 3 sizes, but ensure one size has an invalid product_id mapping (simulate DB error). |
+| Expected Result | Entire transaction rolls back. No child boxes are created for any size. |
+| Type | Integration |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-MSQR-008 |
+| Module | Multi-Size QR Generation |
+| Title | Print labels for multi-size batch |
+| Priority | High |
+| Preconditions | Multi-size batch just generated |
+| Steps | 1. Click "Print Labels" on the success screen. |
+| Expected Result | Print window opens with labels for all sizes. Each label shows correct size, MRP, article code, QR code. Labels are grouped by size. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-MSQR-009 |
+| Module | Multi-Size QR Generation |
+| Title | GET /products/:id/sizes returns sibling products |
+| Priority | High |
+| Preconditions | Product "Article X - Black" exists in sizes 6, 7, 8, 9, 10 |
+| Steps | 1. Call GET /products/:id/sizes with one product's ID. |
+| Expected Result | Response contains all 5 products sharing article_name + colour. Each has distinct size and its own product ID. |
+| Type | Integration |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-MSQR-010 |
+| Module | Multi-Size QR Generation |
+| Title | Dispatch Operator cannot access multi-size generation |
+| Priority | High |
+| Preconditions | Logged in as Dispatch Operator |
+| Steps | 1. Attempt POST /child-boxes/bulk-multi-size via API. |
+| Expected Result | 403 Forbidden. Only Admin, Supervisor, and Warehouse Operator can generate. |
+| Type | Security |
+
+---
+
+## 20. Edge Cases & Negative Tests
 
 | Field | Value |
 |-------|-------|
@@ -2881,7 +2998,7 @@
 
 ---
 
-## 20. Performance Tests
+## 21. Performance Tests
 
 | Field | Value |
 |-------|-------|
@@ -2940,6 +3057,421 @@
 
 ---
 
+## 22. Phase 2 UI Enhancement Tests (NEW)
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-UI-001 |
+| Module | UI — Login |
+| Title | Login page has gradient background and accent stripe card |
+| Priority | Medium |
+| Preconditions | None |
+| Steps | 1. Navigate to login page. 2. Verify dark gradient background. 3. Verify card has red-to-navy accent stripe at top. 4. Verify scale-in animation class on card. |
+| Expected Result | Login page displays with navy gradient background, radial red glow, white card with accent stripe, and entrance animation. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-UI-002 |
+| Module | UI — Login |
+| Title | Login powered-by text visible against dark background |
+| Priority | Low |
+| Preconditions | None |
+| Steps | 1. Navigate to login page. 2. Check for "Powered by Basiq360" text. |
+| Expected Result | Text is visible in white/translucent color. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-UI-003 |
+| Module | UI — Dashboard |
+| Title | Dashboard welcome banner with time-based greeting |
+| Priority | Medium |
+| Preconditions | Logged in as Admin |
+| Steps | 1. Navigate to dashboard. 2. Verify welcome banner with "Good Morning/Afternoon/Evening" greeting. 3. Verify user name appears. 4. Verify navy gradient background on banner. |
+| Expected Result | Welcome banner shows correct time-of-day greeting with user name, on a navy gradient card with decorative circles. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-UI-004 |
+| Module | UI — Dashboard |
+| Title | Dashboard stat cards have colored accent left borders |
+| Priority | Medium |
+| Preconditions | Logged in as Admin |
+| Steps | 1. Navigate to dashboard. 2. Verify 4 stat cards visible. 3. Check each card has a colored left border (navy, blue, green, purple). |
+| Expected Result | Stat cards display with distinct left accent borders using the Card accent prop. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-UI-005 |
+| Module | UI — Dashboard |
+| Title | Dashboard skeleton loading state |
+| Priority | Medium |
+| Preconditions | Logged in as Admin |
+| Steps | 1. Navigate to dashboard with slow network throttling. 2. Verify skeleton placeholder cards appear. 3. Verify real content replaces skeletons. |
+| Expected Result | SkeletonCard components render during loading, replaced by real stat cards when data loads. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-UI-006 |
+| Module | UI — Dashboard |
+| Title | Quick action cards have gradient icon backgrounds |
+| Priority | Low |
+| Preconditions | Logged in as Admin |
+| Steps | 1. Navigate to dashboard. 2. Verify quick action icons have gradient backgrounds. 3. Hover over card — verify lift animation. 4. Verify arrow turns red on hover. |
+| Expected Result | Quick actions show gradient-colored icon pills, hover lift effect, and red arrow transition. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-UI-007 |
+| Module | UI — Dashboard |
+| Title | Recent Activity timeline with connector lines |
+| Priority | Low |
+| Preconditions | Logged in as Admin, at least 2 recent transactions exist |
+| Steps | 1. Navigate to dashboard. 2. Scroll to Recent Activity. 3. Verify vertical timeline connector between items. 4. Verify hover highlight on items. |
+| Expected Result | Activity items have connecting vertical lines, colored icon pills, and hover bg transition. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-UI-008 |
+| Module | UI — Sidebar |
+| Title | Sidebar has full navy gradient background |
+| Priority | High |
+| Preconditions | Logged in (desktop viewport) |
+| Steps | 1. Verify sidebar has navy gradient background (top #2D2A6E to bottom #1E1A5F). 2. Verify header shows Binny Inventory in white. 3. Verify inactive items are white at 70% opacity. |
+| Expected Result | Sidebar is fully navy with white text. Not white background with blue active state. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-UI-009 |
+| Module | UI — Sidebar |
+| Title | Sidebar active item shows white background with red indicator |
+| Priority | High |
+| Preconditions | Logged in, on dashboard |
+| Steps | 1. Verify Dashboard link has white background and navy text. 2. Verify red left indicator bar on active item. 3. Navigate to another page — verify active state moves. |
+| Expected Result | Active nav item has bg-white class with navy text and 1px red rounded bar on left edge. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-UI-010 |
+| Module | UI — Sidebar |
+| Title | Sidebar hover state on inactive items |
+| Priority | Low |
+| Preconditions | Logged in (desktop viewport) |
+| Steps | 1. Hover over an inactive sidebar item. 2. Verify subtle white/10 background appears. 3. Verify text brightens to full white. |
+| Expected Result | Hover creates a subtle translucent background with brightened text. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-UI-011 |
+| Module | UI — Header |
+| Title | Header has frosted glass effect |
+| Priority | Medium |
+| Preconditions | Logged in |
+| Steps | 1. Verify header has backdrop-blur-md class. 2. Verify bg-white/80 opacity. 3. Scroll page content — header should show frosted blur effect over content. |
+| Expected Result | Header uses CSS backdrop-blur for a frosted glass appearance. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-UI-012 |
+| Module | UI — Header |
+| Title | Header notification bell shows animated red dot |
+| Priority | Low |
+| Preconditions | Logged in |
+| Steps | 1. Verify bell icon is visible in header. 2. Verify small red dot indicator with pulse-dot animation. |
+| Expected Result | Bell has a 2x2 red dot with CSS pulse animation. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-UI-013 |
+| Module | UI — Header |
+| Title | Header page title has navy left accent border |
+| Priority | Low |
+| Preconditions | Logged in, on any page |
+| Steps | 1. Verify h1 title in header. 2. Verify border-l-2 class with navy color. 3. Navigate between pages — title updates. |
+| Expected Result | Page title has a 2px navy left border as accent indicator. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-UI-014 |
+| Module | UI — Mobile Nav |
+| Title | Mobile nav has glass blur and red dot active indicator |
+| Priority | Medium |
+| Preconditions | Logged in, mobile viewport (< 1024px) |
+| Steps | 1. Verify bottom nav has backdrop-blur-lg class. 2. Verify active tab shows navy text with bold font. 3. Verify red dot below active label. 4. Navigate — dot moves to new tab. |
+| Expected Result | Mobile nav has glass background, active tab has navy icon/text with red indicator dot. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-UI-015 |
+| Module | UI — Page Header |
+| Title | All page headers show gradient accent bar |
+| Priority | Medium |
+| Preconditions | Logged in |
+| Steps | 1. Navigate to Child Boxes, Master Cartons, Dispatch, Reports pages. 2. On each, verify a small gradient bar (red-to-navy, h-1 w-8) appears above the page title. |
+| Expected Result | Every page with PageHeader component shows the gradient accent bar. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-UI-016 |
+| Module | UI — List Pages |
+| Title | List pages use skeleton table loading instead of spinner |
+| Priority | High |
+| Preconditions | Logged in |
+| Steps | 1. Navigate to Master Cartons page. 2. During data loading, verify SkeletonTable appears (shimmer animation divs). 3. Verify skeleton is replaced by real data table. 4. Repeat for Dispatches, Products, Customers pages. |
+| Expected Result | All list pages show skeleton table placeholders during API fetch, not a centered spinner. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-UI-017 |
+| Module | UI — List Pages |
+| Title | List page filter bars have branded navy-50 background |
+| Priority | Low |
+| Preconditions | Logged in |
+| Steps | 1. Navigate to Master Cartons, Dispatches pages. 2. Verify filter section has bg-binny-navy-50/50 class. |
+| Expected Result | Filter bars have a subtle navy-tinted background for visual separation from the table. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-UI-018 |
+| Module | UI — Tables |
+| Title | Table headers use navy-tinted background |
+| Priority | Low |
+| Preconditions | Logged in, data exists |
+| Steps | 1. Navigate to Child Boxes or Master Cartons. 2. Verify thead has bg-binny-navy-50 class. 3. Hover a row — verify bg-binny-navy-50 hover state. |
+| Expected Result | Table headers are navy-tinted instead of generic gray. Row hover uses matching navy tint. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-UI-019 |
+| Module | UI — Form Pages |
+| Title | Dispatch and Master Carton Create forms have icon section headers |
+| Priority | Medium |
+| Preconditions | Logged in |
+| Steps | 1. Navigate to /dispatch. 2. Verify "Dispatch Details", "Scan Master Cartons", "Cartons to Dispatch" headers each have an icon pill (rounded-lg bg with lucide icon) next to the text. 3. Navigate to /master-cartons/create. 4. Verify same pattern for "Carton Settings", "Scan Child Boxes", "Scanned Items". |
+| Expected Result | Section headers render with a colored icon pill (bg-binny-navy-50 + navy icon) followed by bold text. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-UI-020 |
+| Module | UI — Inputs |
+| Title | Input fields have subtle gray background and focus transitions |
+| Priority | Low |
+| Preconditions | Logged in |
+| Steps | 1. Navigate to any form page. 2. Verify inputs have bg-gray-50/50 at rest. 3. Focus an input — verify transition to bg-white + shadow-sm + navy ring. |
+| Expected Result | Inputs have light gray tint at rest for contrast against white cards, transitioning to white with shadow on focus. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-UI-021 |
+| Module | UI — Buttons |
+| Title | Primary buttons have gradient background and press feedback |
+| Priority | Medium |
+| Preconditions | Logged in |
+| Steps | 1. Navigate to any page with a primary button. 2. Verify button has gradient background (navy to lighter navy). 3. Click and hold — verify active:scale-[0.98] press effect. 4. Verify shadow increases on hover. |
+| Expected Result | Primary buttons show a linear-gradient background, slight shrink on click, and shadow-md on hover. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-UI-022 |
+| Module | UI — Badges |
+| Title | Badges have matching color borders |
+| Priority | Low |
+| Preconditions | Logged in, data with status badges exists |
+| Steps | 1. Navigate to Master Cartons page. 2. Verify status badges have border class matching their variant color (e.g., green badge has border-green-200). |
+| Expected Result | Badges render with subtle colored borders for better definition. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-UI-023 |
+| Module | UI — Cards |
+| Title | Interactive cards have hover lift effect |
+| Priority | Low |
+| Preconditions | Logged in |
+| Steps | 1. Navigate to dashboard. 2. Hover over a quick action card. 3. Verify card lifts with shadow-card-hover and -translate-y-0.5. |
+| Expected Result | Cards with interactive prop show a subtle upward lift and increased shadow on hover. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-UI-024 |
+| Module | UI — PWA Offline |
+| Title | Offline page has branded navy gradient design |
+| Priority | Medium |
+| Preconditions | None |
+| Steps | 1. Navigate to /offline. 2. Verify navy gradient background. 3. Verify white card with red-to-navy accent stripe. 4. Verify WifiOff icon from lucide-react. 5. Verify "Retry Connection" button with gradient styling. 6. Verify "Binny Inventory" footer text. |
+| Expected Result | Offline page matches login page branding — gradient bg, accent stripe, branded card, gradient button. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-UI-025 |
+| Module | UI — PWA Splash |
+| Title | Dashboard loading state shows branded splash screen |
+| Priority | Medium |
+| Preconditions | Auth token set but first page load |
+| Steps | 1. Set auth token in localStorage. 2. Navigate to /. 3. During auth verification, verify branded splash (navy gradient bg + centered white logo + pulse animation). |
+| Expected Result | Loading state shows a dark navy gradient with the Binny monogram logo pulsing in white, instead of a plain spinner. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-UI-026 |
+| Module | UI — Toast Notifications |
+| Title | Toast notifications have colored accent left borders |
+| Priority | Low |
+| Preconditions | Logged in |
+| Steps | 1. Trigger a success toast (e.g., create a customer). 2. Verify green left border on toast. 3. Trigger an error toast (e.g., invalid login). 4. Verify red left border. 5. Verify elevated shadow styling. |
+| Expected Result | Success toasts have 4px green left border; error toasts have 4px red left border. Both use navy-tinted elevated shadow. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-UI-027 |
+| Module | UI — Searchable Dropdown |
+| Title | Child box generate page uses searchable dropdown instead of native select |
+| Priority | High |
+| Preconditions | Logged in, products exist |
+| Steps | 1. Navigate to /child-boxes/generate. 2. Verify "Search and select a product..." placeholder visible. 3. Click input to open dropdown list. 4. Type a search term — verify list filters in real time. 5. Click a product — verify dropdown closes and product is selected. 6. Verify colour pills appear after selection. |
+| Expected Result | Product selection uses a custom searchable dropdown combo, not a native HTML select element. Typing filters options. Clicking outside closes dropdown. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-UI-028 |
+| Module | UI — Customer-Centric Dispatches |
+| Title | Dispatches page groups records by customer |
+| Priority | High |
+| Preconditions | Logged in, dispatch records exist |
+| Steps | 1. Navigate to /dispatches. 2. Verify records are grouped by customer name (user icon + firm name heading). 3. Verify summary shows total cartons, boxes, destinations, latest date per customer. 4. Click a customer group to expand. 5. Verify individual carton dispatch records appear with barcode, product details, destination, vehicle, LR number, date. |
+| Expected Result | Dispatches are customer-centric: each customer row shows aggregated dispatch info, expandable to reveal individual carton records. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-UI-029 |
+| Module | UI — Child Box Product Name |
+| Title | Child box list shows product name (article_name) in Product column |
+| Priority | Critical |
+| Preconditions | Logged in, child boxes exist |
+| Steps | 1. Navigate to /child-boxes. 2. Verify Product column header exists. 3. Verify product name cells are NOT blank. 4. Verify article_name, sku, colour, size, mrp all display correctly. |
+| Expected Result | Product name column shows the article_name from the products table, not blank. Backend returns article_name (not aliased as product_name). |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-UI-030 |
+| Module | UI — Print Labels |
+| Title | Print label opens correctly without blank screen or error |
+| Priority | Critical |
+| Preconditions | Logged in, generated child box labels |
+| Steps | 1. Navigate to /child-boxes/generate. 2. Select product, colour, enter sizes. 3. Click "Confirm & Generate". 4. On success, click "Print Labels". 5. Verify print window opens with label content (not blank). 6. Verify no JavaScript error on the originating tab. |
+| Expected Result | Print window opens with fully rendered labels including QR codes (using createElement for QRCodeSVG). No blank page. No console errors. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-UI-031 |
+| Module | UI — PWA Manifest |
+| Title | PWA manifest has navy background and split icon purposes |
+| Priority | Medium |
+| Preconditions | None |
+| Steps | 1. Fetch /manifest.json. 2. Verify background_color is "#2D2A6E". 3. Verify theme_color is "#2D2A6E". 4. Verify icons have separate "any" and "maskable" purpose entries. 5. Verify categories include "business". |
+| Expected Result | Manifest produces a branded navy splash screen on PWA install with properly separated icon purposes. |
+| Type | Integration |
+
+---
+
+## 23. UAT Bug Fix Validation Tests (NEW)
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-UAT-001 |
+| Module | UAT — Buttons |
+| Title | All buttons are visible with correct colors |
+| Priority | Critical |
+| Preconditions | None |
+| Steps | 1. Navigate to login page — verify "Sign In" button visible with navy/gradient background and white text. 2. Navigate to /child-boxes — verify "Generate Labels" button visible. 3. Navigate to /master-cartons — verify "Create Carton" button visible. 4. Navigate to /dispatch — verify "Create Dispatch" button visible. 5. Verify all buttons use inline style fallbacks for background-color and color. |
+| Expected Result | All primary, secondary, outline, and danger buttons are visible with correct colors rendered via inline style fallbacks. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-UAT-002 |
+| Module | UAT — Searchable Dropdown |
+| Title | Product selection uses searchable combo instead of native select |
+| Priority | High |
+| Preconditions | Logged in, products exist in database |
+| Steps | 1. Navigate to /child-boxes/generate. 2. Verify no native `<select>` element for product. 3. Verify custom searchable input with "Search and select a product..." placeholder. 4. Type partial product name — verify dropdown filters. 5. Select product — verify dropdown closes, product info appears. |
+| Expected Result | Product selection uses custom searchable dropdown that filters on type, not a separate search bar + dropdown combo. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-UAT-003 |
+| Module | UAT — Print Labels |
+| Title | Print labels uses createElement for QRCodeSVG (no blank screen) |
+| Priority | Critical |
+| Preconditions | Logged in, generate child box labels |
+| Steps | 1. Generate labels (select product, colour, sizes, confirm). 2. Click "Print Labels". 3. Verify a new window opens with rendered HTML content. 4. Verify QR SVGs are visible in the print window. 5. Verify no JavaScript errors on the source page. |
+| Expected Result | Print window renders all labels with QR codes. Uses `createElement(QRCodeSVG, ...)` instead of `QRCodeSVG({...})`. Window.onload triggers print dialog. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-UAT-004 |
+| Module | UAT — Customer-Centric Dispatches |
+| Title | Dispatch list is customer-centric, not carton-centric |
+| Priority | High |
+| Preconditions | Logged in, dispatches exist with customer assignments |
+| Steps | 1. Navigate to /dispatches. 2. Verify primary grouping is by customer (not by carton). 3. Verify each customer group shows: firm name, total cartons, total boxes, destinations, latest dispatch date. 4. Click to expand — verify individual carton records with barcode, product summary, dispatch details. |
+| Expected Result | Dispatch list shows "which customer received which carton when" instead of "which carton went to which customer". |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-UAT-005 |
+| Module | UAT — Child Box Product Name |
+| Title | Backend returns article_name (not aliased) for child box list |
+| Priority | Critical |
+| Preconditions | Child boxes exist in database |
+| Steps | 1. Call GET /api/v1/child-boxes. 2. Verify response includes `article_name` field (not `product_name`). 3. Verify response includes `article_code`, `sku`, `colour`, `size`, `mrp` fields. 4. Navigate to /child-boxes in UI. 5. Verify Product column shows article_name (not blank). |
+| Expected Result | Backend SQL queries use `p.article_name` (no alias), and frontend renders it correctly in the Product column. |
+| Type | Integration |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-UAT-006 |
+| Module | UAT — Label Formatting |
+| Title | Generated label includes all required fields per spec |
+| Priority | High |
+| Preconditions | Logged in, generate child box labels |
+| Steps | 1. Generate labels. 2. Click "Print Labels". 3. In the print window, verify label contains: Article No, Colour, Size (large), M.R.P. (with "Inc of all taxes"), Packed on date, Content (N pairs), QR code SVG, Manufacturer footer (Mahavir Polymers Pvt Ltd, address, Customer Care). |
+| Expected Result | Label format matches the "Child Box Label Information" specification with all 8 required data elements. |
+| Type | E2E |
+
+---
+
 ## Summary
 
 | Module | Test Case Range | Count |
@@ -2958,24 +3490,27 @@
 | QR Scanning | TC-SCAN-001 to TC-SCAN-010 | 10 |
 | PWA & Mobile | TC-PWA-001 to TC-PWA-010 | 10 |
 | Label Printing | TC-PRINT-001 to TC-PRINT-010 | 10 |
+| Multi-Size QR Batch Generation | TC-MSQR-001 to TC-MSQR-010 | 10 |
+| Phase 2 UI Enhancement (NEW) | TC-UI-001 to TC-UI-031 | 31 |
+| UAT Bug Fix Validation (NEW) | TC-UAT-001 to TC-UAT-006 | 6 |
 | Edge Cases & Negative Tests | TC-EDGE-001 to TC-EDGE-015 | 15 |
 | Performance Tests | TC-PERF-001 to TC-PERF-005 | 5 |
-| **Total** | | **225** |
+| **Total** | | **272** |
 
 ### Priority Distribution
 
 | Priority | Count |
 |----------|-------|
-| Critical | 52 |
-| High | 102 |
-| Medium | 58 |
-| Low | 13 |
+| Critical | 62 |
+| High | 114 |
+| Medium | 71 |
+| Low | 25 |
 
 ### Test Type Distribution
 
 | Type | Count |
 |------|-------|
-| E2E | 155 |
-| Integration | 85 |
+| E2E | 195 |
+| Integration | 91 |
 | Unit | 10 |
-| Security | 18 |
+| Security | 19 |

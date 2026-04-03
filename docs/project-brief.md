@@ -2,8 +2,8 @@
 
 **Client:** Binny Footwear (Mahavir Polymers Pvt. Ltd.)
 **Vendor:** Basiq360
-**Document Version:** 1.1
-**Date:** March 2026 (Updated March 16 with Customer Master, Product expansion, Label redesign)
+**Document Version:** 1.3
+**Date:** April 2026 (Updated April 3 with UAT fixes and Phase 2 UI Enhancement Plan; March 20 with Multi-Size QR; March 16 with Customer Master, Product expansion, Label redesign)
 **Classification:** External — For Stakeholder Review
 
 ---
@@ -75,7 +75,7 @@ This eliminates phantom stock by ensuring the digital record always matches the 
 ## 4. Key Features — Phase 1
 
 ### QR and Scanning
-- QR label generation and bulk printing for child boxes
+- QR label generation and bulk printing for child boxes (single-size and multi-size batch generation)
 - Master carton creation via mobile QR scanning
 - Real-time inventory updates triggered on every scan event
 
@@ -204,7 +204,8 @@ All endpoints are RESTful and require JWT authentication unless otherwise noted.
 
 | Method | Endpoint                             | Description                                  |
 |--------|--------------------------------------|----------------------------------------------|
-| POST   | `/api/child-boxes/generate`          | Generate QR codes for a batch of child boxes |
+| POST   | `/api/child-boxes/generate`          | Generate QR codes for a batch of child boxes (single size) |
+| POST   | `/api/child-boxes/bulk-multi-size`   | Generate QR codes across multiple sizes in one transaction |
 | GET    | `/api/child-boxes/:id`               | Get child box details and current location   |
 | GET    | `/api/child-boxes/:id/traceability`  | Full lifecycle history of a child box        |
 
@@ -358,6 +359,8 @@ Phase 1 will be considered successful when the following conditions are met:
 |---------|------------|----------|-----------------|
 | 1.0     | March 2026 | Basiq360 | Initial release |
 | 1.1     | 16-Mar-2026 | Basiq360 | Added Customer Master module, expanded Product Master (category/section/location/HSN/size group), redesigned child box & master carton labels per client wireframes, Binny HD logo integration |
+| 1.2     | 20-Mar-2026 | Basiq360 | Multi-Size QR Batch Generation: new bulk-multi-size endpoint, product sizes endpoint, generate page rewrite with per-size quantity inputs |
+| 1.3     | 03-Apr-2026 | Basiq360 | UAT bug fixes (button visibility, print labels, searchable product dropdown, customer-centric dispatch list). Phase 2 UI Enhancement Plan: design system modernization (brand-tinted shadows, CSS animations, skeleton loaders), component polish (gradient buttons, interactive cards, glass-effect layouts), page-specific enhancements (dashboard welcome banner, list page skeletons, form sticky submit), PWA improvements (branded splash, offline page, toast accent borders). All frontend-only, no new dependencies. |
 
 ---
 

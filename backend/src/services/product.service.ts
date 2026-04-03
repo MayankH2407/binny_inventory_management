@@ -184,3 +184,35 @@ export async function deleteProduct(id: string, deletedBy: string): Promise<void
 
   logger.info(`Product deactivated: ${existing.rows[0].article_name}`);
 }
+
+export async function getSiblingProducts(productId: string): Promise<Product[]> {
+  // First get the product to find its article_name and colour
+  const productResult = await query('SELECT article_name, colour FROM products WHERE id = $1 AND is_active = true', [productId]);
+  if (productResult.rows.length === 0) {
+    throw new NotFoundError('Product not found');
+  }
+  const { article_name, colour } = productResult.rows[0];
+
+  const result = await query(
+    `SELECT * FROM products WHERE article_name = $1 AND colour = $2 AND is_active = true ORDER BY size`,
+    [article_name, colour]
+  );
+  return result.rows;
+}
+
+export async function getColoursByProduct(productId: string): Promise<{ colour: string; product_id: string }[]> {
+  const productResult = await query('SELECT article_name FROM products WHERE id = $1 AND is_active = true', [productId]);
+  if (productResult.rows.length === 0) {
+    throw new NotFoundError('Product not found');
+  }
+  const { article_name } = productResult.rows[0];
+
+  const result = await query(
+    `SELECT DISTINCT ON (colour) colour, id as product_id
+     FROM products
+     WHERE article_name = $1 AND is_active = true
+     ORDER BY colour`,
+    [article_name]
+  );
+  return result.rows;
+}

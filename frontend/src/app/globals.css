@@ -3,13 +3,16 @@
 @tailwind utilities;
 
 :root {
-  --color-primary: #E31E24;
-  --color-primary-dark: #B71C1C;
-  --color-primary-light: #FFEBEE;
+  --color-primary: #2D2A6E;
+  --color-primary-dark: #1E1A5F;
+  --color-primary-light: #EEEDF7;
+  --color-accent: #E31E24;
+  --color-accent-dark: #B71C1C;
+  --color-accent-light: #FFEBEE;
   --color-white: #FFFFFF;
   --color-text-dark: #1A1A2E;
   --color-text-muted: #6B7280;
-  --color-background: #F9FAFB;
+  --color-background: #F5F6FA;
   --color-success: #16A34A;
   --color-warning: #F59E0B;
   --color-error: #DC2626;
@@ -22,7 +25,8 @@
   }
 
   body {
-    @apply bg-brand-background text-brand-text-dark;
+    @apply text-brand-text-dark;
+    background-color: var(--color-background);
     font-feature-settings: 'rlig' 1, 'calt' 1;
   }
 
@@ -33,38 +37,58 @@
 
 @layer components {
   .btn-primary {
-    @apply bg-binny-red hover:bg-binny-red-dark text-white font-medium rounded-lg
-           transition-colors duration-200 focus:outline-none focus:ring-2
-           focus:ring-binny-red focus:ring-offset-2 disabled:opacity-50
-           disabled:cursor-not-allowed;
+    @apply font-medium rounded-lg transition-all duration-200
+           focus:outline-none focus:ring-2 focus:ring-binny-navy focus:ring-offset-2
+           disabled:opacity-50 disabled:cursor-not-allowed text-white shadow-sm;
+    background: linear-gradient(135deg, #2D2A6E 0%, #3D3A8E 100%);
+    color: #fff;
+  }
+  .btn-primary:hover:not(:disabled) {
+    background: linear-gradient(135deg, #1E1A5F 0%, #2D2A6E 100%);
+    @apply shadow-md;
   }
 
   .btn-secondary {
     @apply bg-white hover:bg-gray-50 text-brand-text-dark border border-brand-border
-           font-medium rounded-lg transition-colors duration-200 focus:outline-none
-           focus:ring-2 focus:ring-binny-red focus:ring-offset-2;
+           font-medium rounded-lg transition-all duration-200 focus:outline-none
+           focus:ring-2 focus:ring-binny-navy focus:ring-offset-2;
   }
 
   .input-field {
-    @apply w-full rounded-lg border border-brand-border bg-white px-4 py-2.5
+    @apply w-full rounded-lg border border-brand-border px-4 py-2.5
            text-brand-text-dark placeholder:text-brand-text-muted
-           focus:border-binny-red focus:outline-none focus:ring-2
-           focus:ring-binny-red/20 transition-all duration-200;
+           focus:border-binny-navy focus:outline-none focus:ring-2
+           focus:ring-binny-navy/10 focus:shadow-sm focus:bg-white
+           transition-all duration-200;
+    background-color: rgba(249, 250, 251, 0.5);
   }
 
   .card {
-    @apply bg-white rounded-xl border border-brand-border shadow-sm;
+    @apply bg-white rounded-xl border border-brand-border shadow-card
+           transition-shadow duration-200;
+  }
+
+  .card-interactive {
+    @apply bg-white rounded-xl border border-brand-border shadow-card
+           hover:shadow-card-hover hover:-translate-y-0.5
+           transition-all duration-200 cursor-pointer;
   }
 
   .sidebar-link {
     @apply flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium
-           text-brand-text-muted hover:text-brand-text-dark hover:bg-gray-100
-           transition-colors duration-200;
+           text-brand-text-muted hover:text-brand-text-dark hover:bg-binny-navy-50
+           transition-all duration-200;
   }
 
   .sidebar-link-active {
     @apply flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium
-           text-binny-red bg-binny-red-light;
+           text-white shadow-sm;
+    background: linear-gradient(135deg, #2D2A6E 0%, #3D3A8E 100%);
+  }
+
+  .skeleton {
+    @apply bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200
+           bg-[length:200%_100%] animate-shimmer rounded;
   }
 }
 
@@ -87,7 +111,7 @@
   content: '';
   position: absolute;
   inset: 0;
-  border: 2px solid rgba(227, 30, 36, 0.5);
+  border: 2px solid rgba(45, 42, 110, 0.5);
   border-radius: 12px;
   pointer-events: none;
   z-index: 10;
