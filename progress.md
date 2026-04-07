@@ -51,6 +51,23 @@
 | 163 | Sidebar: Inverted to navy bg with white active items | Done | User feedback: changed from white sidebar to full navy gradient (180deg #2D2A6E→#1E1A5F), inactive items white/70, active item white bg with navy text + red indicator, borders white/10 |
 | 164 | Fix: Child Box list product name blank | Done | Backend childBox.service.ts: all 4 SELECT queries aliased `p.article_name as product_name` but frontend expects `article_name`. Changed to `p.article_name, p.article_code, p.sku, p.size, p.colour, p.mrp` (no aliasing). Also added missing article_code and mrp columns |
 
+#### Phase 3: PWA Enhancement — Implementation (April 4, 2026)
+| # | Activity | Status | Notes |
+|---|----------|--------|-------|
+| 165 | IndexedDB wrapper for offline persistence | Done | New `lib/indexedDb.ts` — promise-based wrapper (openDB, putItem, getAllItems, deleteItem, clearStore). DB: binny_offline, store: pending_scans. PendingScan: {id, barcode, sessionType, scannedAt} |
+| 166 | Network status hook | Done | New `hooks/useNetworkStatus.ts` — navigator.onLine + online/offline events. Returns {isOnline, wasOffline}. wasOffline stays true 3s after reconnect |
+| 167 | Install prompt hook | Done | New `hooks/useInstallPrompt.ts` — captures beforeinstallprompt, mobile-only, checks display-mode:standalone, dismissal persisted in localStorage |
+| 168 | Wake Lock hook | Done | New `hooks/useWakeLock.ts` — navigator.wakeLock.request('screen'), re-acquires on visibilitychange, cleanup on unmount |
+| 169 | Scan feedback hook | Done | New `hooks/useScanFeedback.ts` — triggerSuccess (100ms vibrate + 1200Hz beep), triggerError (double-pulse + 400Hz tone). Uses AudioContext, no audio files |
+| 170 | Offline scan queue hook | Done | New `hooks/useOfflineScanQueue.ts` — loads pending from IDB on mount, addPendingScan writes to IDB, auto-syncs on online event, drains queue via API trace lookup |
+| 171 | Network status bar component | Done | New `components/ui/NetworkStatusBar.tsx` — amber bar "You are offline" when disconnected, green bar "Back online — syncing..." on reconnect (3s auto-dismiss) |
+| 172 | Install prompt banner component | Done | New `components/ui/InstallPromptBanner.tsx` — navy gradient banner above mobile nav with app icon, "Install Binny Inventory", Install button + X dismiss |
+| 173 | QR Scanner: full-screen mode + feedback | Done | QRScanner.tsx — new fullScreen/onToggleFullScreen/pendingOfflineCount props. Full-screen: fixed inset-0 z-50 overlay with close button. Integrated wake lock (screen stays on) + haptic/audio feedback on scan |
+| 174 | Dashboard layout: PWA components mounted | Done | layout.tsx — added NetworkStatusBar (above header), InstallPromptBanner (after MobileNav) |
+| 175 | Scan page: offline queue + full-screen | Done | scan/page.tsx — offline scan queue with pending badge, saves to IDB when offline, full-screen scan toggle |
+| 176 | Dispatch page: full-screen scan | Done | dispatch/page.tsx — full-screen scan toggle for carton scanning |
+| 177 | Master Carton Create: full-screen scan | Done | master-cartons/create/page.tsx — full-screen scan toggle for child box scanning |
+
 ### April 2, 2026 — Dispatch Enhancements, Admin Restrictions, Product Details & Customer-Centric Report
 | # | Activity | Status | Notes |
 |---|----------|--------|-------|

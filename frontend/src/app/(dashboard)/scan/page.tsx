@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { Search, Package, Boxes, ArrowRight } from 'lucide-react';
+import { Search, Package, Boxes, ArrowRight, CloudOff } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
@@ -15,6 +15,9 @@ import toast from 'react-hot-toast';
 import { formatDateTime, formatCurrency } from '@/lib/utils';
 import Link from 'next/link';
 import { ROUTES } from '@/constants';
+import { useOfflineScanQueue } from '@/hooks/useOfflineScanQueue';
+import { useNetworkStatus } from '@/hooks/useNetworkStatus';
+import Badge from '@/components/ui/Badge';
 
 type ScanResult =
   | { type: 'childBox'; data: ChildBoxWithProduct }
@@ -25,6 +28,9 @@ export default function ScanPage() {
   const [manualCode, setManualCode] = useState('');
   const [result, setResult] = useState<ScanResult>(null);
   const [isSearching, setIsSearching] = useState(false);
+  const [fullScreen, setFullScreen] = useState(false);
+  const { isOnline } = useNetworkStatus();
+  const { pendingCount, addPendingScan } = useOfflineScanQueue();
 
   const lookupCode = useCallback(async (code: string) => {
     if (!code.trim()) return;
@@ -37,7 +43,14 @@ export default function ScanPage() {
       toast.success('Child box found');
       setIsSearching(false);
       return;
-    } catch {
+    } catch (err: any) {
+      // If offline, save to queue
+      if (!navigator.onLine) {
+        await addPendingScan(code, 'trace');
+        toast('Saved offline — will sync when back online', { icon: '📡' });
+        setIsSearching(false);
+        return;
+      }
       // Not a child box, try master carton
     }
 
@@ -46,11 +59,16 @@ export default function ScanPage() {
       setResult({ type: 'masterCarton', data: carton });
       toast.success('Master carton found');
     } catch {
-      toast.error('QR code not found in system');
+      if (!navigator.onLine) {
+        await addPendingScan(code, 'trace');
+        toast('Saved offline — will sync when back online', { icon: '📡' });
+      } else {
+        toast.error('QR code not found in system');
+      }
     }
 
     setIsSearching(false);
-  }, []);
+  }, [addPendingScan]);
 
   const handleScan = useCallback(
     (decodedText: string) => {
@@ -68,13 +86,23 @@ export default function ScanPage() {
       <PageHeader
         title="Scan QR Code"
         description="Scan or enter a QR code to look up child boxes or master cartons"
+        action={
+          pendingCount > 0 ? (
+            <Badge variant="orange" dot>{pendingCount} scan{pendingCount > 1 ? 's' : ''} pending sync</Badge>
+          ) : undefined
+        }
       />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="space-y-6">
           <Card className="p-6">
             <h3 className="font-semibold text-brand-text-dark mb-4">Camera Scanner</h3>
-            <QRScanner onScanSuccess={handleScan} />
+            <QRScanner
+              onScanSuccess={handleScan}
+              fullScreen={fullScreen}
+              onToggleFullScreen={() => setFullScreen(!fullScreen)}
+              pendingOfflineCount={pendingCount}
+            />
           </Card>
 
           <Card className="p-6">

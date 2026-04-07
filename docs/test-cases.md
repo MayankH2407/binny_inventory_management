@@ -33,6 +33,7 @@
 21. [Performance Tests](#21-performance-tests)
 22. [Phase 2 UI Enhancement Tests (NEW)](#22-phase-2-ui-enhancement-tests-new)
 23. [UAT Bug Fix Validation Tests (NEW)](#23-uat-bug-fix-validation-tests-new)
+24. [Phase 3 PWA Enhancement Tests (NEW)](#24-phase-3-pwa-enhancement-tests-new)
 
 ---
 
@@ -3472,6 +3473,274 @@
 
 ---
 
+## 24. Phase 3 PWA Enhancement Tests (NEW)
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-PWA-001 |
+| Module | PWA — Offline Queue |
+| Title | Scan page loads with no pending scans initially |
+| Priority | High |
+| Preconditions | Logged in, no prior offline scans |
+| Steps | 1. Navigate to /scan. 2. Verify no "pending sync" badge visible. |
+| Expected Result | Clean state with no pending offline scans. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-PWA-002 |
+| Module | PWA — Offline Queue |
+| Title | Manual barcode lookup works when online |
+| Priority | Critical |
+| Preconditions | Logged in, valid child box barcode exists |
+| Steps | 1. Create child box via API. 2. Navigate to /scan. 3. Enter barcode manually. 4. Click Look Up. |
+| Expected Result | Child box details shown in result panel. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-PWA-003 |
+| Module | PWA — Offline Queue |
+| Title | Offline scan saves to queue and shows pending badge |
+| Priority | Critical |
+| Preconditions | Logged in |
+| Steps | 1. Navigate to /scan. 2. Go offline (setOffline). 3. Enter barcode manually. 4. Click Look Up. |
+| Expected Result | Toast "Saved offline" appears. Pending sync badge visible with count. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-PWA-004 |
+| Module | PWA — Offline Queue |
+| Title | Multiple offline scans accumulate in queue |
+| Priority | High |
+| Preconditions | Logged in, offline |
+| Steps | 1. Go offline. 2. Scan barcode A. 3. Scan barcode B. 4. Check pending count. |
+| Expected Result | Pending badge shows count of 2+. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-PWA-005 |
+| Module | PWA — Offline Queue |
+| Title | IndexedDB persists scans across page reload |
+| Priority | Critical |
+| Preconditions | Offline scan saved |
+| Steps | 1. Go offline, scan a barcode. 2. Go back online. 3. Directly query IndexedDB for pending_scans store. |
+| Expected Result | IndexedDB contains the scan record with barcode, sessionType, scannedAt. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-PWA-006 |
+| Module | PWA — Network Status |
+| Title | No status bar shown when online |
+| Priority | Medium |
+| Preconditions | Logged in, online |
+| Steps | 1. Verify no "You are offline" bar visible. |
+| Expected Result | Nothing rendered by NetworkStatusBar. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-PWA-007 |
+| Module | PWA — Network Status |
+| Title | Amber bar appears when going offline |
+| Priority | High |
+| Preconditions | Logged in |
+| Steps | 1. Set browser offline. 2. Check for amber bar. |
+| Expected Result | Amber bar "You are offline — scans will be saved locally" appears with WifiOff icon. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-PWA-008 |
+| Module | PWA — Network Status |
+| Title | Green bar appears when coming back online |
+| Priority | High |
+| Preconditions | Was offline |
+| Steps | 1. Go offline. 2. Come back online. |
+| Expected Result | Green bar "Back online — syncing..." appears with Wifi icon. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-PWA-009 |
+| Module | PWA — Network Status |
+| Title | Green bar auto-dismisses after 3 seconds |
+| Priority | Medium |
+| Preconditions | Was offline, now online |
+| Steps | 1. Go offline then online. 2. Wait 3+ seconds. |
+| Expected Result | Green bar disappears automatically. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-PWA-010 |
+| Module | PWA — Network Status |
+| Title | Network bar shows on all dashboard pages |
+| Priority | Medium |
+| Preconditions | Logged in |
+| Steps | 1. Navigate to /child-boxes. 2. Go offline. 3. Verify bar. 4. Navigate to /master-cartons. 5. Verify bar persists. |
+| Expected Result | NetworkStatusBar renders on all pages within the dashboard layout. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-PWA-011 |
+| Module | PWA — Install Prompt |
+| Title | Install prompt hook initializes without error |
+| Priority | Medium |
+| Preconditions | Logged in |
+| Steps | 1. Load dashboard. 2. Verify app loads normally. |
+| Expected Result | App works regardless of whether beforeinstallprompt fires. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-PWA-012 |
+| Module | PWA — Install Prompt |
+| Title | Install dismissal persists in localStorage |
+| Priority | Medium |
+| Preconditions | Logged in |
+| Steps | 1. Set localStorage binny_install_dismissed=true. 2. Reload. 3. Verify no install banner. |
+| Expected Result | Install banner stays hidden after dismissal across page reloads. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-PWA-013 |
+| Module | PWA — Install Prompt |
+| Title | Standalone mode detection works |
+| Priority | Low |
+| Preconditions | Running in browser (not installed) |
+| Steps | 1. Check display-mode:standalone media query. |
+| Expected Result | Returns false in browser, true when installed as PWA. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-PWA-014 |
+| Module | PWA — Scan Experience |
+| Title | Scan page has full-screen scan button |
+| Priority | High |
+| Preconditions | Logged in |
+| Steps | 1. Navigate to /scan. 2. Verify "Full Screen" button is visible. |
+| Expected Result | Full Screen button exists alongside Start/Stop scanning controls. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-PWA-015 |
+| Module | PWA — Scan Experience |
+| Title | Full-screen scanner opens as fixed overlay |
+| Priority | High |
+| Preconditions | Logged in, on scan page |
+| Steps | 1. Click Full Screen. 2. Verify fixed inset-0 z-50 overlay. 3. Verify close (X) button. |
+| Expected Result | Scanner fills entire screen as a fixed overlay with black background. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-PWA-016 |
+| Module | PWA — Scan Experience |
+| Title | Full-screen scanner close button exits overlay |
+| Priority | High |
+| Preconditions | Full-screen scanner open |
+| Steps | 1. Open full screen. 2. Click X close. 3. Verify overlay removed. |
+| Expected Result | Scanner returns to inline mode, fixed overlay disappears. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-PWA-017 |
+| Module | PWA — Scan Experience |
+| Title | Dispatch page has full-screen scan support |
+| Priority | Medium |
+| Preconditions | Logged in, scanner opened on /dispatch |
+| Steps | 1. Open scanner on dispatch page. 2. Verify Full Screen button. |
+| Expected Result | Full Screen toggle available on dispatch scanner. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-PWA-018 |
+| Module | PWA — Scan Experience |
+| Title | Master Carton Create has full-screen scan support |
+| Priority | Medium |
+| Preconditions | Logged in, scanner opened on /master-cartons/create |
+| Steps | 1. Open scanner. 2. Verify Full Screen button. |
+| Expected Result | Full Screen toggle available on master carton create scanner. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-PWA-019 to TC-PWA-021 |
+| Module | PWA — Browser APIs |
+| Title | Wake Lock, Vibration, AudioContext API availability checks |
+| Priority | Low |
+| Preconditions | Browser context |
+| Steps | 1. Check navigator.wakeLock availability. 2. Check navigator.vibrate. 3. Create and close AudioContext tone. |
+| Expected Result | API checks execute without errors. Availability is browser-dependent but code handles gracefully. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-PWA-022 |
+| Module | PWA — Scan Experience |
+| Title | Full-screen scan shows pending offline count badge |
+| Priority | Medium |
+| Preconditions | Offline scans pending, full-screen scanner open |
+| Steps | 1. Go offline, scan a barcode. 2. Open full-screen scanner. 3. Verify "pending sync" badge in overlay. |
+| Expected Result | Amber badge shows count of pending offline scans inside full-screen overlay. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-PWA-023 to TC-PWA-025 |
+| Module | PWA — Manifest |
+| Title | Manifest.json validity, icon entries, and categories |
+| Priority | High |
+| Preconditions | None |
+| Steps | 1. Fetch /manifest.json. 2. Verify name, display, theme_color, background_color. 3. Verify 4+ icons with separate any/maskable. 4. Verify categories. |
+| Expected Result | Manifest is valid with navy branding, split icon purposes, business+productivity categories. |
+| Type | Integration |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-PWA-026 to TC-PWA-028 |
+| Module | PWA — Manifest |
+| Title | PWA icons accessible, HTML meta tags present, viewport configured |
+| Priority | Medium |
+| Preconditions | None |
+| Steps | 1. Fetch icon PNGs. 2. Check theme-color meta. 3. Check manifest link. 4. Verify viewport user-scalable=no. |
+| Expected Result | Icons return 200 PNG, meta tags configured for PWA experience. |
+| Type | Integration |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-PWA-029 to TC-PWA-031 |
+| Module | PWA — Branding |
+| Title | Offline page branded, retry button works, dashboard loading splash |
+| Priority | Medium |
+| Preconditions | None |
+| Steps | 1. Visit /offline — verify branded design. 2. Verify retry button. 3. Visit / without auth — verify branded splash or redirect. |
+| Expected Result | Offline page and loading state use navy gradient branding. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-PWA-032 to TC-PWA-034 |
+| Module | PWA — IndexedDB |
+| Title | IndexedDB open, write/read, and delete operations |
+| Priority | High |
+| Preconditions | Browser context |
+| Steps | 1. Open binny_offline DB. 2. Write test record, read it back. 3. Delete record, verify empty. |
+| Expected Result | All IndexedDB CRUD operations succeed in the browser environment. |
+| Type | Integration |
+
+---
+
 ## Summary
 
 | Module | Test Case Range | Count |
@@ -3488,29 +3757,30 @@
 | Traceability | TC-TRACE-001 to TC-TRACE-010 | 10 |
 | Reporting | TC-REPORT-001 to TC-REPORT-015 | 15 |
 | QR Scanning | TC-SCAN-001 to TC-SCAN-010 | 10 |
-| PWA & Mobile | TC-PWA-001 to TC-PWA-010 | 10 |
+| PWA & Mobile (Phase 1) | TC-PWA-001 to TC-PWA-010 | 10 |
 | Label Printing | TC-PRINT-001 to TC-PRINT-010 | 10 |
 | Multi-Size QR Batch Generation | TC-MSQR-001 to TC-MSQR-010 | 10 |
-| Phase 2 UI Enhancement (NEW) | TC-UI-001 to TC-UI-031 | 31 |
-| UAT Bug Fix Validation (NEW) | TC-UAT-001 to TC-UAT-006 | 6 |
+| Phase 2 UI Enhancement | TC-UI-001 to TC-UI-031 | 31 |
+| UAT Bug Fix Validation | TC-UAT-001 to TC-UAT-006 | 6 |
+| Phase 3 PWA Enhancement (NEW) | TC-PWA-001 to TC-PWA-034 | 34 |
 | Edge Cases & Negative Tests | TC-EDGE-001 to TC-EDGE-015 | 15 |
 | Performance Tests | TC-PERF-001 to TC-PERF-005 | 5 |
-| **Total** | | **272** |
+| **Total** | | **306** |
 
 ### Priority Distribution
 
 | Priority | Count |
 |----------|-------|
-| Critical | 62 |
-| High | 114 |
-| Medium | 71 |
-| Low | 25 |
+| Critical | 67 |
+| High | 124 |
+| Medium | 82 |
+| Low | 33 |
 
 ### Test Type Distribution
 
 | Type | Count |
 |------|-------|
-| E2E | 195 |
-| Integration | 91 |
+| E2E | 221 |
+| Integration | 99 |
 | Unit | 10 |
 | Security | 19 |

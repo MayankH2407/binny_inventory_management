@@ -5,7 +5,8 @@ import { usePathname } from 'next/navigation';
 import Sidebar from '@/components/layout/Sidebar';
 import Header from '@/components/layout/Header';
 import MobileNav from '@/components/layout/MobileNav';
-import { PageSpinner } from '@/components/ui/Spinner';
+import NetworkStatusBar from '@/components/ui/NetworkStatusBar';
+import InstallPromptBanner from '@/components/ui/InstallPromptBanner';
 import { useAuth } from '@/hooks/useAuth';
 import { NAV_ITEMS } from '@/constants';
 
@@ -68,6 +69,7 @@ export default function DashboardLayout({
       )}
 
       <div className="flex-1 flex flex-col min-w-0">
+        <NetworkStatusBar />
         <Header
           title={pageTitle}
           onMenuToggle={() => setMobileMenuOpen(!mobileMenuOpen)}
@@ -79,6 +81,7 @@ export default function DashboardLayout({
       </div>
 
       <MobileNav />
+      <InstallPromptBanner />
     </div>
   );
 }

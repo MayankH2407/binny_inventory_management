@@ -22,6 +22,7 @@ export default function CreateMasterCartonPage() {
   const router = useRouter();
   const [maxCapacity, setMaxCapacity] = useState(24);
   const [showScanner, setShowScanner] = useState(false);
+  const [fullScreenScan, setFullScreenScan] = useState(false);
   const [manualBarcode, setManualBarcode] = useState('');
   const { scannedItems, addItem, removeItem, clearItems } = useScanStore();
   const [itemDetails, setItemDetails] = useState<Record<string, ChildBoxWithProduct>>({});
@@ -144,7 +145,12 @@ export default function CreateMasterCartonPage() {
             </div>
 
             {showScanner && (
-              <QRScanner onScanSuccess={handleScan} autoStart />
+              <QRScanner
+                onScanSuccess={handleScan}
+                autoStart
+                fullScreen={fullScreenScan}
+                onToggleFullScreen={() => setFullScreenScan(!fullScreenScan)}
+              />
             )}
 
             <div className="mt-4 pt-4 border-t border-brand-border">

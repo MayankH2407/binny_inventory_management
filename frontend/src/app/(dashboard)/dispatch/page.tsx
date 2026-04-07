@@ -21,6 +21,7 @@ import { formatCurrency } from '@/lib/utils';
 export default function DispatchPage() {
   const router = useRouter();
   const [showScanner, setShowScanner] = useState(false);
+  const [fullScreenScan, setFullScreenScan] = useState(false);
   const [manualBarcode, setManualBarcode] = useState('');
   const [scannedCartons, setScannedCartons] = useState<MasterCarton[]>([]);
   const [customerId, setCustomerId] = useState('');
@@ -222,7 +223,14 @@ export default function DispatchPage() {
                 {showScanner ? 'Hide Scanner' : 'Open Scanner'}
               </Button>
             </div>
-            {showScanner && <QRScanner onScanSuccess={handleScanCarton} autoStart />}
+            {showScanner && (
+              <QRScanner
+                onScanSuccess={handleScanCarton}
+                autoStart
+                fullScreen={fullScreenScan}
+                onToggleFullScreen={() => setFullScreenScan(!fullScreenScan)}
+              />
+            )}
 
             {/* Manual barcode input */}
             <div className="mt-4">

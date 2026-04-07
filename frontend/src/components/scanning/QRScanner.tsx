@@ -1,9 +1,11 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Camera, CameraOff, SwitchCamera, Flashlight } from 'lucide-react';
+import { Camera, CameraOff, SwitchCamera, X, Maximize2, Minimize2 } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import { useQRScanner } from '@/hooks/useQRScanner';
+import { useWakeLock } from '@/hooks/useWakeLock';
+import { useScanFeedback } from '@/hooks/useScanFeedback';
 import { cn } from '@/lib/utils';
 
 interface QRScannerProps {
@@ -11,6 +13,9 @@ interface QRScannerProps {
   onScanError?: (error: string) => void;
   className?: string;
   autoStart?: boolean;
+  fullScreen?: boolean;
+  onToggleFullScreen?: () => void;
+  pendingOfflineCount?: number;
 }
 
 export default function QRScanner({
@@ -18,17 +23,26 @@ export default function QRScanner({
   onScanError,
   className,
   autoStart = false,
+  fullScreen = false,
+  onToggleFullScreen,
+  pendingOfflineCount = 0,
 }: QRScannerProps) {
   const [lastScanned, setLastScanned] = useState<string | null>(null);
+  const { requestWakeLock, releaseWakeLock } = useWakeLock();
+  const { triggerSuccess, triggerError } = useScanFeedback();
 
   const handleScanSuccess = useCallback(
     (decodedText: string) => {
-      if (decodedText === lastScanned) return;
+      if (decodedText === lastScanned) {
+        triggerError();
+        return;
+      }
       setLastScanned(decodedText);
+      triggerSuccess();
       onScanSuccess(decodedText);
       setTimeout(() => setLastScanned(null), 2000);
     },
-    [lastScanned, onScanSuccess]
+    [lastScanned, onScanSuccess, triggerSuccess, triggerError]
   );
 
   const {
@@ -47,6 +61,15 @@ export default function QRScanner({
     qrbox: { width: 250, height: 250 },
     preferredCamera: 'environment',
   });
+
+  // Wake lock: keep screen on while scanning
+  useEffect(() => {
+    if (isScanning) {
+      requestWakeLock();
+    } else {
+      releaseWakeLock();
+    }
+  }, [isScanning, requestWakeLock, releaseWakeLock]);
 
   useEffect(() => {
     if (autoStart && hasPermission && activeCameraId && !isScanning) {
@@ -76,12 +99,12 @@ export default function QRScanner({
     );
   }
 
-  return (
-    <div className={cn('flex flex-col gap-4', className)}>
-      <div className="relative overflow-hidden rounded-xl bg-black">
+  const scannerContent = (
+    <>
+      <div className={cn('relative overflow-hidden', fullScreen ? 'flex-1' : 'rounded-xl bg-black')}>
         <div
           id={scannerElementId}
-          className="w-full aspect-square max-h-[400px]"
+          className={cn('w-full', fullScreen ? 'h-full' : 'aspect-square max-h-[400px]')}
         />
 
         {isScanning && (
@@ -103,9 +126,27 @@ export default function QRScanner({
             Scanned: {lastScanned}
           </div>
         )}
+
+        {/* Full-screen overlay controls */}
+        {fullScreen && (
+          <>
+            <button
+              onClick={onToggleFullScreen}
+              className="absolute top-4 right-4 z-10 p-2 rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors"
+            >
+              <X className="h-5 w-5" />
+            </button>
+
+            {pendingOfflineCount > 0 && (
+              <div className="absolute top-4 left-4 z-10 px-3 py-1.5 rounded-full bg-amber-500 text-white text-xs font-semibold">
+                {pendingOfflineCount} pending sync
+              </div>
+            )}
+          </>
+        )}
       </div>
 
-      <div className="flex items-center justify-center gap-3">
+      <div className={cn('flex items-center justify-center gap-3', fullScreen && 'py-4 bg-black')}>
         {!isScanning ? (
           <Button
             onClick={startScanning}
@@ -135,10 +176,36 @@ export default function QRScanner({
             }}
             leftIcon={<SwitchCamera className="h-4 w-4" />}
           >
-            Switch Camera
+            Switch
+          </Button>
+        )}
+
+        {!fullScreen && onToggleFullScreen && (
+          <Button
+            variant="ghost"
+            size="md"
+            onClick={onToggleFullScreen}
+            leftIcon={<Maximize2 className="h-4 w-4" />}
+          >
+            Full Screen
           </Button>
         )}
       </div>
+    </>
+  );
+
+  // Full-screen mode: fixed overlay covering everything
+  if (fullScreen) {
+    return (
+      <div className="fixed inset-0 z-50 bg-black flex flex-col">
+        {scannerContent}
+      </div>
+    );
+  }
+
+  return (
+    <div className={cn('flex flex-col gap-4', className)}>
+      {scannerContent}
     </div>
   );
 }
