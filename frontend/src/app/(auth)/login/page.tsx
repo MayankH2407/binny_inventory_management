@@ -2,7 +2,6 @@
 
 import { useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
-import Image from 'next/image';
 import { Mail, Lock, Eye, EyeOff } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
@@ -48,8 +47,14 @@ export default function LoginPage() {
       toast.success('Login successful');
       router.replace('/dashboard');
     } catch (err: any) {
-      const message =
-        err?.response?.data?.message || 'Invalid email or password. Please try again.';
+      let message: string;
+      if (err?.response?.data?.message) {
+        message = err.response.data.message;
+      } else if (err?.code === 'ERR_NETWORK' || !err?.response) {
+        message = 'Unable to reach the server. Please check your connection.';
+      } else {
+        message = 'Login failed. Please try again.';
+      }
       toast.error(message);
     } finally {
       setIsLoading(false);
@@ -64,13 +69,11 @@ export default function LoginPage() {
 
         <div className="p-8">
           <div className="flex flex-col items-center mb-8">
-            <div className="w-20 h-20 mb-4 relative">
-              <Image
-                src="/monogram.png"
+            <div className="w-20 h-20 mb-4">
+              <img
+                src={`${process.env.NEXT_PUBLIC_BASE_PATH || ''}/monogram.png`}
                 alt="Binny Footwear"
-                fill
-                className="object-contain"
-                priority
+                className="w-full h-full object-contain"
               />
             </div>
             <h1 className="text-2xl font-bold text-brand-text-dark">Binny Inventory</h1>

@@ -18,6 +18,7 @@ export const ROUTES = {
   PRODUCTS: '/products',
   CUSTOMERS: '/customers',
   USERS: '/users',
+  INVENTORY: '/inventory',
   SETTINGS: '/settings',
 } as const;
 
@@ -67,6 +68,7 @@ export const NAV_ITEMS = [
   { label: 'Repack', href: ROUTES.REPACK, icon: 'ArrowLeftRight' },
   { label: 'Dispatch', href: ROUTES.DISPATCH, icon: 'Truck' },
   { label: 'Dispatches', href: ROUTES.DISPATCHES, icon: 'ClipboardList' },
+  { label: 'Inventory', href: ROUTES.INVENTORY, icon: 'Warehouse' },
   { label: 'Reports', href: ROUTES.REPORTS, icon: 'BarChart3' },
   { label: 'Traceability', href: ROUTES.TRACEABILITY, icon: 'Search' },
   { label: 'Products', href: ROUTES.PRODUCTS, icon: 'Tag', adminOnly: true },

@@ -10,7 +10,7 @@ const poolConfig: PoolConfig = {
   allowExitOnIdle: false,
 };
 
-if (env.NODE_ENV === 'production') {
+if (env.NODE_ENV === 'production' && env.DATABASE_SSL !== 'false') {
   poolConfig.ssl = { rejectUnauthorized: false };
 }
 

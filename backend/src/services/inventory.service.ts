@@ -244,3 +244,161 @@ export async function traceByBarcode(barcode: string): Promise<Record<string, un
 
   throw new NotFoundError(`No child box or master carton found with barcode: ${barcode}`);
 }
+
+// ─── Hierarchical Stock Drill-Down ─────────────────────────────────────────
+
+export interface StockNode {
+  name: string;
+  key: string;
+  totalPairs: number;
+  inStock: number;
+  packed: number;
+  dispatched: number;
+  childBoxCount: number;
+  cartonCount: number;
+  children?: number;
+}
+
+export interface StockDetail {
+  sku: string;
+  articleName: string;
+  articleCode: string;
+  colour: string;
+  size: string;
+  mrp: number;
+  category: string | null;
+  section: string | null;
+  totalPairs: number;
+  freePairs: number;
+  packedPairs: number;
+  dispatchedPairs: number;
+  freeBoxes: number;
+  packedBoxes: number;
+  dispatchedBoxes: number;
+  cartons: number;
+}
+
+export async function getStockByLevel(
+  level: 'section' | 'article_name' | 'colour' | 'product',
+  filters: { section?: string; article_name?: string; colour?: string }
+): Promise<StockNode[]> {
+  const conditions: string[] = ['p.is_active = true'];
+  const values: unknown[] = [CHILD_BOX_STATUS.FREE, CHILD_BOX_STATUS.PACKED, CHILD_BOX_STATUS.DISPATCHED];
+  let paramIndex = 4;
+
+  if (filters.section) {
+    conditions.push(`p.section = $${paramIndex++}`);
+    values.push(filters.section);
+  }
+  if (filters.article_name) {
+    conditions.push(`p.article_name = $${paramIndex++}`);
+    values.push(filters.article_name);
+  }
+  if (filters.colour) {
+    conditions.push(`p.colour = $${paramIndex++}`);
+    values.push(filters.colour);
+  }
+
+  const whereClause = conditions.join(' AND ');
+
+  let groupCol: string;
+  let nameExpr: string;
+  let keyExpr: string;
+  let childCountExpr: string;
+
+  switch (level) {
+    case 'section':
+      groupCol = 'p.section';
+      nameExpr = "COALESCE(p.section, 'Uncategorized')";
+      keyExpr = "COALESCE(p.section, 'Uncategorized')";
+      childCountExpr = 'COUNT(DISTINCT p.article_name)';
+      break;
+    case 'article_name':
+      groupCol = 'p.article_name';
+      nameExpr = 'p.article_name';
+      keyExpr = 'p.article_name';
+      childCountExpr = 'COUNT(DISTINCT p.colour)';
+      break;
+    case 'colour':
+      groupCol = 'p.colour';
+      nameExpr = 'p.colour';
+      keyExpr = 'p.colour';
+      childCountExpr = 'COUNT(DISTINCT p.size)';
+      break;
+    case 'product':
+      groupCol = 'p.id';
+      nameExpr = "p.size || ' - ₹' || p.mrp";
+      keyExpr = 'p.id::text';
+      childCountExpr = '0';
+      break;
+  }
+
+  const result = await query(`
+    SELECT
+      ${nameExpr} as name,
+      ${keyExpr} as key,
+      COALESCE(SUM(cb.quantity), 0) as total_pairs,
+      COALESCE(SUM(cb.quantity) FILTER (WHERE cb.status = $1), 0) as in_stock,
+      COALESCE(SUM(cb.quantity) FILTER (WHERE cb.status = $2), 0) as packed,
+      COALESCE(SUM(cb.quantity) FILTER (WHERE cb.status = $3), 0) as dispatched,
+      COUNT(cb.id) as child_box_count,
+      COUNT(DISTINCT ccm.master_carton_id) FILTER (WHERE ccm.is_active = true) as carton_count,
+      ${childCountExpr} as children
+    FROM products p
+    LEFT JOIN child_boxes cb ON cb.product_id = p.id
+    LEFT JOIN carton_child_mapping ccm ON ccm.child_box_id = cb.id
+    WHERE ${whereClause}
+    GROUP BY ${groupCol}${level === 'product' ? ', p.size, p.mrp' : ''}
+    ORDER BY ${level === 'product' ? 'p.size::int' : 'total_pairs DESC NULLS LAST'}
+  `, values);
+
+  return result.rows.map(row => ({
+    name: row.name,
+    key: row.key,
+    totalPairs: parseInt(row.total_pairs, 10),
+    inStock: parseInt(row.in_stock, 10),
+    packed: parseInt(row.packed, 10),
+    dispatched: parseInt(row.dispatched, 10),
+    childBoxCount: parseInt(row.child_box_count, 10),
+    cartonCount: parseInt(row.carton_count, 10),
+    children: parseInt(row.children, 10),
+  }));
+}
+
+export async function getStockSummary(): Promise<{
+  totalProducts: number;
+  totalPairsInStock: number;
+  totalPairsDispatched: number;
+  totalChildBoxes: number;
+  totalCartons: number;
+  sections: number;
+  articles: number;
+}> {
+  const result = await query(`
+    SELECT
+      COUNT(DISTINCT p.id) as total_products,
+      COALESCE(SUM(cb.quantity) FILTER (WHERE cb.status IN ($1, $2)), 0) as pairs_in_stock,
+      COALESCE(SUM(cb.quantity) FILTER (WHERE cb.status = $3), 0) as pairs_dispatched,
+      COUNT(cb.id) as total_boxes,
+      COUNT(DISTINCT p.section) as sections,
+      COUNT(DISTINCT p.article_name) as articles
+    FROM products p
+    LEFT JOIN child_boxes cb ON cb.product_id = p.id
+    WHERE p.is_active = true
+  `, [CHILD_BOX_STATUS.FREE, CHILD_BOX_STATUS.PACKED, CHILD_BOX_STATUS.DISPATCHED]);
+
+  const cartonResult = await query(`
+    SELECT COUNT(*) as total FROM master_cartons WHERE status IN ($1, $2)
+  `, [MASTER_CARTON_STATUS.ACTIVE, MASTER_CARTON_STATUS.CLOSED]);
+
+  const row = result.rows[0];
+  return {
+    totalProducts: parseInt(row.total_products, 10),
+    totalPairsInStock: parseInt(row.pairs_in_stock, 10),
+    totalPairsDispatched: parseInt(row.pairs_dispatched, 10),
+    totalChildBoxes: parseInt(row.total_boxes, 10),
+    totalCartons: parseInt(cartonResult.rows[0].total, 10),
+    sections: parseInt(row.sections, 10),
+    articles: parseInt(row.articles, 10),
+  };
+}

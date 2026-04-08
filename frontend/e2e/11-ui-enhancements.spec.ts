@@ -107,8 +107,8 @@ test.describe('TC-UI: Phase 2 UI Enhancement Tests', () => {
     });
 
     test('TC-UI-013: Header shows notification bell with red dot', async ({ page }) => {
-      // Bell icon should be visible
-      const bellButton = page.locator('header button').first();
+      // Bell icon button — skip mobile-only hamburger (lg:hidden), target the visible bell button
+      const bellButton = page.locator('header button:not(.lg\\:hidden)').first();
       await expect(bellButton).toBeVisible();
     });
 
@@ -221,7 +221,7 @@ test.describe('TC-UI: Phase 2 UI Enhancement Tests', () => {
     test('TC-UI-025: Master Carton Create has icon section headers', async ({ page }) => {
       await page.goto('/master-cartons/create');
       await expect(page.getByText('Carton Settings')).toBeVisible();
-      await expect(page.getByText('Scan Child Boxes')).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Scan Child Boxes' })).toBeVisible();
       await expect(page.getByText(/Scanned Items/)).toBeVisible();
     });
 
@@ -243,13 +243,12 @@ test.describe('TC-UI: Phase 2 UI Enhancement Tests', () => {
     });
 
     test('TC-UI-028: Loading state shows branded splash', async ({ page }) => {
-      // Navigate to root without auth — should show branded loading/redirect
+      // Navigate to root without auth — should show branded loading then redirect to login
       await page.goto('/');
-      // Should eventually redirect to login or show dashboard
-      await page.waitForTimeout(3000);
-      const hasLogin = await page.getByText('Sign In').isVisible().catch(() => false);
-      const hasDashboard = await page.getByText('Total Child Boxes').isVisible().catch(() => false);
-      expect(hasLogin || hasDashboard).toBeTruthy();
+      // Wait for either login page or dashboard to appear (auth redirect may take time)
+      await expect(
+        page.getByRole('button', { name: 'Sign In' }).or(page.getByText('Total Child Boxes'))
+      ).toBeVisible({ timeout: 15000 });
     });
   });
 

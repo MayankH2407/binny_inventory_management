@@ -46,9 +46,10 @@ api.interceptors.response.use(
       if (typeof window !== 'undefined') {
         localStorage.removeItem('binny_token');
         localStorage.removeItem('binny_user');
+        const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
         const currentPath = window.location.pathname;
-        if (currentPath !== '/login') {
-          window.location.href = '/login';
+        if (!currentPath.endsWith('/login')) {
+          window.location.href = `${basePath}/login`;
         }
       }
     }

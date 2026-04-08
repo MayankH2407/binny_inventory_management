@@ -6,11 +6,64 @@
 
 ---
 
-## Project Status: PHASE 1 COMPLETE — PHASE 1.5 COMPLETE — PHASE 2 (UI ENHANCEMENT) IN PROGRESS — DEPLOYMENT PENDING
+## Project Status: PHASE 1 COMPLETE — PHASE 1.5 COMPLETE — PHASE 2 (UI ENHANCEMENT) COMPLETE — PHASE 3 (PWA) COMPLETE — DEPLOYED TO PRODUCTION
 
 ---
 
 ## Activity Log
+
+### April 8, 2026 — E2E Test Suite Debugging & Full Pass
+
+#### E2E Test Suite — Full Run & Debug
+| # | Activity | Status | Notes |
+|---|----------|--------|-------|
+| 200 | Initial test run: 139/151 passed, 12 failed | Done | Identified 3 failure categories: strict mode violations (ambiguous locators), inventory module not loading (stale containers), timing issues |
+| 201 | Docker containers restarted | Done | Backend + frontend containers restarted to pick up new inventory module code (routes + page). Inventory API and /inventory page confirmed working |
+| 202 | Fix: TC-DASH-004 strict mode (Master Cartons) | Done | Changed `getByText('Master Cartons')` → `getByRole('heading', { name: 'Master Cartons' })` — 4 elements matched, heading is specific |
+| 203 | Fix: TC-MSQR-007 strict mode + timeout | Done | Changed `getByText(/labels generated/i)` → `getByRole('heading', ...)`, increased test timeout to 60s for bulk generate flow |
+| 204 | Fix: TC-UI-013 hidden mobile button | Done | Changed `header button` selector to `header button:not(.lg\\:hidden)` — first button is mobile hamburger, invisible on desktop |
+| 205 | Fix: TC-UI-025 strict mode (Scan Child Boxes) | Done | Changed `getByText('Scan Child Boxes')` → `getByRole('heading', ...)` — matches both h3 and description p |
+| 206 | Fix: TC-UI-028 strict mode (Sign In) | Done | Changed `getByText('Sign In')` → `getByRole('button', { name: 'Sign In' })` — "Sign in" appeared in both button and paragraph |
+| 207 | Fix: TC-INV-001 strict mode (Inventory/Child Boxes) | Done | Scoped to `getByRole('main').getByRole('heading', ...)` and `getByRole('main').getByText('Child Boxes')` — "Inventory" matched 4 elements, "Child Boxes" matched sidebar + card |
+| 208 | Fix: TC-INV-002 data loading race | Done | Added `toBeVisible({ timeout: 15000 })` wait for data cards; skeleton loaders were still showing when test asserted |
+| 209 | Fix: TC-INV-009 stock bar selector + loading | Done | Added data load wait, changed CSS selector to `div.rounded-full.overflow-hidden` with child filter |
+| 210 | Fix: TC-INV-010 strict mode (Stock Levels) | Done | Changed `getByText('Stock Levels')` → `getByRole('heading', ...)` — matched both heading and description text |
+| 211 | Fix: TC-INV-011 strict mode (Inventory nav) | Done | Added `exact: true` to link role, scoped confirmation to `getByRole('main').getByRole('heading', ...)` |
+| 212 | Fix: TC-DASH-006 sidebar nav timing | Done | Added `waitForLoadState('networkidle')` between nav clicks + `exact: true` on Master Cartons link — click on Reports happened before Master Cartons page loaded |
+| 213 | Final full test run: 151/151 passed (Chromium) | Done | 13 spec files, 151 tests, 13.7 min. All green: Auth (8), Dashboard (11), Child Boxes (14), Master Cartons (6), Lifecycle (7), Reports (6), Traceability (3), Scan (3), Customers (7), Products (9), UI Enhancements (31), PWA Features (34), Inventory (12) |
+| 214 | Data Seeding & UAT Guide prepared | Done | docs/data-seeding-guide.html — Branded HTML guide with Binny logo, 8-step data entry walkthrough (Products → Customers → Child Boxes → Master Cartons → Storage → Dispatch → Reports → Inventory), role reference, UAT checklist, pre-loaded sample data reference, field-by-field tables with required/optional badges |
+
+### April 7, 2026 — Production Deployment & Inventory Module
+
+#### Production Deployment to Hostinger VPS
+| # | Activity | Status | Notes |
+|---|----------|--------|-------|
+| 178 | SSH key generated for deployment machine | Done | ed25519 key pair at ~/.ssh/id_ed25519, public key added to server authorized_keys |
+| 179 | Production docker-compose.prod.yml updated | Done | Renamed containers (binny-db, binny-backend, binny-frontend), added edge-network for shared nginx, DATABASE_SSL=false for local PG, build args for NEXT_PUBLIC_BASE_PATH |
+| 180 | Frontend Dockerfile: build args support | Done | Added ARG/ENV for NEXT_PUBLIC_API_URL and NEXT_PUBLIC_BASE_PATH so basePath is baked at build time |
+| 181 | Backend: DATABASE_SSL toggle | Done | Added DATABASE_SSL env var to config/env.ts + database.ts — skips SSL when set to "false" (Docker PG doesn't use SSL) |
+| 182 | Frontend: basePath support | Done | next.config.mjs reads NEXT_PUBLIC_BASE_PATH for basePath. Fixed window.location.href in authStore.ts and api.ts to use basePath. Replaced Next.js `<Image>` with `<img>` for monogram.png (Image optimizer doesn't work with basePath + nginx proxy) |
+| 183 | Project files uploaded to /opt/binny | Done | Tarball deploy via scp, extracted on server |
+| 184 | Docker images built on server | Done | Backend: multi-stage prod build (node:20-alpine, tsc → dist). Frontend: standalone Next.js build with basePath=/binny, 22 pages generated |
+| 185 | PostgreSQL database set up | Done | binny-db container (postgres:16-alpine), uuid-ossp + pg_trgm extensions enabled, 14 migrations run successfully |
+| 186 | Seed data loaded | Done | 4 roles, admin user (admin@binny.com / Admin@123), 10 products (Hawaii/PU/EVA), 3 customers, 18 child boxes, 3 master cartons (1 ACTIVE, 1 CLOSED, 1 DISPATCHED), 1 dispatch record |
+| 187 | Edge nginx configured | Done | Path-based routing: /binny/api/ → binny-backend:3001, /binny/ → binny-frontend:3000. Exact match /binny proxied directly (avoids redirect loop with Next.js basePath). Self-signed cert placeholder for binny.basiq360.com |
+| 188 | All containers healthy | Done | binny-db (healthy), binny-backend (healthy, health check every 30s), binny-frontend (running). Connected to edge-network + binny-internal |
+| 189 | Production URL live | Done | https://srv1409601.hstgr.cloud/binny/ — login, dashboard, all modules working |
+
+#### Inventory Module — Hierarchical Stock Drill-Down
+| # | Activity | Status | Notes |
+|---|----------|--------|-------|
+| 190 | Backend: Stock summary API | Done | GET /inventory/stock/summary — totalProducts, totalPairsInStock, totalPairsDispatched, totalChildBoxes, totalCartons, sections, articles |
+| 191 | Backend: Stock hierarchy API | Done | GET /inventory/stock/hierarchy?level=section|article_name|colour|product&section=X&article_name=X&colour=X — aggregated stock at each hierarchy level with drill-down filters |
+| 192 | Frontend: Inventory page | Done | /inventory — interactive drill-down page: Section → Article → Colour → Size. Summary KPI cards (Pairs in Stock, Dispatched, Child Boxes, Active Cartons). Visual stock bars (green=free, blue=packed, gray=dispatched). Clickable cards with chevron, breadcrumb navigation, back button, refresh. Responsive grid (1-4 cols) |
+| 193 | Sidebar: Inventory nav item added | Done | Warehouse icon, positioned before Reports. Added to NAV_ITEMS in constants |
+| 194 | E2E tests: Inventory module | Done | 13-inventory.spec.ts — 12 tests: page load, summary cards, legend, drill-down (4 levels), breadcrumb nav, back button, stock bars, refresh, sidebar link, API validation |
+| 195 | Deployed to production | Done | Backend rebuilt + frontend rebuilt with inventory module, containers restarted, API verified at /binny/api/v1/inventory/stock/* |
+| 196 | E2E test file created: 13-inventory.spec.ts | Done | 12 tests covering page load, summary cards, legend, drill-down (4 levels), breadcrumb nav, back button, stock bars, refresh, sidebar link, API validation |
+| 197 | Test cases doc updated (v1.4) | Done | Added Section 25: Inventory Module (12 test cases TC-INV-001 to TC-INV-012). Total test cases: 318 |
+| 198 | Playwright config: env var support | Done | playwright.config.ts and helpers.ts now accept PLAYWRIGHT_BASE_URL and PLAYWRIGHT_API_URL env vars for testing against remote servers |
+| 199 | E2E test run against local Docker stack | Done | 151/151 tests passed (Chromium, 13.7 min). All 13 test failures from initial run debugged and fixed (strict mode locators, data loading races, container restart). Full suite green |
 
 ### April 3, 2026 — UAT Bug Fixes & UI Enhancement Plan
 

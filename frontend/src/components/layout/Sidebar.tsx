@@ -2,7 +2,6 @@
 
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
-import Image from 'next/image';
 import {
   LayoutDashboard,
   Package,
@@ -21,6 +20,7 @@ import {
   ClipboardList,
   Building2,
   Tag,
+  Warehouse,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { NAV_ITEMS } from '@/constants';
@@ -42,6 +42,7 @@ const iconMap: Record<string, React.ElementType> = {
   ClipboardList,
   Building2,
   Tag,
+  Warehouse,
 };
 
 interface SidebarProps {
@@ -75,8 +76,8 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
           collapsed && 'justify-center px-2'
         )}
       >
-        <Image
-          src="/monogram.png"
+        <img
+          src={`${process.env.NEXT_PUBLIC_BASE_PATH || ''}/monogram.png`}
           alt="Binny"
           width={36}
           height={36}

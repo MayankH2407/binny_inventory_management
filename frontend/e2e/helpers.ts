@@ -2,7 +2,7 @@ import { Page, expect } from '@playwright/test';
 
 export const ADMIN_EMAIL = 'admin@binny.com';
 export const ADMIN_PASSWORD = 'Admin@123';
-export const BASE_API = 'http://localhost:3001/api/v1';
+export const BASE_API = process.env.PLAYWRIGHT_API_URL || 'http://localhost:3001/api/v1';
 
 // Cache login credentials across tests to avoid rate limiting
 let cachedToken: string | null = null;

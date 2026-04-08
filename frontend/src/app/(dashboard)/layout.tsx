@@ -38,7 +38,7 @@ export default function DashboardLayout({
         style={{ background: 'linear-gradient(135deg, #2D2A6E 0%, #1E1A5F 40%, #0F0D3A 100%)' }}
       >
         <div className="flex flex-col items-center gap-4">
-          <img src="/monogram.png" alt="Binny" className="w-16 h-16 brightness-0 invert animate-pulse" />
+          <img src={`${process.env.NEXT_PUBLIC_BASE_PATH || ''}/monogram.png`} alt="Binny" className="w-16 h-16 brightness-0 invert animate-pulse" />
           <p className="text-white/70 text-sm font-medium">Loading...</p>
         </div>
       </div>

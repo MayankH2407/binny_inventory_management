@@ -1,8 +1,8 @@
 # Basiq360 QR-Based Inventory Management System — Test Cases
 
 **Project:** Binny Footwear Inventory Management
-**Version:** 1.3
-**Date:** 2026-04-03 (Updated with Phase 2 UI Enhancement tests, UAT bug fix validations, searchable dropdown, customer-centric dispatches)
+**Version:** 1.4
+**Date:** 2026-04-07 (Added Inventory Module hierarchical drill-down tests, deployment updates)
 **Prepared By:** QA Engineering Team
 **Tech Stack:** Next.js + Express.js + PostgreSQL (PWA)
 
@@ -34,6 +34,7 @@
 22. [Phase 2 UI Enhancement Tests (NEW)](#22-phase-2-ui-enhancement-tests-new)
 23. [UAT Bug Fix Validation Tests (NEW)](#23-uat-bug-fix-validation-tests-new)
 24. [Phase 3 PWA Enhancement Tests (NEW)](#24-phase-3-pwa-enhancement-tests-new)
+25. [Inventory Module — Hierarchical Stock Drill-Down (NEW)](#25-inventory-module--hierarchical-stock-drill-down-new)
 
 ---
 
@@ -3741,6 +3742,118 @@
 
 ---
 
+## 25. Inventory Module — Hierarchical Stock Drill-Down (NEW)
+
+### TC-INV-001: Inventory page loads with summary cards
+| Field | Value |
+|-------|-------|
+| ID | TC-INV-001 |
+| Priority | High |
+| Steps | 1. Navigate to /inventory |
+| Expected Result | Page loads with 4 summary KPI cards: Pairs in Stock, Pairs Dispatched, Child Boxes, Active Cartons. Each card shows numeric value with icon. |
+| Type | E2E |
+
+### TC-INV-002: Section-level stock cards display
+| Field | Value |
+|-------|-------|
+| ID | TC-INV-002 |
+| Priority | High |
+| Steps | 1. Navigate to /inventory 2. Observe "Stock Levels" section |
+| Expected Result | Shows cards for each section (Hawaii, PU, EVA, etc.). Each card shows total pairs, free/packed/dispatched breakdown, box count, carton count, and number of child articles. Cards have visual stock bars. |
+| Type | E2E |
+
+### TC-INV-003: Legend shows stock status indicators
+| Field | Value |
+|-------|-------|
+| ID | TC-INV-003 |
+| Priority | Low |
+| Steps | 1. Navigate to /inventory |
+| Expected Result | Legend shows three indicators: Free (in stock) with green dot, Packed (in carton) with blue dot, Dispatched with gray dot. |
+| Type | E2E |
+
+### TC-INV-004: Drill down from Section to Article
+| Field | Value |
+|-------|-------|
+| ID | TC-INV-004 |
+| Priority | Critical |
+| Steps | 1. Navigate to /inventory 2. Click on a section card (e.g., Hawaii) |
+| Expected Result | View updates to show article names under that section. Breadcrumb shows "All Sections > Hawaii". Cards show article-level stock with colour count. |
+| Type | E2E |
+
+### TC-INV-005: Drill down from Article to Colour
+| Field | Value |
+|-------|-------|
+| ID | TC-INV-005 |
+| Priority | Critical |
+| Steps | 1. Drill into a section 2. Click on an article card |
+| Expected Result | View updates to show colour variants. Breadcrumb shows full path (e.g., "All Sections > Hawaii > Hawaii Classic"). Cards show colour-level stock with size count. |
+| Type | E2E |
+
+### TC-INV-006: Drill down to Size level (leaf)
+| Field | Value |
+|-------|-------|
+| ID | TC-INV-006 |
+| Priority | Critical |
+| Steps | 1. Drill into section → article → colour |
+| Expected Result | View shows individual size cards (leaf nodes). No chevron/drill-down on leaf cards. Each card shows pairs free/packed/dispatched for that specific size+colour+article combination. |
+| Type | E2E |
+
+### TC-INV-007: Breadcrumb navigation — jump to any level
+| Field | Value |
+|-------|-------|
+| ID | TC-INV-007 |
+| Priority | High |
+| Steps | 1. Drill down 2-3 levels 2. Click on a breadcrumb item (e.g., "All Sections") |
+| Expected Result | View jumps back to the clicked level. All intermediate drill-down state is cleared. Breadcrumb updates accordingly. |
+| Type | E2E |
+
+### TC-INV-008: Back button navigates to parent level
+| Field | Value |
+|-------|-------|
+| ID | TC-INV-008 |
+| Priority | Medium |
+| Steps | 1. Drill into a section 2. Click the back arrow button |
+| Expected Result | View returns to the parent level (section list). Back button hidden at root level. |
+| Type | E2E |
+
+### TC-INV-009: Visual stock bars show proportions
+| Field | Value |
+|-------|-------|
+| ID | TC-INV-009 |
+| Priority | Medium |
+| Steps | 1. Navigate to /inventory 2. Observe stock bars on cards |
+| Expected Result | Each card has a horizontal bar showing green (free), blue (packed), gray (dispatched) proportions. Bar widths are proportional to actual values. Empty stock shows gray background bar. |
+| Type | E2E |
+
+### TC-INV-010: Refresh button reloads data
+| Field | Value |
+|-------|-------|
+| ID | TC-INV-010 |
+| Priority | Medium |
+| Steps | 1. Navigate to /inventory 2. Click the refresh button |
+| Expected Result | Data reloads without losing drill-down state. Refresh icon spins during loading. |
+| Type | E2E |
+
+### TC-INV-011: Sidebar shows Inventory navigation link
+| Field | Value |
+|-------|-------|
+| ID | TC-INV-011 |
+| Priority | Medium |
+| Steps | 1. View sidebar navigation |
+| Expected Result | "Inventory" link with Warehouse icon is visible in sidebar, positioned before Reports. Clicking navigates to /inventory. |
+| Type | E2E |
+
+### TC-INV-012: API returns correct hierarchy data structure
+| Field | Value |
+|-------|-------|
+| ID | TC-INV-012 |
+| Priority | High |
+| Steps | 1. Call GET /inventory/stock/summary 2. Call GET /inventory/stock/hierarchy?level=section |
+| Expected Result | Summary returns totalProducts, totalPairsInStock, totalPairsDispatched, totalChildBoxes, totalCartons. Hierarchy returns array of StockNode objects with name, key, totalPairs, inStock, packed, dispatched, childBoxCount, cartonCount, children fields. |
+| Type | Integration |
+
+---
+
 ## Summary
 
 | Module | Test Case Range | Count |
@@ -3762,25 +3875,26 @@
 | Multi-Size QR Batch Generation | TC-MSQR-001 to TC-MSQR-010 | 10 |
 | Phase 2 UI Enhancement | TC-UI-001 to TC-UI-031 | 31 |
 | UAT Bug Fix Validation | TC-UAT-001 to TC-UAT-006 | 6 |
-| Phase 3 PWA Enhancement (NEW) | TC-PWA-001 to TC-PWA-034 | 34 |
+| Phase 3 PWA Enhancement | TC-PWA-001 to TC-PWA-034 | 34 |
+| Inventory Module (NEW) | TC-INV-001 to TC-INV-012 | 12 |
 | Edge Cases & Negative Tests | TC-EDGE-001 to TC-EDGE-015 | 15 |
 | Performance Tests | TC-PERF-001 to TC-PERF-005 | 5 |
-| **Total** | | **306** |
+| **Total** | | **318** |
 
 ### Priority Distribution
 
 | Priority | Count |
 |----------|-------|
-| Critical | 67 |
-| High | 124 |
-| Medium | 82 |
-| Low | 33 |
+| Critical | 70 |
+| High | 128 |
+| Medium | 86 |
+| Low | 34 |
 
 ### Test Type Distribution
 
 | Type | Count |
 |------|-------|
-| E2E | 221 |
-| Integration | 99 |
+| E2E | 232 |
+| Integration | 100 |
 | Unit | 10 |
 | Security | 19 |

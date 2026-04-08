@@ -30,7 +30,7 @@ test.describe('TC-DASH: Dashboard & Navigation', () => {
     await expect(page.getByText('Inventory Summary')).toBeVisible();
     await expect(page.getByText('Free Boxes')).toBeVisible();
     await expect(page.getByText('Packed in Cartons')).toBeVisible();
-    await expect(page.getByText('Master Cartons')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Master Cartons' })).toBeVisible();
   });
 
   test('TC-DASH-005: Dashboard skeleton loading state renders', async ({ page }) => {
@@ -45,9 +45,11 @@ test.describe('TC-DASH: Dashboard & Navigation', () => {
   test('TC-DASH-006: Sidebar navigation links work', async ({ page }) => {
     await page.getByRole('link', { name: 'Child Boxes' }).first().click();
     await expect(page).toHaveURL(/.*child-boxes/);
+    await page.waitForLoadState('networkidle');
 
-    await page.getByRole('link', { name: 'Master Cartons' }).first().click();
+    await page.getByRole('link', { name: 'Master Cartons', exact: true }).first().click();
     await expect(page).toHaveURL(/.*master-cartons/);
+    await page.waitForLoadState('networkidle');
 
     await page.getByRole('link', { name: 'Reports' }).first().click();
     await expect(page).toHaveURL(/.*reports/);

@@ -7,6 +7,8 @@ const router = Router();
 router.use(authenticate);
 
 router.get('/dashboard', inventoryController.getDashboard);
+router.get('/stock/summary', inventoryController.getStockSummary);
+router.get('/stock/hierarchy', inventoryController.getStockHierarchy);
 router.get('/transactions', inventoryController.getTransactions);
 router.get('/trace/:barcode', inventoryController.traceByBarcode);
 

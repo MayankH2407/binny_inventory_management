@@ -1,41 +1,41 @@
-version: '3.8'
 services:
-  postgres:
+  binny-db:
     image: postgres:16-alpine
-    container_name: binny_postgres
+    container_name: binny-db
     restart: unless-stopped
     environment:
       POSTGRES_DB: binny_inventory
       POSTGRES_USER: binny_admin
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - binny_pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U binny_admin -d binny_inventory"]
       interval: 10s
       timeout: 5s
       retries: 5
     networks:
-      - binny_network
+      - binny-internal
 
-  backend:
+  binny-backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
       target: prod
-    container_name: binny_backend
+    container_name: binny-backend
     restart: unless-stopped
     environment:
       NODE_ENV: production
       PORT: 3001
-      DATABASE_URL: postgresql://binny_admin:${DB_PASSWORD}@postgres:5432/binny_inventory
+      DATABASE_URL: postgresql://binny_admin:${DB_PASSWORD}@binny-db:5432/binny_inventory
       JWT_SECRET: ${JWT_SECRET}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
       JWT_EXPIRY: ${JWT_EXPIRY:-15m}
       JWT_REFRESH_EXPIRY: ${JWT_REFRESH_EXPIRY:-7d}
-      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+      CORS_ORIGIN: ${CORS_ORIGIN:-https://srv1409601.hstgr.cloud}
+      DATABASE_SSL: "false"
     depends_on:
-      postgres:
+      binny-db:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3001/api/v1/health"]
@@ -43,42 +43,33 @@ services:
       timeout: 10s
       retries: 3
     networks:
-      - binny_network
+      - binny-internal
+      - edge-network
 
-  frontend:
+  binny-frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
       target: prod
-    container_name: binny_frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://srv1409601.hstgr.cloud/binny/api/v1}
+        NEXT_PUBLIC_BASE_PATH: ${NEXT_PUBLIC_BASE_PATH:-/binny}
+    container_name: binny-frontend
     restart: unless-stopped
     environment:
-      NEXT_PUBLIC_API_URL: ${API_URL:-http://localhost:3001/api/v1}
-    ports:
-      - "${FRONTEND_PORT:-3000}:3000"
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://srv1409601.hstgr.cloud/binny/api/v1}
+      NEXT_PUBLIC_BASE_PATH: ${NEXT_PUBLIC_BASE_PATH:-/binny}
     depends_on:
-      backend:
+      binny-backend:
         condition: service_healthy
     networks:
-      - binny_network
-
-  nginx:
-    image: nginx:alpine
-    container_name: binny_nginx
-    restart: unless-stopped
-    ports:
-      - "${NGINX_PORT:-80}:80"
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
-    depends_on:
-      - frontend
-      - backend
-    networks:
-      - binny_network
+      - edge-network
 
 volumes:
-  postgres_data:
+  binny_pgdata:
 
 networks:
-  binny_network:
+  binny-internal:
     driver: bridge
+  edge-network:
+    external: true

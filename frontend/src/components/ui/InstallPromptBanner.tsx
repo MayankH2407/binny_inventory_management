@@ -18,7 +18,7 @@ export default function InstallPromptBanner() {
         style={{ background: 'linear-gradient(135deg, #2D2A6E 0%, #3D3A8E 100%)' }}
       >
         <img
-          src="/monogram.png"
+          src={`${process.env.NEXT_PUBLIC_BASE_PATH || ''}/monogram.png`}
           alt="Binny"
           className="w-10 h-10 brightness-0 invert shrink-0"
         />

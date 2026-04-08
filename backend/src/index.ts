@@ -2,12 +2,14 @@ import app from './app';
 import { env } from './config/env';
 import { testConnection, closePool } from './config/database';
 import { logger } from './utils/logger';
+import { autoSeed } from './utils/autoSeed';
 
 const server = app.listen(env.PORT, async () => {
   logger.info(`Server starting in ${env.NODE_ENV} mode on port ${env.PORT}`);
 
   try {
     await testConnection();
+    await autoSeed();
     logger.info('All systems operational');
   } catch (error) {
     logger.error('Failed to connect to database on startup', error);

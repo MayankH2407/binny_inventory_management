@@ -41,6 +41,10 @@ const envSchema = z.object({
   QR_BASE_URL: z
     .string()
     .default(''),
+
+  DATABASE_SSL: z
+    .string()
+    .default('true'),
 });
 
 export type Env = z.infer<typeof envSchema>;

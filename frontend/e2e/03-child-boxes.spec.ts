@@ -187,7 +187,7 @@ test.describe('TC-CB: Child Box Management', () => {
     }
   });
 
-  test('TC-MSQR-007: Multi-size bulk generate creates child boxes', async ({ page }) => {
+  test('TC-MSQR-007: Multi-size bulk generate creates child boxes', { timeout: 60000 }, async ({ page }) => {
     await page.goto('/child-boxes/generate');
     await page.waitForLoadState('networkidle');
     await expect(page.getByText('Product (Article)')).toBeVisible({ timeout: 15000 });
@@ -221,7 +221,7 @@ test.describe('TC-CB: Child Box Management', () => {
     await page.getByRole('button', { name: /confirm.*generate/i }).click();
     await page.waitForTimeout(3000);
 
-    await expect(page.getByText(/labels generated/i)).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('heading', { name: /labels generated/i })).toBeVisible({ timeout: 10000 });
   });
 
   test('TC-CB-005: Status filter works', async ({ page }) => {

@@ -29,6 +29,37 @@ export async function getDashboard(
   }
 }
 
+export async function getStockHierarchy(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const { level, section, article_name, colour } = req.query as {
+      level?: string; section?: string; article_name?: string; colour?: string;
+    };
+    const validLevels = ['section', 'article_name', 'colour', 'product'];
+    const stockLevel = (validLevels.includes(level || '') ? level : 'section') as 'section' | 'article_name' | 'colour' | 'product';
+    const result = await inventoryService.getStockByLevel(stockLevel, { section, article_name, colour });
+    sendSuccess(res, result, 'Stock hierarchy retrieved successfully');
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getStockSummary(
+  _req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const summary = await inventoryService.getStockSummary();
+    sendSuccess(res, summary, 'Stock summary retrieved successfully');
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function getTransactions(
   req: AuthenticatedRequest,
   res: Response,
