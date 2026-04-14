@@ -47,12 +47,22 @@
 | 282 | Backend: Schema, service, types updated | Done | `product.schema.ts` — create/update schemas use `size_from`/`size_to`. `product.service.ts` — INSERT, UPDATE, bulk INSERT all use new columns. `types/index.ts` — Product interface updated. Sample CSV headers updated |
 | 283 | Frontend: Form updated with two fields | Done | `products/page.tsx` — "Size Group" single input replaced with "Size From" and "Size To" separate inputs in 4-column grid. Works in create, edit, and bulk CSV. `types/index.ts` updated |
 
+#### Bug Fix: Traceability Crash on Barcode Search
+| # | Activity | Status | Notes |
+|---|----------|--------|-------|
+| 284 | Fix: Traceability crash on master carton barcode | Done | Root cause: trace API returns `{ masterCarton, dispatch, timeline }` for master carton barcodes (no `childBox`), but template rendered `result.childBox.barcode` unconditionally. Also dispatch data used different column names (`dispatch_date` not `dispatch_number`). Added null guards and correct field mapping |
+
+#### Merge: Scan + Storage + Traceability → Unified "Scan & Trace"
+| # | Activity | Status | Notes |
+|---|----------|--------|-------|
+| 285 | Merged three pages into one | Done | `scan/page.tsx` — Complete rewrite combining QR scanner + manual entry (from Scan), full timeline (from Traceability), and "Seal for Storage" action (from Storage). One scan shows: item details, master carton info with child boxes, dispatch data, lifecycle timeline, and contextual carton actions |
+| 286 | Sidebar updated | Done | `constants/index.ts` — Removed "Storage" and "Traceability" nav items. Renamed "Scan" to "Scan & Trace". Mobile nav updated. Old pages still exist at /storage and /traceability but unlinked |
+
 #### Compilation & Deployment
 | # | Activity | Status | Notes |
 |---|----------|--------|-------|
-| 284 | Backend TypeScript compilation | Done | 0 errors |
-| 285 | Frontend TypeScript compilation | Done | 0 app source errors (1 pre-existing e2e issue) |
-| 286 | Deployed to production | Done | Backend + frontend Docker images rebuilt, containers restarted, all healthy. Migration run. Sample CSV verified with size_from/size_to columns. Primary dealers API verified (3 results) |
+| 287 | Frontend TypeScript compilation | Done | 0 app source errors |
+| 288 | Deployed to production | Done | All changes deployed — backend (size range migration + CSV bulk upload) + frontend (merged Scan & Trace, product form, customer fix). All containers healthy |
 
 ### April 13, 2026 — Phase 4: Meeting Feedback Implementation (Day 1 — Backend)
 
