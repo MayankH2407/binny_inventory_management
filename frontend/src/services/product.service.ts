@@ -9,6 +9,19 @@ export interface ProductListResponse {
   totalPages: number;
 }
 
+export interface BulkRowError {
+  row: number;
+  status: 'error';
+  sku?: string;
+  article_name?: string;
+  error?: string;
+}
+
+export interface BulkUploadResult {
+  created: number;
+  errors: BulkRowError[];
+}
+
 export const productService = {
   async getAll(params?: {
     page?: number;
@@ -68,5 +81,19 @@ export const productService = {
   async getSections(): Promise<ProductSection[]> {
     const response = await api.get<ProductSection[]>('/sections');
     return response.data;
+  },
+
+  async bulkUpload(file: File): Promise<BulkUploadResult> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await api.post<BulkUploadResult>('/products/bulk-upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  },
+
+  getSampleCsvUrl(): string {
+    const base = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1';
+    return `${base}/products/bulk-upload/sample`;
   },
 };

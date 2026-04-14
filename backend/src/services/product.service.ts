@@ -5,6 +5,7 @@ import { createAuditLog } from './auditLog.service';
 import { CreateProductInput, UpdateProductInput } from '../models/schemas/product.schema';
 import { logger } from '../utils/logger';
 import { generateSku } from '../utils/skuGenerator';
+import { parse } from 'csv-parse/sync';
 
 export async function createProduct(
   input: CreateProductInput,
@@ -264,4 +265,131 @@ export async function updateProductImage(
   });
 
   logger.info(`Product image updated for article ${article_code} / ${colour}`);
+}
+
+const VALID_CATEGORIES = ['Gents', 'Ladies', 'Boys', 'Girls'];
+const VALID_LOCATIONS = ['VKIA', 'MIA', 'F540'];
+
+interface BulkRowResult {
+  row: number;
+  status: 'success' | 'error';
+  sku?: string;
+  article_name?: string;
+  error?: string;
+}
+
+export async function bulkCreateProducts(
+  csvBuffer: Buffer,
+  createdBy: string
+): Promise<{ created: number; errors: BulkRowResult[] }> {
+  let records: Record<string, string>[];
+  try {
+    records = parse(csvBuffer, {
+      columns: true,
+      skip_empty_lines: true,
+      trim: true,
+      bom: true,
+    });
+  } catch {
+    throw new ConflictError('Invalid CSV format. Please ensure the file is a valid CSV with headers.');
+  }
+
+  if (records.length === 0) {
+    throw new ConflictError('CSV file is empty. Please add product rows below the header.');
+  }
+
+  if (records.length > 500) {
+    throw new ConflictError(`CSV contains ${records.length} rows. Maximum allowed is 500 per upload.`);
+  }
+
+  const requiredCols = ['article_code', 'article_name', 'colour', 'size', 'mrp', 'section', 'category'];
+  const headerKeys = Object.keys(records[0]).map((h) => h.toLowerCase().trim());
+  const missingCols = requiredCols.filter((c) => !headerKeys.includes(c));
+  if (missingCols.length > 0) {
+    throw new ConflictError(`Missing required columns: ${missingCols.join(', ')}. Download the sample file for reference.`);
+  }
+
+  const results: BulkRowResult[] = [];
+  let created = 0;
+
+  for (let i = 0; i < records.length; i++) {
+    const raw = records[i];
+    const rowNum = i + 2; // +2 because row 1 is header, data starts at 2
+
+    // Normalize keys to lowercase
+    const row: Record<string, string> = {};
+    for (const [key, val] of Object.entries(raw)) {
+      row[key.toLowerCase().trim()] = val;
+    }
+
+    // Validate required fields
+    const errors: string[] = [];
+    if (!row.article_code?.trim()) errors.push('article_code is empty');
+    if (!row.article_name?.trim()) errors.push('article_name is empty');
+    if (!row.colour?.trim()) errors.push('colour is empty');
+    if (!row.size?.trim()) errors.push('size is empty');
+    if (!row.section?.trim()) errors.push('section is empty');
+    if (!row.category?.trim()) errors.push('category is empty');
+
+    const mrp = parseFloat(row.mrp);
+    if (!row.mrp?.trim() || isNaN(mrp) || mrp <= 0) {
+      errors.push('mrp must be a positive number');
+    }
+
+    if (row.article_code && row.article_code.trim().length > 20) {
+      errors.push('article_code exceeds 20 characters');
+    }
+
+    if (row.category?.trim() && !VALID_CATEGORIES.includes(row.category.trim())) {
+      errors.push(`category must be one of: ${VALID_CATEGORIES.join(', ')}`);
+    }
+
+    if (row.location?.trim() && !VALID_LOCATIONS.includes(row.location.trim())) {
+      errors.push(`location must be one of: ${VALID_LOCATIONS.join(', ')}`);
+    }
+
+    if (errors.length > 0) {
+      results.push({ row: rowNum, status: 'error', article_name: row.article_name, error: errors.join('; ') });
+      continue;
+    }
+
+    try {
+      const sku = await generateSku(row.section.trim(), row.article_name.trim(), row.category.trim(), row.colour.trim());
+
+      const existing = await query('SELECT id FROM products WHERE sku = $1', [sku]);
+      if (existing.rows.length > 0) {
+        results.push({ row: rowNum, status: 'error', sku, article_name: row.article_name.trim(), error: `Duplicate SKU: ${sku} already exists` });
+        continue;
+      }
+
+      await query(
+        `INSERT INTO products (article_name, sku, article_code, colour, size, mrp, description, category, section, location, article_group, hsn_code, size_group)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+        [
+          row.article_name.trim(), sku, row.article_code.trim(), row.colour.trim(),
+          row.size.trim(), mrp, row.description?.trim() || null,
+          row.category.trim(), row.section.trim(), row.location?.trim() || null,
+          row.article_group?.trim() || null, row.hsn_code?.trim() || null,
+          row.size_group?.trim() || null,
+        ]
+      );
+
+      await createAuditLog({
+        userId: createdBy,
+        action: 'CREATE_PRODUCT',
+        entityType: 'product',
+        entityId: sku,
+        newValues: { sku, article_name: row.article_name.trim(), source: 'csv_bulk_upload' },
+      });
+
+      results.push({ row: rowNum, status: 'success', sku, article_name: row.article_name.trim() });
+      created++;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      results.push({ row: rowNum, status: 'error', article_name: row.article_name?.trim(), error: message });
+    }
+  }
+
+  logger.info(`Bulk product upload: ${created} created, ${results.filter((r) => r.status === 'error').length} errors`);
+  return { created, errors: results.filter((r) => r.status === 'error') };
 }

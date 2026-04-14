@@ -10,11 +10,24 @@ import {
   productIdParamSchema,
   productListQuerySchema,
 } from '../models/schemas/product.schema';
-import { productImageUpload } from '../middleware/upload.middleware';
+import { productImageUpload, csvUpload } from '../middleware/upload.middleware';
 
 const router = Router();
 
 router.use(authenticate);
+
+router.get(
+  '/bulk-upload/sample',
+  authorize(USER_ROLES.ADMIN, USER_ROLES.SUPERVISOR),
+  productController.downloadSampleCsv
+);
+
+router.post(
+  '/bulk-upload',
+  authorize(USER_ROLES.ADMIN, USER_ROLES.SUPERVISOR),
+  csvUpload.single('file'),
+  productController.bulkUploadProducts
+);
 
 router.post(
   '/',

@@ -128,3 +128,43 @@ export async function uploadProductImage(
     next(error);
   }
 }
+
+export async function bulkUploadProducts(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const file = (req as AuthenticatedRequest & { file?: { buffer: Buffer } }).file;
+    if (!file) {
+      res.status(400).json({ success: false, message: 'No CSV file provided' });
+      return;
+    }
+
+    const result = await productService.bulkCreateProducts(file.buffer, req.user!.userId);
+    sendSuccess(res, result, `Bulk upload complete: ${result.created} products created${result.errors.length > 0 ? `, ${result.errors.length} errors` : ''}`, 201);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export function downloadSampleCsv(
+  _req: AuthenticatedRequest,
+  res: Response,
+): void {
+  const headers = [
+    'article_code', 'article_name', 'colour', 'size', 'mrp',
+    'section', 'category', 'location', 'description',
+    'article_group', 'hsn_code', 'size_group',
+  ];
+  const sampleRows = [
+    ['ART-001', 'Classic Hawaii Slipper', 'Black', '8', '749', 'Hawaii', 'Gents', 'VKIA', 'Premium hawaii slipper', 'Premium', '6402', '6-10'],
+    ['ART-001', 'Classic Hawaii Slipper', 'Black', '9', '749', 'Hawaii', 'Gents', 'VKIA', 'Premium hawaii slipper', 'Premium', '6402', '6-10'],
+    ['ART-002', 'Ladies PU Sandal', 'Red', '6', '999', 'PU', 'Ladies', 'MIA', 'Comfortable PU sandal', 'Standard', '6402', '4-8'],
+  ];
+  const csv = [headers.join(','), ...sampleRows.map((r) => r.join(','))].join('\n');
+
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', 'attachment; filename=product_upload_sample.csv');
+  res.send(csv);
+}

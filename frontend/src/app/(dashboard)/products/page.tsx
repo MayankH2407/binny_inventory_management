@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { Plus, Search, Tag, UserCheck, UserX, X } from 'lucide-react';
+import { useState, useRef } from 'react';
+import { Plus, Search, Tag, UserCheck, UserX, X, Upload, Download, FileSpreadsheet, AlertCircle, CheckCircle } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import Select from '@/components/ui/Select';
@@ -15,7 +15,7 @@ import { PRODUCT_CATEGORIES, PRODUCT_LOCATIONS } from '@/constants';
 import { useAuth } from '@/hooks/useAuth';
 import { useApiQuery, useApiMutation } from '@/hooks/useApi';
 import { useDebounce } from '@/hooks/useDebounce';
-import { productService } from '@/services/product.service';
+import { productService, BulkUploadResult, BulkRowError } from '@/services/product.service';
 import { formatCurrency } from '@/lib/utils';
 import type { Product } from '@/types';
 import toast from 'react-hot-toast';
@@ -60,6 +60,12 @@ export default function ProductsPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [form, setForm] = useState<ProductForm>({ ...emptyForm });
+  const [createImageFile, setCreateImageFile] = useState<File | null>(null);
+  const [showBulkModal, setShowBulkModal] = useState(false);
+  const [bulkFile, setBulkFile] = useState<File | null>(null);
+  const [bulkUploading, setBulkUploading] = useState(false);
+  const [bulkResult, setBulkResult] = useState<BulkUploadResult | null>(null);
+  const bulkFileRef = useRef<HTMLInputElement>(null);
   const debouncedSearch = useDebounce(search);
 
   // Sections from API
@@ -84,7 +90,18 @@ export default function ProductsPage() {
   const totalPages = data?.totalPages ?? 1;
 
   const { mutate: createProduct, isPending: isCreating } = useApiMutation(
-    (data: Record<string, unknown>) => productService.create(data),
+    async (data: Record<string, unknown>) => {
+      const product = await productService.create(data);
+      // If an image was selected during creation, upload it now
+      if (createImageFile && product.id) {
+        try {
+          await productService.uploadImage(product.id, createImageFile);
+        } catch {
+          toast.error('Product created but image upload failed. You can upload it by editing the product.');
+        }
+      }
+      return product;
+    },
     {
       successMessage: 'Product created successfully',
       invalidateKeys: [['products-admin'], ['products-for-generate']],
@@ -165,6 +182,7 @@ export default function ProductsPage() {
     setShowCreateModal(false);
     setEditingProduct(null);
     setForm({ ...emptyForm });
+    setCreateImageFile(null);
   };
 
   const updateField = (field: keyof ProductForm, value: string) => {
@@ -185,6 +203,50 @@ export default function ProductsPage() {
     setPage(1);
   };
 
+  const handleBulkUpload = async () => {
+    if (!bulkFile) return;
+    setBulkUploading(true);
+    try {
+      const result = await productService.bulkUpload(bulkFile);
+      setBulkResult(result);
+      if (result.created > 0) {
+        toast.success(`${result.created} products created successfully`);
+        refetch();
+      }
+      if (result.errors.length > 0) {
+        toast.error(`${result.errors.length} rows had errors — see details below`);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Upload failed';
+      toast.error(message);
+    } finally {
+      setBulkUploading(false);
+    }
+  };
+
+  const handleDownloadSample = () => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('binny_token') : null;
+    const url = productService.getSampleCsvUrl();
+    const a = document.createElement('a');
+    // Use fetch with auth header to download
+    fetch(url, { headers: { Authorization: `Bearer ${token || ''}` } })
+      .then((r) => r.blob())
+      .then((blob) => {
+        a.href = URL.createObjectURL(blob);
+        a.download = 'product_upload_sample.csv';
+        a.click();
+        URL.revokeObjectURL(a.href);
+      })
+      .catch(() => toast.error('Failed to download sample file'));
+  };
+
+  const closeBulkModal = () => {
+    setShowBulkModal(false);
+    setBulkFile(null);
+    setBulkResult(null);
+    if (bulkFileRef.current) bulkFileRef.current.value = '';
+  };
+
   const activeFilterCount = Object.values(filters).filter(Boolean).length;
 
   if (!isManager) {
@@ -203,9 +265,14 @@ export default function ProductsPage() {
         title="Products"
         description="Manage product master (SKU catalog)"
         action={
-          <Button leftIcon={<Plus className="h-4 w-4" />} onClick={() => setShowCreateModal(true)}>
-            Add Product
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" leftIcon={<Upload className="h-4 w-4" />} onClick={() => setShowBulkModal(true)}>
+              Bulk Import
+            </Button>
+            <Button leftIcon={<Plus className="h-4 w-4" />} onClick={() => setShowCreateModal(true)}>
+              Add Product
+            </Button>
+          </div>
         }
       />
 
@@ -545,36 +612,49 @@ export default function ProductsPage() {
 
           <Input label="Description" placeholder="Optional product description" value={form.description} onChange={(e) => updateField('description', e.target.value)} />
 
-          {/* Image upload (edit only) */}
-          {editingProduct && (
-            <div className="space-y-2">
-              <label className="block text-sm font-medium text-brand-text-dark">Product Image</label>
-              {getImageUrl(editingProduct.image_url) && (
-                <img
-                  src={getImageUrl(editingProduct.image_url)!}
-                  alt=""
-                  className="w-24 h-24 object-cover rounded-lg border border-brand-border"
-                />
-              )}
-              <input
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                onChange={async (e) => {
-                  const file = e.target.files?.[0];
-                  if (file) {
-                    try {
-                      await productService.uploadImage(editingProduct.id, file);
-                      toast.success('Image uploaded successfully');
-                      refetch();
-                    } catch {
-                      toast.error('Failed to upload image');
-                    }
-                  }
-                }}
-                className="block text-sm text-brand-text-muted file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-binny-navy file:text-white hover:file:bg-binny-navy/90"
+          {/* Image upload */}
+          <div className="space-y-2">
+            <label className="block text-sm font-medium text-brand-text-dark">Product Image</label>
+            {editingProduct && getImageUrl(editingProduct.image_url) && (
+              <img
+                src={getImageUrl(editingProduct.image_url)!}
+                alt=""
+                className="w-24 h-24 object-cover rounded-lg border border-brand-border"
               />
-            </div>
-          )}
+            )}
+            {!editingProduct && createImageFile && (
+              <div className="flex items-center gap-2 text-sm text-brand-text-muted">
+                <CheckCircle className="h-4 w-4 text-green-500" />
+                <span>{createImageFile.name}</span>
+                <button onClick={() => setCreateImageFile(null)} className="text-red-400 hover:text-red-600">
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            )}
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                if (editingProduct) {
+                  try {
+                    await productService.uploadImage(editingProduct.id, file);
+                    toast.success('Image uploaded successfully');
+                    refetch();
+                  } catch {
+                    toast.error('Failed to upload image');
+                  }
+                } else {
+                  setCreateImageFile(file);
+                }
+              }}
+              className="block text-sm text-brand-text-muted file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-binny-navy file:text-white hover:file:bg-binny-navy/90"
+            />
+            {!editingProduct && (
+              <p className="text-xs text-brand-text-muted">Image will be uploaded after the product is created.</p>
+            )}
+          </div>
 
           <div className="flex justify-end gap-3 pt-2">
             <Button variant="secondary" onClick={closeModal}>Cancel</Button>
@@ -582,6 +662,112 @@ export default function ProductsPage() {
               {editingProduct ? 'Update Product' : 'Create Product'}
             </Button>
           </div>
+        </div>
+      </Modal>
+
+      {/* Bulk Upload Modal */}
+      <Modal isOpen={showBulkModal} onClose={closeBulkModal} title="Bulk Import Products">
+        <div className="space-y-4">
+          <p className="text-sm text-brand-text-muted">
+            Upload a CSV file with product details. Each row creates one product with an auto-generated SKU.
+          </p>
+
+          {/* Sample download */}
+          <div className="flex items-center gap-3 p-3 bg-blue-50 border border-blue-100 rounded-lg">
+            <FileSpreadsheet className="h-5 w-5 text-blue-600 flex-shrink-0" />
+            <div className="flex-1">
+              <p className="text-sm font-medium text-blue-900">Download sample CSV</p>
+              <p className="text-xs text-blue-700">Use this template to format your product data correctly.</p>
+            </div>
+            <button
+              onClick={handleDownloadSample}
+              className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-blue-700 bg-white border border-blue-200 rounded-md hover:bg-blue-50"
+            >
+              <Download className="h-3 w-3" /> Download
+            </button>
+          </div>
+
+          {/* Required columns info */}
+          <div className="text-xs text-brand-text-muted">
+            <p className="font-medium mb-1">Required columns:</p>
+            <p>article_code, article_name, colour, size, mrp, section, category</p>
+            <p className="mt-1">Optional: location, description, article_group, hsn_code, size_group</p>
+            <p className="mt-1">Maximum 500 rows per upload. Images must be uploaded separately after import.</p>
+          </div>
+
+          {/* File input */}
+          {!bulkResult && (
+            <>
+              <div className="border-2 border-dashed border-brand-border rounded-lg p-6 text-center">
+                <Upload className="h-8 w-8 text-brand-text-muted mx-auto mb-2" />
+                <input
+                  ref={bulkFileRef}
+                  type="file"
+                  accept=".csv"
+                  onChange={(e) => setBulkFile(e.target.files?.[0] || null)}
+                  className="block w-full text-sm text-brand-text-muted file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-binny-navy file:text-white hover:file:bg-binny-navy/90 mx-auto"
+                />
+                {bulkFile && (
+                  <p className="mt-2 text-sm text-brand-text-dark font-medium">{bulkFile.name}</p>
+                )}
+              </div>
+
+              <div className="flex justify-end gap-3">
+                <Button variant="secondary" onClick={closeBulkModal}>Cancel</Button>
+                <Button
+                  onClick={handleBulkUpload}
+                  isLoading={bulkUploading}
+                  disabled={!bulkFile || bulkUploading}
+                  leftIcon={<Upload className="h-4 w-4" />}
+                >
+                  Upload & Create Products
+                </Button>
+              </div>
+            </>
+          )}
+
+          {/* Results */}
+          {bulkResult && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+                <CheckCircle className="h-5 w-5 text-green-600 flex-shrink-0" />
+                <p className="text-sm font-medium text-green-900">{bulkResult.created} products created successfully</p>
+              </div>
+
+              {bulkResult.errors.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-red-700">
+                    <AlertCircle className="h-4 w-4" />
+                    <p className="text-sm font-medium">{bulkResult.errors.length} rows failed</p>
+                  </div>
+                  <div className="max-h-48 overflow-y-auto border border-red-200 rounded-lg divide-y divide-red-100">
+                    {bulkResult.errors.map((err: BulkRowError, i: number) => (
+                      <div key={i} className="px-3 py-2 text-xs">
+                        <span className="font-medium text-red-800">Row {err.row}</span>
+                        {err.article_name && <span className="text-red-600"> ({err.article_name})</span>}
+                        <span className="text-red-600">: {err.error}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3">
+                <Button variant="secondary" onClick={closeBulkModal}>Close</Button>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setBulkResult(null);
+                    setBulkFile(null);
+                    if (bulkFileRef.current) bulkFileRef.current.value = '';
+                  }}
+                  leftIcon={<Upload className="h-4 w-4" />}
+                >
+                  Upload Another File
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       </Modal>
     </div>
