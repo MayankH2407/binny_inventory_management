@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Binny Inventory — Mobile App</title>
+  <style>
+    :root {
+      --navy: #2D2A6E;
+      --navy-dark: #1E1A5F;
+      --red: #E31E24;
+      --bg: #F5F6FA;
+      --white: #ffffff;
+      --text: #1a1a2e;
+      --text-muted: #6b7280;
+      --border: #e5e7eb;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    .header {
+      background: linear-gradient(135deg, var(--navy) 0%, var(--navy-dark) 100%);
+      padding: 40px 20px 50px;
+      text-align: center;
+      position: relative;
+    }
+    .header::after {
+      content: '';
+      position: absolute;
+      bottom: -20px;
+      left: 0;
+      right: 0;
+      height: 40px;
+      background: var(--bg);
+      border-radius: 24px 24px 0 0;
+    }
+    .logo { width: 80px; height: 80px; margin-bottom: 12px; border-radius: 16px; background: white; padding: 8px; }
+    .header h1 { color: white; font-size: 28px; font-weight: 700; }
+    .header p { color: rgba(255,255,255,0.7); font-size: 14px; margin-top: 6px; }
+    .container { max-width: 600px; margin: 0 auto; padding: 0 20px 40px; }
+
+    .card {
+      background: var(--white);
+      border-radius: 16px;
+      padding: 28px;
+      margin-bottom: 20px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04);
+    }
+    .card-accent { border-top: 3px solid var(--red); }
+    .card h2 {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--navy);
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .card h2 .icon {
+      width: 32px; height: 32px;
+      background: linear-gradient(135deg, var(--navy), var(--navy-dark));
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      color: white; font-size: 16px; flex-shrink: 0;
+    }
+
+    .app-link-box {
+      background: linear-gradient(135deg, var(--navy) 0%, var(--navy-dark) 100%);
+      border-radius: 12px;
+      padding: 20px;
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    .app-link-box a {
+      color: white;
+      font-size: 18px;
+      font-weight: 600;
+      text-decoration: none;
+      word-break: break-all;
+    }
+    .app-link-box a:hover { text-decoration: underline; }
+    .app-link-box .tap-hint {
+      color: rgba(255,255,255,0.6);
+      font-size: 12px;
+      margin-top: 8px;
+    }
+
+    .qr-container {
+      text-align: center;
+      padding: 20px 0 4px;
+    }
+    .qr-label {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-top: 12px;
+    }
+    #qrImg {
+      border-radius: 12px;
+      border: 8px solid #f3f4f6;
+    }
+
+    .creds-grid {
+      display: grid;
+      grid-template-columns: 100px 1fr;
+      gap: 10px 16px;
+      align-items: center;
+    }
+    .creds-grid .label {
+      font-size: 13px;
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+    .creds-grid .value {
+      font-family: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+      font-size: 15px;
+      font-weight: 600;
+      background: #f3f4f6;
+      padding: 8px 14px;
+      border-radius: 8px;
+      user-select: all;
+      cursor: pointer;
+    }
+    .creds-grid .value:hover { background: #e5e7eb; }
+
+    .steps { counter-reset: step; }
+    .step {
+      display: flex;
+      gap: 14px;
+      margin-bottom: 18px;
+      align-items: flex-start;
+    }
+    .step:last-child { margin-bottom: 0; }
+    .step-num {
+      counter-increment: step;
+      min-width: 32px; height: 32px;
+      background: var(--navy);
+      color: white;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px; font-weight: 700;
+      flex-shrink: 0;
+    }
+    .step-num::before { content: counter(step); }
+    .step-content h3 { font-size: 15px; font-weight: 600; margin-bottom: 3px; }
+    .step-content p { font-size: 14px; color: var(--text-muted); line-height: 1.5; }
+
+    .platform-tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 20px;
+    }
+    .tab-btn {
+      flex: 1;
+      padding: 10px;
+      border: 2px solid var(--border);
+      border-radius: 10px;
+      background: white;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      text-align: center;
+      transition: all 0.2s;
+      color: var(--text);
+    }
+    .tab-btn.active {
+      border-color: var(--navy);
+      background: var(--navy);
+      color: white;
+    }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    .features-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .feature {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px;
+      background: #f9fafb;
+      border-radius: 10px;
+    }
+    .feature-icon {
+      width: 36px; height: 36px;
+      background: linear-gradient(135deg, rgba(45,42,110,0.1), rgba(45,42,110,0.05));
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+    .feature span { font-size: 13px; font-weight: 500; line-height: 1.3; }
+
+    .footer {
+      text-align: center;
+      padding: 20px;
+      color: var(--text-muted);
+      font-size: 12px;
+    }
+    .footer a { color: var(--navy); text-decoration: none; font-weight: 600; }
+
+    .badge {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .badge-green { background: #d1fae5; color: #065f46; }
+
+    .info-note {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 14px;
+      padding: 10px 14px;
+      background: #f9fafb;
+      border-radius: 8px;
+      border-left: 3px solid var(--navy);
+    }
+
+    .copy-toast {
+      position: fixed;
+      bottom: 30px;
+      left: 50%;
+      transform: translateX(-50%) translateY(80px);
+      background: var(--navy);
+      color: white;
+      padding: 10px 24px;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      opacity: 0;
+      transition: all 0.3s;
+      z-index: 100;
+    }
+    .copy-toast.show {
+      transform: translateX(-50%) translateY(0);
+      opacity: 1;
+    }
+
+    @media (max-width: 480px) {
+      .features-grid { grid-template-columns: 1fr; }
+      .creds-grid { grid-template-columns: 80px 1fr; }
+      .header { padding: 30px 16px 40px; }
+      .card { padding: 20px; }
+    }
+
+    @media print {
+      body { background: white; }
+      .card { box-shadow: none; border: 1px solid #e5e7eb; break-inside: avoid; }
+      .header::after { display: none; }
+      .tab-content { display: block !important; }
+      .platform-tabs { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <img src="https://srv1409601.hstgr.cloud/binny/monogram.png" alt="Binny Footwear" class="logo" onerror="this.style.display='none'">
+  <h1>Binny Inventory</h1>
+  <p>QR-Based Inventory Management System</p>
+</div>
+
+<div class="container">
+
+  <!-- App Link + QR -->
+  <div class="card card-accent">
+    <h2><div class="icon">&#128279;</div> Open the App</h2>
+    <div class="app-link-box">
+      <a href="https://srv1409601.hstgr.cloud/binny/" target="_blank" rel="noopener">
+        https://srv1409601.hstgr.cloud/binny/
+      </a>
+      <div class="tap-hint">Tap to open in your browser</div>
+    </div>
+    <div class="qr-container">
+      <img id="qrImg" src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=https%3A%2F%2Fsrv1409601.hstgr.cloud%2Fbinny%2F&color=2D2A6E&bgcolor=ffffff&margin=1" alt="QR Code" width="200" height="200">
+      <div class="qr-label">Scan this QR code with your phone camera to open the app</div>
+    </div>
+  </div>
+
+  <!-- Login Credentials -->
+  <div class="card">
+    <h2><div class="icon">&#128274;</div> Login Credentials</h2>
+    <div class="creds-grid">
+      <div class="label">Email</div>
+      <div class="value" onclick="copyText('admin@binny.com')">admin@binny.com</div>
+      <div class="label">Password</div>
+      <div class="value" onclick="copyText('Admin@123')">Admin@123</div>
+    </div>
+    <div class="info-note">
+      Tap any value to copy it. Please change your password after first login via Profile settings.
+    </div>
+  </div>
+
+  <!-- Install Instructions -->
+  <div class="card">
+    <h2><div class="icon">&#128241;</div> Install on Your Phone &nbsp;<span class="badge badge-green">Recommended</span></h2>
+    <p style="font-size:14px; color:var(--text-muted); margin-bottom:16px;">
+      Install the app on your home screen for a native app-like experience &mdash; full-screen mode, QR scanner, and offline support.
+    </p>
+    <div class="platform-tabs">
+      <button class="tab-btn active" onclick="switchTab(this, 'android')">Android</button>
+      <button class="tab-btn" onclick="switchTab(this, 'ios')">iPhone / iPad</button>
+    </div>
+
+    <div id="tab-android" class="tab-content active">
+      <div class="steps">
+        <div class="step"><div class="step-num"></div><div class="step-content"><h3>Open in Chrome</h3><p>Open the app link above in <strong>Google Chrome</strong> browser.</p></div></div>
+        <div class="step"><div class="step-num"></div><div class="step-content"><h3>Tap the Install Banner</h3><p>You should see an <strong>"Install Binny Inventory"</strong> banner at the bottom. Tap <strong>Install</strong>.</p></div></div>
+        <div class="step"><div class="step-num"></div><div class="step-content"><h3>Or Use the Menu</h3><p>If no banner appears: tap the <strong>three-dot menu &#8942;</strong> in Chrome, then select <strong>"Install app"</strong> or <strong>"Add to Home screen"</strong>.</p></div></div>
+        <div class="step"><div class="step-num"></div><div class="step-content"><h3>Done!</h3><p>The <strong>Binny Inventory</strong> icon will appear on your home screen. Open it like any other app.</p></div></div>
+      </div>
+    </div>
+
+    <div id="tab-ios" class="tab-content">
+      <div class="steps">
+        <div class="step"><div class="step-num"></div><div class="step-content"><h3>Open in Safari</h3><p>Open the app link above in <strong>Safari</strong> (not Chrome &mdash; iOS requires Safari for PWA install).</p></div></div>
+        <div class="step"><div class="step-num"></div><div class="step-content"><h3>Tap the Share Button</h3><p>Tap the <strong>Share icon</strong> &#x2191; (square with upward arrow) at the bottom of the screen.</p></div></div>
+        <div class="step"><div class="step-num"></div><div class="step-content"><h3>Add to Home Screen</h3><p>Scroll down in the share menu and tap <strong>"Add to Home Screen"</strong>, then tap <strong>Add</strong>.</p></div></div>
+        <div class="step"><div class="step-num"></div><div class="step-content"><h3>Done!</h3><p>The <strong>Binny Inventory</strong> icon will appear on your home screen.</p></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Key Features -->
+  <div class="card">
+    <h2><div class="icon">&#9889;</div> Key Features</h2>
+    <div class="features-grid">
+      <div class="feature"><div class="feature-icon">&#128247;</div><span>QR Code Scanning</span></div>
+      <div class="feature"><div class="feature-icon">&#128230;</div><span>Child Box Labels</span></div>
+      <div class="feature"><div class="feature-icon">&#128451;</div><span>Master Carton Packing</span></div>
+      <div class="feature"><div class="feature-icon">&#128666;</div><span>Dispatch Tracking</span></div>
+      <div class="feature"><div class="feature-icon">&#128202;</div><span>Reports &amp; CSV Export</span></div>
+      <div class="feature"><div class="feature-icon">&#128270;</div><span>Full Traceability</span></div>
+      <div class="feature"><div class="feature-icon">&#127760;</div><span>Works Offline</span></div>
+      <div class="feature"><div class="feature-icon">&#128200;</div><span>Inventory Drill-Down</span></div>
+    </div>
+  </div>
+
+  <!-- Requirements -->
+  <div class="card">
+    <h2><div class="icon">&#9989;</div> Requirements</h2>
+    <div style="font-size:14px; color:var(--text-muted); line-height:1.8;">
+      <strong>Android:</strong> Chrome 80+ (most phones have this)<br>
+      <strong>iPhone/iPad:</strong> iOS 14+ with Safari<br>
+      <strong>Desktop:</strong> Any modern browser (Chrome, Edge, Firefox)<br>
+      <strong>Camera:</strong> Required for QR code scanning
+    </div>
+  </div>
+
+  <!-- Support -->
+  <div class="card">
+    <h2><div class="icon">&#128222;</div> Support</h2>
+    <p style="font-size:14px; color:var(--text-muted); line-height:1.6;">
+      For any issues or questions, please contact the <strong>Basiq360</strong> team.
+    </p>
+  </div>
+
+</div>
+
+<div class="footer">
+  <p>Powered by <a href="#">Basiq360</a> &mdash; Built for Binny Footwear (Mahavir Polymers Pvt. Ltd.)</p>
+  <p style="margin-top:4px;">Version 1.0 &bull; April 2026</p>
+</div>
+
+<div class="copy-toast" id="copyToast">Copied!</div>
+
+<script>
+function switchTab(btn, platform) {
+  document.querySelectorAll('.tab-btn').forEach(function(b) { b.classList.remove('active'); });
+  document.querySelectorAll('.tab-content').forEach(function(t) { t.classList.remove('active'); });
+  btn.classList.add('active');
+  document.getElementById('tab-' + platform).classList.add('active');
+}
+
+function copyText(text) {
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(text);
+  } else {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+  }
+  var toast = document.getElementById('copyToast');
+  toast.textContent = 'Copied: ' + text;
+  toast.classList.add('show');
+  setTimeout(function() { toast.classList.remove('show'); }, 1500);
+}
+</script>
+
+</body>
+</html>

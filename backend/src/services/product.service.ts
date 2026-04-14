@@ -4,14 +4,17 @@ import { ConflictError, NotFoundError } from '../utils/errors';
 import { createAuditLog } from './auditLog.service';
 import { CreateProductInput, UpdateProductInput } from '../models/schemas/product.schema';
 import { logger } from '../utils/logger';
+import { generateSku } from '../utils/skuGenerator';
 
 export async function createProduct(
   input: CreateProductInput,
   createdBy: string
 ): Promise<Product> {
-  const existing = await query('SELECT id FROM products WHERE sku = $1', [input.sku]);
+  const sku = await generateSku(input.section, input.article_name, input.category, input.colour);
+
+  const existing = await query('SELECT id FROM products WHERE sku = $1', [sku]);
   if (existing.rows.length > 0) {
-    throw new ConflictError(`Product with SKU ${input.sku} already exists`);
+    throw new ConflictError(`Product with SKU ${sku} already exists`);
   }
 
   const result = await query(
@@ -19,8 +22,8 @@ export async function createProduct(
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
      RETURNING *`,
     [
-      input.article_name, input.sku, input.article_code, input.colour, input.size, input.mrp, input.description || null,
-      input.category || null, input.section || null, input.location || null,
+      input.article_name, sku, input.article_code, input.colour, input.size, input.mrp, input.description || null,
+      input.category, input.section, input.location || null,
       input.article_group || null, input.hsn_code || null, input.size_group || null,
     ]
   );
@@ -32,10 +35,10 @@ export async function createProduct(
     action: 'CREATE_PRODUCT',
     entityType: 'product',
     entityId: product.id,
-    newValues: input as Record<string, unknown>,
+    newValues: { ...input, sku } as Record<string, unknown>,
   });
 
-  logger.info(`Product created: ${input.article_name} (${input.sku})`);
+  logger.info(`Product created: ${input.article_name} (${sku})`);
   return product;
 }
 
@@ -55,6 +58,10 @@ export async function getProducts(
     category?: string;
     section?: string;
     location?: string;
+    colour?: string;
+    size?: string;
+    article_name?: string;
+    article_group?: string;
   },
   page: number = 1,
   limit: number = 25
@@ -82,6 +89,22 @@ export async function getProducts(
   if (filters.location) {
     conditions.push(`location = $${paramIndex++}`);
     values.push(filters.location);
+  }
+  if (filters.colour) {
+    conditions.push(`colour ILIKE $${paramIndex++}`);
+    values.push(`%${filters.colour}%`);
+  }
+  if (filters.size) {
+    conditions.push(`size = $${paramIndex++}`);
+    values.push(filters.size);
+  }
+  if (filters.article_name) {
+    conditions.push(`article_name ILIKE $${paramIndex++}`);
+    values.push(`%${filters.article_name}%`);
+  }
+  if (filters.article_group) {
+    conditions.push(`article_group ILIKE $${paramIndex++}`);
+    values.push(`%${filters.article_group}%`);
   }
   if (filters.search) {
     conditions.push(`(article_name ILIKE $${paramIndex} OR sku ILIKE $${paramIndex} OR article_code ILIKE $${paramIndex})`);
@@ -186,7 +209,6 @@ export async function deleteProduct(id: string, deletedBy: string): Promise<void
 }
 
 export async function getSiblingProducts(productId: string): Promise<Product[]> {
-  // First get the product to find its article_name and colour
   const productResult = await query('SELECT article_name, colour FROM products WHERE id = $1 AND is_active = true', [productId]);
   if (productResult.rows.length === 0) {
     throw new NotFoundError('Product not found');
@@ -215,4 +237,31 @@ export async function getColoursByProduct(productId: string): Promise<{ colour: 
     [article_name]
   );
   return result.rows;
+}
+
+export async function updateProductImage(
+  productId: string,
+  imageUrl: string,
+  updatedBy: string
+): Promise<void> {
+  const productResult = await query('SELECT article_code, colour FROM products WHERE id = $1', [productId]);
+  if (productResult.rows.length === 0) {
+    throw new NotFoundError('Product not found');
+  }
+  const { article_code, colour } = productResult.rows[0];
+
+  await query(
+    'UPDATE products SET image_url = $1, updated_at = NOW() WHERE article_code = $2 AND colour = $3',
+    [imageUrl, article_code, colour]
+  );
+
+  await createAuditLog({
+    userId: updatedBy,
+    action: 'UPDATE_PRODUCT_IMAGE',
+    entityType: 'product',
+    entityId: productId,
+    newValues: { image_url: imageUrl, article_code, colour },
+  });
+
+  logger.info(`Product image updated for article ${article_code} / ${colour}`);
 }

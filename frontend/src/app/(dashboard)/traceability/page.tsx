@@ -56,7 +56,7 @@ export default function TraceabilityPage() {
     <div>
       <PageHeader
         title="Traceability"
-        description="Track the complete journey of any child box or master carton"
+        description="Track the complete lifecycle of any item — from creation through packing, storage, and dispatch with a full timeline"
       />
 
       <Card className="p-6 mb-6">
@@ -231,8 +231,7 @@ export default function TraceabilityPage() {
               Trace an Item
             </h3>
             <p className="text-brand-text-muted max-w-md mx-auto">
-              Enter or scan a QR code to view the complete traceability of a child box,
-              including its master carton and dispatch information.
+              Traceability shows the full journey of a child box or master carton — creation, packing into cartons, storage, and dispatch. Enter or scan a barcode to trace an item.
             </p>
           </div>
         </Card>

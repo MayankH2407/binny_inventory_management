@@ -22,4 +22,9 @@ test.describe('TC-SCAN: Scan Page', () => {
     const btn = page.getByRole('button', { name: /search|lookup|scan|find/i }).first();
     await expect(btn).toBeVisible();
   });
+
+  test('TC-SCAN-004: Scan page shows updated description', async ({ page }) => {
+    await page.goto('/scan');
+    await expect(page.getByText(/quick item lookup/i)).toBeVisible({ timeout: 10000 });
+  });
 });

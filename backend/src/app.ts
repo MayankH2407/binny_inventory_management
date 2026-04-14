@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import path from 'path';
 import helmet from 'helmet';
 import compression from 'compression';
 import morgan from 'morgan';
@@ -59,6 +60,9 @@ app.get('/health', (_req, res) => {
     environment: env.NODE_ENV,
   });
 });
+
+// Static file serving for uploads
+app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 
 // API routes
 app.use('/api/v1', routes);

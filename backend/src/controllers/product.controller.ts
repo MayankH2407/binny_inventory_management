@@ -22,11 +22,13 @@ export async function getProducts(
   next: NextFunction
 ): Promise<void> {
   try {
-    const { page, limit, article_code, search, is_active } = req.query as {
+    const { page, limit, article_code, search, is_active, category, section, location, colour, size, article_name, article_group } = req.query as {
       page?: number; limit?: number; article_code?: string; search?: string; is_active?: boolean;
+      category?: string; section?: string; location?: string; colour?: string; size?: string;
+      article_name?: string; article_group?: string;
     };
     const result = await productService.getProducts(
-      { article_code, search, is_active },
+      { article_code, search, is_active, category, section, location, colour, size, article_name, article_group },
       page || 1,
       limit || 25
     );
@@ -96,6 +98,32 @@ export async function getProductSizes(
   try {
     const products = await productService.getSiblingProducts(req.params.id);
     sendSuccess(res, products, 'Product sizes retrieved successfully');
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function uploadProductImage(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const { id } = req.params;
+    const file = (req as AuthenticatedRequest & { file?: { filename: string } }).file;
+    if (!file) {
+      res.status(400).json({ success: false, message: 'No image file provided' });
+      return;
+    }
+
+    const imageUrl = `/uploads/product-images/${file.filename}`;
+    await productService.updateProductImage(id, imageUrl, req.user!.userId);
+
+    res.json({
+      success: true,
+      message: 'Product image uploaded successfully',
+      data: { image_url: imageUrl },
+    });
   } catch (error) {
     next(error);
   }

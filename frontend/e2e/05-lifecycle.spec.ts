@@ -49,6 +49,21 @@ test.describe('TC-LIFE: Lifecycle Workflows (Storage, Unpack, Dispatch)', () => 
     await expect(page.getByText(/Dispatch/i).first()).toBeVisible();
   });
 
+  test('TC-STORE-002: Storage page shows correct description', async ({ page }) => {
+    await page.goto('/storage');
+    await expect(page.getByText(/seal a packed master carton/i)).toBeVisible({ timeout: 10000 });
+  });
+
+  test('TC-UNPACK-002: Unpack page shows correct description', async ({ page }) => {
+    await page.goto('/unpack');
+    await expect(page.getByText(/removes ALL child boxes/i)).toBeVisible({ timeout: 10000 });
+  });
+
+  test('TC-REPACK-002: Repack page shows correct description', async ({ page }) => {
+    await page.goto('/repack');
+    await expect(page.getByText(/moves SPECIFIC child boxes/i)).toBeVisible({ timeout: 10000 });
+  });
+
   test('TC-LIFE-001: Full lifecycle via API + verify in UI', async ({ page }) => {
     const token = await getAuthToken(page);
 

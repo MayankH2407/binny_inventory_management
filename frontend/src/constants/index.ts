@@ -89,3 +89,5 @@ export const PAGE_SIZE = 20;
 export const PRODUCT_CATEGORIES = ['Gents', 'Ladies', 'Boys', 'Girls'] as const;
 export const PRODUCT_SECTIONS = ['Hawaii', 'PU', 'EVA', 'Fabrication', 'Canvas', 'PVC', 'Sports Shoes'] as const;
 export const PRODUCT_LOCATIONS = ['VKIA', 'MIA', 'F540'] as const;
+
+export const CUSTOMER_TYPES = ['Primary Dealer', 'Sub Dealer'] as const;

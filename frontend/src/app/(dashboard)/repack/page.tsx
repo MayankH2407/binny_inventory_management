@@ -150,7 +150,7 @@ export default function RepackPage() {
     <div>
       <PageHeader
         title="Repack"
-        description="Move child boxes between master cartons"
+        description="Repack moves SPECIFIC child boxes from one master carton to another. Selected boxes stay PACKED but transfer to the destination carton."
       />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

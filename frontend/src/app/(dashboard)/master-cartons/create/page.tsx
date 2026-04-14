@@ -98,7 +98,7 @@ export default function CreateMasterCartonPage() {
     <div>
       <PageHeader
         title="Create Master Carton"
-        description="Scan child boxes to pack into a new master carton"
+        description="Pack child boxes into a new master carton. Only FREE child boxes can be packed. Scan or enter barcodes to add boxes."
         action={
           <Link href={ROUTES.MASTER_CARTONS}>
             <Button variant="secondary" leftIcon={<ArrowLeft className="h-4 w-4" />}>

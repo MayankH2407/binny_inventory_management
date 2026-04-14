@@ -15,6 +15,7 @@ export const customerService = {
     limit?: number;
     search?: string;
     is_active?: boolean;
+    customer_type?: string;
   }): Promise<CustomerListResponse> {
     const response = await api.get<CustomerListResponse>('/customers', { params });
     return response.data;
@@ -37,5 +38,15 @@ export const customerService = {
 
   async delete(id: string): Promise<void> {
     await api.delete(`/customers/${id}`);
+  },
+
+  async getPrimaryDealers(): Promise<Customer[]> {
+    const response = await api.get<Customer[]>('/customers/primary-dealers');
+    return response.data;
+  },
+
+  async getSubDealers(primaryDealerId: string): Promise<Customer[]> {
+    const response = await api.get<Customer[]>(`/customers/${primaryDealerId}/sub-dealers`);
+    return response.data;
   },
 };

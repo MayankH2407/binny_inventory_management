@@ -172,16 +172,23 @@ export async function getTransactions(
 }
 
 export async function traceByBarcode(barcode: string): Promise<Record<string, unknown>> {
-  // First try to find a child box
+  // First try to find a child box — use explicit columns to avoid id/timestamp collision
   const childBoxResult = await query(
-    `SELECT cb.*, p.* FROM child_boxes cb JOIN products p ON p.id = cb.product_id WHERE cb.barcode = $1`,
+    `SELECT
+       cb.id, cb.barcode, cb.product_id, cb.status, cb.quantity,
+       cb.created_by, cb.created_at, cb.updated_at,
+       p.sku, p.article_name, p.article_code, p.colour, p.size,
+       p.mrp, p.description, p.category, p.section, p.location
+     FROM child_boxes cb
+     JOIN products p ON p.id = cb.product_id
+     WHERE cb.barcode = $1`,
     [barcode]
   );
 
   if (childBoxResult.rows.length > 0) {
     const childBox = childBoxResult.rows[0];
 
-    // Get current master carton mapping
+    // Get current master carton mapping — use cb.id (child box ID, not product ID)
     const cartonResult = await query(
       `SELECT mc.* FROM carton_child_mapping ccm JOIN master_cartons mc ON mc.id = ccm.master_carton_id WHERE ccm.child_box_id = $1 AND ccm.is_active = true`,
       [childBox.id]
@@ -198,9 +205,10 @@ export async function traceByBarcode(barcode: string): Promise<Record<string, un
       dispatch = dispatchResult.rows.length > 0 ? dispatchResult.rows[0] : null;
     }
 
-    // Get timeline
+    // Get timeline — map DB columns to frontend-expected field names
     const timelineResult = await query(
-      `SELECT it.*, u.name as performed_by_name FROM inventory_transactions it LEFT JOIN users u ON u.id = it.performed_by WHERE it.child_box_id = $1 ORDER BY it.created_at ASC`,
+      `SELECT it.id, it.transaction_type as action, it.notes as description, u.name as performed_by, it.created_at as performed_at, it.metadata
+       FROM inventory_transactions it LEFT JOIN users u ON u.id = it.performed_by WHERE it.child_box_id = $1 ORDER BY it.created_at ASC`,
       [childBox.id]
     );
 
@@ -229,9 +237,10 @@ export async function traceByBarcode(barcode: string): Promise<Record<string, un
     );
     const dispatch = dispatchResult.rows.length > 0 ? dispatchResult.rows[0] : null;
 
-    // Get timeline
+    // Get timeline — map DB columns to frontend-expected field names
     const timelineResult = await query(
-      `SELECT it.*, u.name as performed_by_name FROM inventory_transactions it LEFT JOIN users u ON u.id = it.performed_by WHERE it.master_carton_id = $1 ORDER BY it.created_at ASC`,
+      `SELECT it.id, it.transaction_type as action, it.notes as description, u.name as performed_by, it.created_at as performed_at, it.metadata
+       FROM inventory_transactions it LEFT JOIN users u ON u.id = it.performed_by WHERE it.master_carton_id = $1 ORDER BY it.created_at ASC`,
       [masterCarton.id]
     );
 

@@ -10,6 +10,7 @@ import {
   productIdParamSchema,
   productListQuerySchema,
 } from '../models/schemas/product.schema';
+import { productImageUpload } from '../middleware/upload.middleware';
 
 const router = Router();
 
@@ -38,6 +39,13 @@ router.get(
   '/:id/sizes',
   validate({ params: productIdParamSchema }),
   productController.getProductSizes
+);
+
+router.post(
+  '/:id/image',
+  authorize(USER_ROLES.ADMIN, USER_ROLES.SUPERVISOR),
+  productImageUpload.single('image'),
+  productController.uploadProductImage
 );
 
 router.get(

@@ -66,6 +66,11 @@ export const RATE_LIMIT = {
   AUTH_MAX_REQUESTS: 50000,
 } as const;
 
+export const CUSTOMER_TYPES = {
+  PRIMARY_DEALER: 'Primary Dealer',
+  SUB_DEALER: 'Sub Dealer',
+} as const;
+
 export type ChildBoxStatus = typeof CHILD_BOX_STATUS[keyof typeof CHILD_BOX_STATUS];
 export type MasterCartonStatus = typeof MASTER_CARTON_STATUS[keyof typeof MASTER_CARTON_STATUS];
 export type TransactionType = typeof TRANSACTION_TYPES[keyof typeof TRANSACTION_TYPES];
@@ -73,3 +78,4 @@ export type UserRole = typeof USER_ROLES[keyof typeof USER_ROLES];
 export type ProductCategory = typeof PRODUCT_CATEGORIES[keyof typeof PRODUCT_CATEGORIES];
 export type ProductSection = typeof PRODUCT_SECTIONS[keyof typeof PRODUCT_SECTIONS];
 export type ProductLocation = typeof PRODUCT_LOCATIONS[keyof typeof PRODUCT_LOCATIONS];
+export type CustomerType = typeof CUSTOMER_TYPES[keyof typeof CUSTOMER_TYPES];

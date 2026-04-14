@@ -6,11 +6,164 @@
 
 ---
 
-## Project Status: PHASE 1 COMPLETE — PHASE 1.5 COMPLETE — PHASE 2 (UI ENHANCEMENT) COMPLETE — PHASE 3 (PWA) COMPLETE — DEPLOYED TO PRODUCTION
+## Project Status: PHASE 1 COMPLETE — PHASE 1.5 COMPLETE — PHASE 2 (UI ENHANCEMENT) COMPLETE — PHASE 3 (PWA) COMPLETE — DEPLOYED TO PRODUCTION — PHASE 4 (MEETING FEEDBACK) IN PROGRESS
 
 ---
 
 ## Activity Log
+
+### April 13, 2026 — Phase 4: Meeting Feedback Implementation (Day 1 — Backend)
+
+#### Context
+Client meeting feedback received covering: SKU auto-generation, product images, configurable sections, customer dealer hierarchy (Primary/Sub Dealer), bug fixes (traceability, inventory sections), and UI clarity improvements for pack/unpack/repack/scan/storage/traceability modules.
+
+#### Key Decisions (confirmed with client)
+- **SKU format**: `{Section}-{ArticleName}-{Category}-{Serial}-{Colour}` e.g., `HAWAII-BUSKER-GENTS-01-WHITE`
+- **Barcodes**: Stay unique per child box (no change to current behavior)
+- **Sections**: Configurable by admin — stored in DB, not hardcoded
+- **Product images**: Server filesystem at `/uploads/product-images/`
+- **Customer network**: Primary Dealer / Sub Dealer hierarchy with auto-fill
+
+#### Phase 4 Implementation Plan
+Full plan documented at `.claude/plans/declarative-foraging-platypus.md` — 5 phases, 10 tasks total.
+
+#### Bug Fixes
+| # | Activity | Status | Notes |
+|---|----------|--------|-------|
+| 222 | Fix: Traceability query column collision | Done | `inventory.service.ts` `traceByBarcode()` — `SELECT cb.*, p.*` caused `p.id` to overwrite `cb.id`, breaking carton/dispatch/timeline lookups. Fixed with explicit column selection using `cb.id, cb.barcode, cb.status, ...` and `p.sku, p.article_name, ...` separately |
+
+#### Database Migrations (4 new)
+| # | Activity | Status | Notes |
+|---|----------|--------|-------|
+| 223 | Migration: Create product_sections table | Done | `20260413100001` — New `product_sections` table (id, name, is_active, display_order). Seeded 7 existing sections (Hawaii, PU, EVA, Fabrication, Canvas, PVC, Sports Shoes). Dropped hardcoded CHECK constraint on products.section. Backfilled NULLs, made section + category NOT NULL |
+| 224 | Migration: Add product image_url column | Done | `20260413100002` — Added `image_url VARCHAR(500)` to products table |
+| 225 | Migration: Customer dealer hierarchy | Done | `20260413100003` — Created `customer_type` ENUM ('Primary Dealer', 'Sub Dealer'). Added `customer_type` (default 'Primary Dealer') and `primary_dealer_id` (FK → customers) columns. CHECK constraint: sub dealer must have primary dealer. Indexes on type and primary_dealer_id |
+| 226 | Migration: Widen SKU column | Done | `20260413100004` — Widened `products.sku` from VARCHAR(50) to VARCHAR(100) for longer auto-generated SKU format |
+
+#### Backend: Configurable Sections CRUD
+| # | Activity | Status | Notes |
+|---|----------|--------|-------|
+| 227 | Section validation schema | Done | `models/schemas/section.schema.ts` — Zod schemas for create/update/query with name (1-100 chars), is_active, display_order |
+| 228 | Section service | Done | `services/section.service.ts` — Full CRUD: createSection, getSections (with includeInactive filter), getSectionById, updateSection, deleteSection (soft delete). Duplicate name check, audit logging |
+| 229 | Section controller + routes | Done | `controllers/section.controller.ts` + `routes/section.routes.ts` — GET / and GET /:id for all authenticated users; POST, PUT, DELETE for Admin only. Registered in routes/index.ts |
+
+#### Backend: SKU Auto-Generation
+| # | Activity | Status | Notes |
+|---|----------|--------|-------|
+| 230 | SKU generator utility | Done | `utils/skuGenerator.ts` — `generateSku(section, articleName, category, colour)` → counts existing products with same normalized combo → returns `{SECTION}-{ARTICLE}-{CATEGORY}-{SERIAL}-{COLOUR}` with zero-padded 2-digit serial |
+| 231 | Product schema updated for auto-SKU | Done | `product.schema.ts` — Removed `sku` from createProductSchema (auto-generated). Made `category` required enum, `section` required string (no longer hardcoded enum). Added colour/size/article_name/article_group filters to productListQuerySchema |
+| 232 | Product service updated | Done | `product.service.ts` — `createProduct()` now calls `generateSku()` instead of accepting manual SKU. `getProducts()` extended with colour, size, article_name, article_group filters |
+
+#### Backend: Product Image Upload
+| # | Activity | Status | Notes |
+|---|----------|--------|-------|
+| 233 | Multer middleware + dependencies | Done | Installed `multer` + `@types/multer`. Created `middleware/upload.middleware.ts` — disk storage with UUID filenames, 5MB limit, JPEG/PNG/WebP filter. Created `uploads/product-images/` directory |
+| 234 | Image upload endpoint | Done | `POST /products/:id/image` — uploads image, stores as `/uploads/product-images/{uuid}.ext`. Updates `image_url` for all products sharing same article_code + colour. Static file serving added to app.ts. Added `uploads/` to .gitignore |
+
+#### Backend: Customer Dealer Hierarchy
+| # | Activity | Status | Notes |
+|---|----------|--------|-------|
+| 235 | Customer schema updated | Done | `customer.schema.ts` — Added `customer_type` enum ('Primary Dealer'/'Sub Dealer', default Primary), `primary_dealer_id` UUID. Refinement: sub dealer must have primary_dealer_id. Added customer_type to list query filters |
+| 236 | Customer service updated | Done | `customer.service.ts` — `createCustomer()` auto-fills sub dealer fields (address, delivery_location, gstin, contact) from primary dealer. `getCustomers()` LEFT JOINs for primary_dealer_name, filters by customer_type. New: `getPrimaryDealers()`, `getSubDealers(id)` |
+| 237 | Customer routes updated | Done | `GET /customers/primary-dealers` + `GET /customers/:id/sub-dealers` — new endpoints. Controller handlers added |
+
+#### Backend: Constants Updated
+| # | Activity | Status | Notes |
+|---|----------|--------|-------|
+| 238 | Added CUSTOMER_TYPES constant | Done | `config/constants.ts` — `CUSTOMER_TYPES = { PRIMARY_DEALER: 'Primary Dealer', SUB_DEALER: 'Sub Dealer' }` with `CustomerType` export. Existing PRODUCT_SECTIONS kept for backward compatibility |
+
+#### Compilation Check
+| # | Activity | Status | Notes |
+|---|----------|--------|-------|
+| 239 | Backend TypeScript compilation | Done | 0 errors after all changes |
+
+### April 14, 2026 — Phase 4: Meeting Feedback Implementation (Day 2 — Frontend)
+
+#### Frontend: Types & Constants
+| # | Activity | Status | Notes |
+|---|----------|--------|-------|
+| 240 | Updated Product type with image_url | Done | `types/index.ts` — Added `image_url: string | null` to Product interface |
+| 241 | Added ProductSection interface | Done | `types/index.ts` — New interface: `{ id, name, is_active, display_order, created_at, updated_at }` |
+| 242 | Updated Customer type with dealer fields | Done | `types/index.ts` — Added `customer_type: 'Primary Dealer' | 'Sub Dealer'`, `primary_dealer_id: string | null`, `primary_dealer_name?: string | null` to Customer. Updated CreateCustomerRequest with optional customer_type + primary_dealer_id |
+| 243 | Updated frontend constants | Done | `constants/index.ts` — Added `CUSTOMER_TYPES = ['Primary Dealer', 'Sub Dealer']`. Kept PRODUCT_SECTIONS as fallback |
+
+#### Frontend: Product Module Redesign
+| # | Activity | Status | Notes |
+|---|----------|--------|-------|
+| 244 | Product service updated | Done | `product.service.ts` — Added `uploadImage(productId, file)` (multipart/form-data), `getSections()` (GET /sections). Extended `getAll()` with section, category, location, colour, size, article_name, article_group filter params |
+| 245 | Product page fully redesigned | Done | `products/page.tsx` — Section tabs at top (fetched from API, "All" + dynamic sections). Column-level filters (category select, colour/size/article_group text inputs, location select) with clear buttons. SKU removed from create form (auto-generated). SKU shown read-only in edit modal with helper note. Image column in table (40x40 thumbnail). Image upload in edit modal (file input → calls uploadImage → refetch). Category and Section now required fields in create. Mobile cards updated with thumbnails |
+
+#### Frontend: Customer Network UI
+| # | Activity | Status | Notes |
+|---|----------|--------|-------|
+| 246 | Customer service updated | Done | `customer.service.ts` — Added `getPrimaryDealers()`, `getSubDealers(id)`, `customer_type` filter param to `getAll()` |
+| 247 | Customer page fully redesigned | Done | `customers/page.tsx` — Customer type filter dropdown (All/Primary/Sub Dealer). Type column + Primary Dealer column in table. Create/Edit modal: radio selector for Primary/Sub Dealer. When Sub Dealer selected: primary dealer dropdown (fetched from API), auto-fill address/delivery_location/gstin/contact from primary dealer (read-only gray fields), only firm_name/private_marka/gr editable. Validation: sub dealer must have primary_dealer_id. Mobile cards show type badge + primary dealer name |
+
+#### Frontend: UI Clarity — Pack/Unpack/Repack + Module Descriptions
+| # | Activity | Status | Notes |
+|---|----------|--------|-------|
+| 248 | Pack page description updated | Done | `master-cartons/create/page.tsx` — "Pack child boxes into a new master carton. Only FREE child boxes can be packed. Scan or enter barcodes to add boxes." |
+| 249 | Unpack page description updated | Done | `unpack/page.tsx` — "Unpack removes ALL child boxes from a master carton. All boxes return to FREE status and the carton becomes empty." |
+| 250 | Repack page description updated | Done | `repack/page.tsx` — "Repack moves SPECIFIC child boxes from one master carton to another. Selected boxes stay PACKED but transfer to the destination carton." |
+| 251 | Traceability page description updated | Done | `traceability/page.tsx` — Header: "Track the complete lifecycle of any item — from creation through packing, storage, and dispatch with a full timeline". Empty state: detailed explanation of traceability journey |
+| 252 | Storage page description updated | Done | `storage/page.tsx` — "Seal a packed master carton for storage. Closing a carton prevents further packing changes and marks it ready for dispatch." |
+| 253 | Scan page description updated | Done | `scan/page.tsx` — "Quick item lookup — scan or enter any barcode to instantly view current status and details" |
+
+#### Compilation Check
+| # | Activity | Status | Notes |
+|---|----------|--------|-------|
+| 254 | Frontend TypeScript compilation | Done | 0 app source errors (1 pre-existing e2e test file issue unrelated to changes) |
+| 255 | Backend TypeScript compilation | Done | 0 errors — verified backend still clean after frontend changes |
+
+#### E2E Test Updates
+| # | Activity | Status | Notes |
+|---|----------|--------|-------|
+| 256 | Rewrote product E2E tests | Done | `10-products.spec.ts` — 14 tests (was 9). Removed SKU field assertions, added: section tabs (TC-PRODX-002/003), no SKU in create modal (TC-PRODX-004), required section/category (TC-PRODX-005), section API dropdown (TC-PRODX-007), column filters (TC-PRODX-011), image column (TC-PRODX-012), sections API (TC-PRODX-013), SKU auto-gen API (TC-PRODX-014) |
+| 257 | Rewrote customer E2E tests | Done | `09-customers.spec.ts` — 14 tests (was 7). Added: customer type selector (TC-CUST-003), create primary dealer (TC-CUST-004), sub dealer dropdown (TC-CUST-005), auto-fill from primary (TC-CUST-006), sub dealer validation (TC-CUST-007), type filter (TC-CUST-011), type+dealer columns (TC-CUST-012), primary dealers API (TC-CUST-013) |
+| 258 | Rewrote traceability E2E tests | Done | `07-traceability.spec.ts` — 5 tests (was 3). Added: updated description check (TC-TRACE-001/003), scan+trace buttons (TC-TRACE-002), child box card fields (TC-TRACE-004), API regression test for column collision bug fix (TC-TRACE-005) |
+| 259 | Added lifecycle UI description tests | Done | `05-lifecycle.spec.ts` — Added 3 tests: TC-STORE-002 (seal description), TC-UNPACK-002 (removes ALL description), TC-REPACK-002 (moves SPECIFIC description). Total: 10 tests (was 7) |
+| 260 | Added scan page description test | Done | `08-scan.spec.ts` — Added TC-SCAN-004: "quick item lookup" description check. Total: 4 tests (was 3) |
+| 261 | TypeScript compilation verified | Done | 0 new errors (1 pre-existing e2e issue in 03-child-boxes.spec.ts unrelated to Phase 4) |
+
+#### E2E Test Debugging & Fixes
+| # | Activity | Status | Notes |
+|---|----------|--------|-------|
+| 262 | Fix: Migration trigger function name | Done | `20260413100001` used `fn_set_updated_at()` but actual function is `trigger_set_updated_at()`. Fixed and re-ran all 4 migrations successfully |
+| 263 | Fix: Migration customer_type default quoting | Done | `20260413100003` had double-quoted default `"'Primary Dealer'"` → pgm dollar-quoted it to `'Primary Dealer'` (with extra quotes). Fixed to `pgm.func("'Primary Dealer'")` |
+| 264 | Fix: Backend multer type error | Done | `product.controller.ts` — `req.file` not typed on `AuthenticatedRequest`. Fixed with inline type assertion. Installed multer + @types/multer in Docker container |
+| 265 | Fix: Traceability timeline field mapping | Done | `inventory.service.ts` — Timeline queries returned DB column names (`transaction_type`, `created_at`, `performed_by_name`) but frontend expected (`action`, `performed_at`, `performed_by`). Added SQL aliases to map correctly. Fixed both child box and master carton timeline queries |
+| 266 | Fix: Customer test selectors (9 tests) | Done | Replaced `getByText('Primary Dealer').first()` (matched hidden `<option>`) with `locator('input[type="radio"][value="Primary Dealer"]')`. Replaced `getByLabel(/gstin/i)` with `getByPlaceholder('e.g., 22AAAAA0000A1Z5')` (raw `<label>` without `htmlFor`). Fixed strict mode violations on `getByText('Delivery Location')` (matched table header + modal label). Multiple debug iterations |
+| 267 | Fix: Product test — article_code too long | Done | `ART-API-${Date.now()}` = 22 chars, exceeds 20 char DB limit. Changed to `A${String(uniqueSuffix).slice(-8)}` |
+| 268 | Fix: Product test — column filter selector | Done | `getByText(/all categories/i)` matched hidden `<option>`. Changed to `getByPlaceholder(/colour/i)` to check filter inputs directly |
+| 269 | Fix: Traceability test — page navigation | Done | `page.goto('/traceability?qr=...')` lost auth tokens (set via `addInitScript`). Changed to navigate first, then enter barcode and click Trace button |
+| 270 | Final E2E run: 47/47 passed (5.1 min) | Done | Lifecycle (10), Traceability (5), Scan (4), Customers (14), Products (14). All Phase 4 tests green. Chromium, single worker |
+
+#### Phase 4 Summary
+| Metric | Value |
+|--------|-------|
+| Total activities | 49 (222-270) |
+| New migrations | 4 |
+| New backend files | 6 (section schema/service/controller/routes, skuGenerator, upload middleware) |
+| Modified backend files | 9 (product schema/service/controller, customer schema/service/controller/routes, constants, app.ts, routes/index.ts) |
+| Modified frontend files | 10 (types, constants, product service/page, customer service/page, traceability/storage/scan/unpack/repack/pack pages) |
+| Updated E2E test files | 5 (products, customers, traceability, lifecycle, scan) |
+| Total E2E tests | 169 (was 151) — 18 new tests added |
+| E2E test result (Phase 4 subset) | 47/47 passed (5.1 min, Chromium) |
+| Bugs found & fixed during testing | 4 (migration trigger name, migration default quoting, multer type, timeline field mapping) |
+| TypeScript errors | 0 (both backend + frontend app source) |
+
+### April 9, 2026 — Production Login Fix & Auto-Seed Hardening
+
+#### Production Login Failure — Admin Password Hash Out of Sync (2nd occurrence)
+| # | Activity | Status | Notes |
+|---|----------|--------|-------|
+| 215 | Diagnosed production login failure | Done | `admin@binny.com` / `Admin@123` returning 401 on production (`srv1409601.hstgr.cloud/binny/`). Local Docker worked fine. Root cause: admin user existed in production DB but password hash didn't match the default password — same issue as commit 9992b05 |
+| 216 | Reset admin password on production DB | Done | Used Node.js script inside `binny-backend` container to bcrypt-hash `Admin@123` and UPDATE the password_hash. Verified with `bcrypt.compare()` before and after |
+| 217 | Hardened autoSeed.ts to prevent recurrence | Done | Rewrote `autoSeed()` — no longer skips when users exist. Now: (1) ensures all default roles exist, (2) creates admin user if missing, (3) **verifies admin password matches default on every startup** and resets if out of sync. Logged at WARN level when reset occurs |
+| 218 | Backend compiled clean | Done | 0 TypeScript errors after autoSeed.ts changes |
+| 219 | Deployed fix to production | Done | Uploaded updated `autoSeed.ts`, rebuilt `binny-backend` image on server, container restarted. Auto-seed ran on startup — admin password verified OK |
+| 220 | Production login verified | Done | `POST /binny/api/v1/auth/login` returns HTTP 200 with valid accessToken. Issue resolved permanently — any future password hash corruption will self-heal on backend restart |
+| 221 | PWA sharing document created | Done | `docs/Binny_Inventory_App.html` — branded client-facing HTML with app link, QR code (scan to open), login credentials (tap to copy), step-by-step install instructions (Android + iOS tabs), key features grid, requirements. Self-contained, shareable via email/WhatsApp |
 
 ### April 8, 2026 — E2E Test Suite Debugging & Full Pass
 

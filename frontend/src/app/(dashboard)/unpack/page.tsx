@@ -63,7 +63,7 @@ export default function UnpackPage() {
     <div>
       <PageHeader
         title="Unpack"
-        description="Full unpack - remove all child boxes from a master carton"
+        description="Unpack removes ALL child boxes from a master carton. All boxes return to FREE status and the carton becomes empty."
       />
 
       <div className="max-w-2xl mx-auto space-y-6">

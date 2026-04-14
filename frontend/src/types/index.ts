@@ -42,7 +42,18 @@ export interface Product {
   article_group: string | null;
   hsn_code: string | null;
   size_group: string | null;
+  image_url: string | null;
   is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+// ---------- ProductSection ----------
+export interface ProductSection {
+  id: string;
+  name: string;
+  is_active: boolean;
+  display_order: number;
   created_at: string;
   updated_at: string;
 }
@@ -149,6 +160,9 @@ export interface Customer {
   gr: string | null;
   contact_person_name: string | null;
   contact_person_mobile: string | null;
+  customer_type: 'Primary Dealer' | 'Sub Dealer';
+  primary_dealer_id: string | null;
+  primary_dealer_name?: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -163,6 +177,8 @@ export interface CreateCustomerRequest {
   gr?: string | null;
   contact_person_name?: string | null;
   contact_person_mobile?: string | null;
+  customer_type?: 'Primary Dealer' | 'Sub Dealer';
+  primary_dealer_id?: string | null;
 }
 
 export interface UpdateCustomerRequest extends Partial<CreateCustomerRequest> {

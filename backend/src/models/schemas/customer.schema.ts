@@ -24,7 +24,12 @@ export const createCustomerSchema = z.object({
     .regex(MOBILE_REGEX, 'Contact mobile must be 10-15 digits')
     .nullable()
     .optional(),
-});
+  customer_type: z.enum(['Primary Dealer', 'Sub Dealer']).default('Primary Dealer'),
+  primary_dealer_id: z.string().uuid('Invalid primary dealer ID').nullable().optional(),
+}).refine(
+  (data) => data.customer_type !== 'Sub Dealer' || (data.primary_dealer_id != null),
+  { message: 'Sub Dealer must have a primary dealer', path: ['primary_dealer_id'] }
+);
 
 export const updateCustomerSchema = z.object({
   firm_name: z.string().min(1).max(255).trim().optional(),
@@ -36,6 +41,8 @@ export const updateCustomerSchema = z.object({
   contact_person_name: z.string().max(150).trim().nullable().optional(),
   contact_person_mobile: z.string().regex(MOBILE_REGEX, 'Contact mobile must be 10-15 digits').nullable().optional(),
   is_active: z.boolean().optional(),
+  customer_type: z.enum(['Primary Dealer', 'Sub Dealer']).optional(),
+  primary_dealer_id: z.string().uuid('Invalid primary dealer ID').nullable().optional(),
 });
 
 export const customerIdParamSchema = z.object({
@@ -51,6 +58,7 @@ export const customerListQuerySchema = z.object({
     if (val === 'false') return false;
     return undefined;
   }),
+  customer_type: z.string().optional(),
 });
 
 export type CreateCustomerInput = z.infer<typeof createCustomerSchema>;

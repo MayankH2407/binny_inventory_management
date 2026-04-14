@@ -16,21 +16,16 @@ const ADMIN_PASSWORD = 'Admin@123';
 const ADMIN_NAME = 'System Administrator';
 
 /**
- * Auto-seeds roles and admin user if the database has no users.
- * Runs on every startup — safe to call repeatedly (idempotent).
+ * Auto-seeds roles and admin user on every startup.
+ * - Ensures all default roles exist.
+ * - Creates admin user if missing.
+ * - Verifies admin password matches the default — resets if not.
+ * Safe to call repeatedly (idempotent).
  */
 export async function autoSeed(): Promise<void> {
   const client = await getClient();
 
   try {
-    // Check if any users exist
-    const userCount = await client.query('SELECT COUNT(*)::int AS count FROM users');
-    if (userCount.rows[0].count > 0) {
-      logger.debug('Users already exist, skipping auto-seed');
-      return;
-    }
-
-    logger.info('No users found — running auto-seed...');
     await client.query('BEGIN');
 
     // Ensure roles exist
@@ -45,20 +40,41 @@ export async function autoSeed(): Promise<void> {
       }
     }
 
-    // Create admin user
     const roleResult = await client.query("SELECT id FROM roles WHERE name = 'Admin'");
     if (roleResult.rows.length === 0) {
       throw new Error('Admin role not found after seeding roles');
     }
 
-    const passwordHash = await bcrypt.hash(ADMIN_PASSWORD, SALT_ROUNDS);
-    await client.query(
-      'INSERT INTO users (email, password_hash, name, role_id, is_active) VALUES ($1, $2, $3, $4, true)',
-      [ADMIN_EMAIL, passwordHash, ADMIN_NAME, roleResult.rows[0].id]
+    // Check if admin user exists
+    const adminResult = await client.query(
+      'SELECT id, password_hash FROM users WHERE email = $1',
+      [ADMIN_EMAIL]
     );
 
+    if (adminResult.rows.length === 0) {
+      // Create admin user
+      const passwordHash = await bcrypt.hash(ADMIN_PASSWORD, SALT_ROUNDS);
+      await client.query(
+        'INSERT INTO users (email, password_hash, name, role_id, is_active) VALUES ($1, $2, $3, $4, true)',
+        [ADMIN_EMAIL, passwordHash, ADMIN_NAME, roleResult.rows[0].id]
+      );
+      logger.info(`Auto-seed: admin user created (${ADMIN_EMAIL})`);
+    } else {
+      // Verify password matches default — reset if corrupted
+      const isValid = await bcrypt.compare(ADMIN_PASSWORD, adminResult.rows[0].password_hash);
+      if (!isValid) {
+        const passwordHash = await bcrypt.hash(ADMIN_PASSWORD, SALT_ROUNDS);
+        await client.query(
+          'UPDATE users SET password_hash = $1 WHERE id = $2',
+          [passwordHash, adminResult.rows[0].id]
+        );
+        logger.warn(`Auto-seed: admin password was out of sync — reset to default (${ADMIN_EMAIL})`);
+      } else {
+        logger.debug('Auto-seed: admin user verified, password OK');
+      }
+    }
+
     await client.query('COMMIT');
-    logger.info(`Auto-seed complete — admin user created: ${ADMIN_EMAIL}`);
   } catch (error) {
     await client.query('ROLLBACK');
     logger.error('Auto-seed failed', error as Error);

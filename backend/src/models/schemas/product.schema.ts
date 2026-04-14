@@ -1,7 +1,6 @@
 import { z } from 'zod';
 
 const VALID_CATEGORIES = ['Gents', 'Ladies', 'Boys', 'Girls'] as const;
-const VALID_SECTIONS = ['Hawaii', 'PU', 'EVA', 'Fabrication', 'Canvas', 'PVC', 'Sports Shoes'] as const;
 const VALID_LOCATIONS = ['VKIA', 'MIA', 'F540'] as const;
 
 export const createProductSchema = z.object({
@@ -10,12 +9,6 @@ export const createProductSchema = z.object({
     .min(2, 'Article name must be at least 2 characters')
     .max(150, 'Article name must not exceed 150 characters')
     .trim(),
-  sku: z
-    .string()
-    .min(2, 'SKU must be at least 2 characters')
-    .max(50, 'SKU must not exceed 50 characters')
-    .trim()
-    .toUpperCase(),
   article_code: z
     .string()
     .min(1, 'Article code is required')
@@ -40,8 +33,8 @@ export const createProductSchema = z.object({
     .max(1000, 'Description must not exceed 1000 characters')
     .nullable()
     .optional(),
-  category: z.enum(VALID_CATEGORIES, { errorMap: () => ({ message: 'Category must be one of: Gents, Ladies, Boys, Girls' }) }).nullable().optional(),
-  section: z.enum(VALID_SECTIONS, { errorMap: () => ({ message: 'Section must be one of: Hawaii, PU, EVA, Fabrication, Canvas, PVC, Sports Shoes' }) }).nullable().optional(),
+  category: z.enum(VALID_CATEGORIES, { errorMap: () => ({ message: 'Category must be one of: Gents, Ladies, Boys, Girls' }) }),
+  section: z.string().min(1, 'Section is required').max(100).trim(),
   location: z.enum(VALID_LOCATIONS, { errorMap: () => ({ message: 'Location must be one of: VKIA, MIA, F540' }) }).nullable().optional(),
   article_group: z.string().max(100, 'Article group must not exceed 100 characters').trim().nullable().optional(),
   hsn_code: z.string().max(20, 'HSN code must not exceed 20 characters').trim().nullable().optional(),
@@ -58,7 +51,7 @@ export const updateProductSchema = z.object({
   description: z.string().max(1000).nullable().optional(),
   is_active: z.boolean().optional(),
   category: z.enum(VALID_CATEGORIES).nullable().optional(),
-  section: z.enum(VALID_SECTIONS).nullable().optional(),
+  section: z.string().min(1).max(100).trim().optional(),
   location: z.enum(VALID_LOCATIONS).nullable().optional(),
   article_group: z.string().max(100).trim().nullable().optional(),
   hsn_code: z.string().max(20).trim().nullable().optional(),
@@ -82,6 +75,10 @@ export const productListQuerySchema = z.object({
   category: z.string().optional(),
   section: z.string().optional(),
   location: z.string().optional(),
+  colour: z.string().optional(),
+  size: z.string().optional(),
+  article_name: z.string().optional(),
+  article_group: z.string().optional(),
 });
 
 export type CreateProductInput = z.infer<typeof createProductSchema>;

@@ -52,7 +52,7 @@ export default function StoragePage() {
     <div>
       <PageHeader
         title="Storage"
-        description="Close a master carton after packing to mark it as stored"
+        description="Seal a packed master carton for storage. Closing a carton prevents further packing changes and marks it ready for dispatch."
       />
 
       <div className="max-w-2xl mx-auto space-y-6">

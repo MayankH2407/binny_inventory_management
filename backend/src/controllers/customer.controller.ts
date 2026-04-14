@@ -26,11 +26,11 @@ export async function getCustomers(
   next: NextFunction
 ): Promise<void> {
   try {
-    const { page, limit, search, is_active } = req.query as {
-      page?: number; limit?: number; search?: string; is_active?: boolean;
+    const { page, limit, search, is_active, customer_type } = req.query as {
+      page?: number; limit?: number; search?: string; is_active?: boolean; customer_type?: string;
     };
     const result = await customerService.getCustomers(
-      { search, is_active },
+      { search, is_active, customer_type },
       page || 1,
       limit || 25
     );
@@ -74,6 +74,33 @@ export async function deleteCustomer(
   try {
     await customerService.deleteCustomer(req.params.id, req.user!.userId);
     sendSuccess(res, null, 'Customer deactivated successfully');
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getPrimaryDealers(
+  _req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const dealers = await customerService.getPrimaryDealers();
+    sendSuccess(res, dealers, 'Primary dealers retrieved successfully');
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getSubDealers(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const { id } = req.params;
+    const dealers = await customerService.getSubDealers(id);
+    sendSuccess(res, dealers, 'Sub dealers retrieved successfully');
   } catch (error) {
     next(error);
   }

@@ -28,6 +28,14 @@ router.get(
   customerController.getCustomers
 );
 
+router.get('/primary-dealers', customerController.getPrimaryDealers);
+
+router.get(
+  '/:id/sub-dealers',
+  validate({ params: customerIdParamSchema }),
+  customerController.getSubDealers
+);
+
 router.get(
   '/:id',
   validate({ params: customerIdParamSchema }),

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import authRoutes from './auth.routes';
 import userRoutes from './user.routes';
 import productRoutes from './product.routes';
+import sectionRoutes from './section.routes';
 import childBoxRoutes from './childBox.routes';
 import masterCartonRoutes from './masterCarton.routes';
 import inventoryRoutes from './inventory.routes';
@@ -19,6 +20,7 @@ router.get('/health', (_req, res) => {
 router.use('/auth', authRoutes);
 router.use('/users', userRoutes);
 router.use('/products', productRoutes);
+router.use('/sections', sectionRoutes);
 router.use('/child-boxes', childBoxRoutes);
 router.use('/master-cartons', masterCartonRoutes);
 router.use('/inventory', inventoryRoutes);

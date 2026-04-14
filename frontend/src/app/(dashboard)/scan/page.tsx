@@ -85,7 +85,7 @@ export default function ScanPage() {
     <div>
       <PageHeader
         title="Scan QR Code"
-        description="Scan or enter a QR code to look up child boxes or master cartons"
+        description="Quick item lookup — scan or enter any barcode to instantly view current status and details"
         action={
           pendingCount > 0 ? (
             <Badge variant="orange" dot>{pendingCount} scan{pendingCount > 1 ? 's' : ''} pending sync</Badge>
