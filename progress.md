@@ -40,12 +40,19 @@
 |---|----------|--------|-------|
 | 280 | Fix: Primary dealers not showing in sub-dealer creation | Done | Root cause: all 3 seed customers had `is_active = false` in production DB. `getPrimaryDealers()` filters `WHERE is_active = true` → empty results. Activated all 3 customers (Delhi Shoe House, Mumbai Sole Traders, Sharma Footwear Distributors). Verified: dropdown now returns 3 dealers |
 
+#### Replace size_group with size_from / size_to Range
+| # | Activity | Status | Notes |
+|---|----------|--------|-------|
+| 281 | Migration: Replace size_group with size_from/size_to | Done | `20260414100001` — Drops `size_group` VARCHAR(50), adds `size_from` VARCHAR(10) and `size_to` VARCHAR(10). Auto-migrates existing "X-Y" data by splitting on dash |
+| 282 | Backend: Schema, service, types updated | Done | `product.schema.ts` — create/update schemas use `size_from`/`size_to`. `product.service.ts` — INSERT, UPDATE, bulk INSERT all use new columns. `types/index.ts` — Product interface updated. Sample CSV headers updated |
+| 283 | Frontend: Form updated with two fields | Done | `products/page.tsx` — "Size Group" single input replaced with "Size From" and "Size To" separate inputs in 4-column grid. Works in create, edit, and bulk CSV. `types/index.ts` updated |
+
 #### Compilation & Deployment
 | # | Activity | Status | Notes |
 |---|----------|--------|-------|
-| 281 | Backend TypeScript compilation | Done | 0 errors |
-| 282 | Frontend TypeScript compilation | Done | 0 app source errors (1 pre-existing e2e issue) |
-| 283 | Deployed to production | Done | Backend + frontend Docker images rebuilt, containers restarted, all healthy. Sample CSV endpoint verified (200), primary dealers API verified (3 results) |
+| 284 | Backend TypeScript compilation | Done | 0 errors |
+| 285 | Frontend TypeScript compilation | Done | 0 app source errors (1 pre-existing e2e issue) |
+| 286 | Deployed to production | Done | Backend + frontend Docker images rebuilt, containers restarted, all healthy. Migration run. Sample CSV verified with size_from/size_to columns. Primary dealers API verified (3 results) |
 
 ### April 13, 2026 — Phase 4: Meeting Feedback Implementation (Day 1 — Backend)
 
