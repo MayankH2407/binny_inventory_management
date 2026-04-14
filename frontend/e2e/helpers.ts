@@ -1,8 +1,10 @@
-import { Page, expect } from '@playwright/test';
+import { Page, APIRequestContext, expect } from '@playwright/test';
 
 export const ADMIN_EMAIL = 'admin@binny.com';
 export const ADMIN_PASSWORD = 'Admin@123';
 export const BASE_API = process.env.PLAYWRIGHT_API_URL || 'http://localhost:3001/api/v1';
+/** Alias for BASE_API — used by tests that import { API_BASE_URL } */
+export const API_BASE_URL = BASE_API;
 
 // Cache login credentials across tests to avoid rate limiting
 let cachedToken: string | null = null;
@@ -10,13 +12,18 @@ let cachedUser: object | null = null;
 let tokenTimestamp: number = 0;
 const TOKEN_MAX_AGE_MS = 10 * 60 * 1000; // Refresh token after 10 minutes
 
-async function fetchLoginCredentials(page: Page): Promise<{ token: string; user: object }> {
+async function fetchLoginCredentials(requestContext: Page | APIRequestContext): Promise<{ token: string; user: object }> {
   const now = Date.now();
   if (cachedToken && cachedUser && (now - tokenTimestamp) < TOKEN_MAX_AGE_MS) {
     return { token: cachedToken, user: cachedUser };
   }
 
-  const response = await page.request.post(`${BASE_API}/auth/login`, {
+  // Accept either a Page (use page.request) or a bare APIRequestContext
+  const ctx: APIRequestContext = 'request' in requestContext
+    ? (requestContext as Page).request
+    : (requestContext as APIRequestContext);
+
+  const response = await ctx.post(`${BASE_API}/auth/login`, {
     data: { email: ADMIN_EMAIL, password: ADMIN_PASSWORD },
   });
 
@@ -65,10 +72,11 @@ export async function loginViaAPI(page: Page) {
 }
 
 /**
- * Get auth token for direct API calls
+ * Get auth token for direct API calls.
+ * Accepts either a Page or a bare APIRequestContext (the `request` fixture).
  */
-export async function getAuthToken(page: Page): Promise<string> {
-  const { token } = await fetchLoginCredentials(page);
+export async function getAuthToken(pageOrRequest: Page | APIRequestContext): Promise<string> {
+  const { token } = await fetchLoginCredentials(pageOrRequest);
   return token;
 }
 

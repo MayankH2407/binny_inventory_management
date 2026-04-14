@@ -1,8 +1,8 @@
 # Basiq360 QR-Based Inventory Management System — Test Cases
 
 **Project:** Binny Footwear Inventory Management
-**Version:** 1.4
-**Date:** 2026-04-07 (Added Inventory Module hierarchical drill-down tests, deployment updates)
+**Version:** 1.5
+**Date:** 2026-04-14 (Added Sections, SKU Auto-Generation, Image Upload, CSV Bulk Upload, Unified Scan & Trace, Traceability Bug Fix Regression; Customer Dealer Hierarchy; size_from/size_to fields; ~418 total test cases)
 **Prepared By:** QA Engineering Team
 **Tech Stack:** Next.js + Express.js + PostgreSQL (PWA)
 
@@ -35,6 +35,12 @@
 23. [UAT Bug Fix Validation Tests (NEW)](#23-uat-bug-fix-validation-tests-new)
 24. [Phase 3 PWA Enhancement Tests (NEW)](#24-phase-3-pwa-enhancement-tests-new)
 25. [Inventory Module — Hierarchical Stock Drill-Down (NEW)](#25-inventory-module--hierarchical-stock-drill-down-new)
+26. [Configurable Sections CRUD (NEW)](#26-configurable-sections-crud-new)
+27. [SKU Auto-Generation (NEW)](#27-sku-auto-generation-new)
+28. [Product Image Upload (NEW)](#28-product-image-upload-new)
+29. [CSV Bulk Product Upload (NEW)](#29-csv-bulk-product-upload-new)
+30. [Unified Scan & Trace Module (NEW)](#30-unified-scan--trace-module-new)
+31. [Traceability Bug Fix Regression (NEW)](#31-traceability-bug-fix-regression-new)
 
 ---
 
@@ -995,6 +1001,8 @@
 
 ## 6. Storage Workflow
 
+> **Note:** These features are now part of the unified Scan & Trace module (Section 30).
+
 | Field | Value |
 |-------|-------|
 | TC ID | TC-STORE-001 |
@@ -1726,6 +1734,8 @@
 
 ## 10. Traceability
 
+> **Note:** These features are now part of the unified Scan & Trace module (Section 30).
+
 | Field | Value |
 |-------|-------|
 | TC ID | TC-TRACE-001 |
@@ -2008,6 +2018,8 @@
 ---
 
 ## 12. QR Scanning
+
+> **Note:** These features are now part of the unified Scan & Trace module (Section 30).
 
 | Field | Value |
 |-------|-------|
@@ -2461,6 +2473,94 @@
 | Expected Result | Access denied. Customer menu item not visible in sidebar for this role. |
 | Type | Security |
 
+| Field | Value |
+|-------|-------|
+| TC ID | TC-CUST-011 |
+| Module | Customer Master |
+| Title | Customer type filter dropdown on list page |
+| Priority | Medium |
+| Preconditions | Customers of both Primary Dealer and Sub Dealer type exist |
+| Steps | 1. Navigate to Customers page. 2. Open the type filter dropdown. 3. Select "Primary Dealer". |
+| Expected Result | Customer list filters to show only Primary Dealers. Filter also supports "Sub Dealer" and "All" options. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-CUST-012 |
+| Module | Customer Master |
+| Title | Table shows Type and Primary Dealer columns |
+| Priority | Medium |
+| Preconditions | Customers page loaded with data |
+| Steps | 1. Navigate to Customers page. 2. Observe column headers. |
+| Expected Result | Table includes "Type" column showing customer type badge and "Primary Dealer" column showing linked primary dealer name for Sub Dealers. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-CUST-013 |
+| Module | Customer Master |
+| Title | GET /customers/primary-dealers returns active Primary Dealers only |
+| Priority | High |
+| Preconditions | Mix of Primary Dealer and Sub Dealer customers exist; at least one is inactive |
+| Steps | 1. Call GET /api/customers/primary-dealers. |
+| Expected Result | Returns only active Primary Dealer customers. Inactive or Sub Dealer records are excluded. |
+| Type | Integration |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-CUST-014 |
+| Module | Customer Master |
+| Title | Sub Dealer creation requires primary_dealer_id |
+| Priority | High |
+| Preconditions | Logged in as Admin |
+| Steps | 1. Click "Add Customer." 2. Select type "Sub Dealer." 3. Leave Primary Dealer field blank. 4. Submit. |
+| Expected Result | Validation error: "Primary Dealer is required for Sub Dealer type." Form not submitted. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-CUST-015 |
+| Module | Customer Master |
+| Title | Sub Dealer auto-fills address/location/contact from Primary Dealer |
+| Priority | Critical |
+| Preconditions | At least one Primary Dealer exists with address, location, and contact data |
+| Steps | 1. Click "Add Customer." 2. Select type "Sub Dealer." 3. Select a Primary Dealer from the dropdown. |
+| Expected Result | Address, delivery location, and contact person fields are auto-populated from the selected Primary Dealer's data. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-CUST-016 |
+| Module | Customer Master |
+| Title | Primary Dealer dropdown fetched from API |
+| Priority | High |
+| Preconditions | Sub Dealer type selected in customer create/edit modal |
+| Steps | 1. Select "Sub Dealer" as customer type. 2. Observe the Primary Dealer dropdown. |
+| Expected Result | Dropdown is populated by calling GET /customers/primary-dealers. Shows only active Primary Dealers. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-CUST-017 |
+| Module | Customer Master |
+| Title | Auto-filled fields shown as read-only for Sub Dealers |
+| Priority | Medium |
+| Preconditions | Sub Dealer type selected and Primary Dealer chosen |
+| Steps | 1. Create Sub Dealer form with Primary Dealer selected. 2. Observe auto-filled fields. 3. Attempt to edit auto-filled address. |
+| Expected Result | Auto-filled fields (address, location, contact) are displayed as read-only and cannot be manually edited when inherited from a Primary Dealer. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-CUST-018 |
+| Module | Customer Master |
+| Title | Mobile cards show customer type badge |
+| Priority | Low |
+| Preconditions | On mobile view of customer list with both types present |
+| Steps | 1. Open app on mobile. 2. Navigate to Customers page. 3. Observe customer cards. |
+| Expected Result | Each customer card displays a type badge (e.g., "Primary Dealer" or "Sub Dealer") clearly visible on the mobile card layout. |
+| Type | E2E |
+
 ---
 
 ## 16. Product Master — Expanded Fields (NEW)
@@ -2546,11 +2646,77 @@
 |-------|-------|
 | TC ID | TC-PRODX-008 |
 | Module | Product Management |
-| Title | Size Group field accepts range format |
-| Priority | Low |
+| Title | Size From field accepts valid size value on create |
+| Priority | Medium |
 | Preconditions | On product create form |
-| Steps | 1. Enter Size Group "6-10". 2. Submit. |
-| Expected Result | Size Group stored as "6-10". Displayed in product detail view. |
+| Steps | 1. Enter a valid size value (e.g., "6") in the Size From field. 2. Submit the form. |
+| Expected Result | size_from is stored correctly. Displayed in product detail view. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-PRODX-009 |
+| Module | Product Management |
+| Title | Size To field accepts valid size value on create |
+| Priority | Medium |
+| Preconditions | On product create form |
+| Steps | 1. Enter a valid size value (e.g., "10") in the Size To field. 2. Submit the form. |
+| Expected Result | size_to is stored correctly. Displayed in product detail view. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-PRODX-010 |
+| Module | Product Management |
+| Title | size_from and size_to stored correctly in database |
+| Priority | High |
+| Preconditions | Product created with size_from = "6" and size_to = "10" |
+| Steps | 1. Create product with size_from and size_to values. 2. Query DB or call GET /products/:id. |
+| Expected Result | API response and DB record both contain correct size_from and size_to values as entered. |
+| Type | Integration |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-PRODX-011 |
+| Module | Product Management |
+| Title | size_from and size_to shown in edit modal |
+| Priority | Medium |
+| Preconditions | Product with size_from and size_to exists |
+| Steps | 1. Navigate to Products page. 2. Open edit modal for the product. 3. Observe Size From and Size To fields. |
+| Expected Result | Edit modal pre-fills size_from and size_to fields with existing values. Both fields are editable. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-PRODX-012 |
+| Module | Product Management |
+| Title | Image column visible in product table |
+| Priority | Medium |
+| Preconditions | Products exist, some with images and some without |
+| Steps | 1. Navigate to Products page. 2. Observe the product table columns. |
+| Expected Result | Table contains an "Image" column showing thumbnails for products with uploaded images, and a placeholder for products without images. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-PRODX-013 |
+| Module | Product Management |
+| Title | size_from and size_to included in bulk upload sample CSV |
+| Priority | High |
+| Preconditions | None |
+| Steps | 1. Download the bulk upload sample CSV from the Bulk Import modal or API. 2. Inspect column headers. |
+| Expected Result | Sample CSV contains both "size_from" and "size_to" columns among the 13 expected columns. |
+| Type | Integration |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-PRODX-014 |
+| Module | Product Management |
+| Title | SKU auto-generation API test — product create returns SKU |
+| Priority | High |
+| Preconditions | Section, category, article name, and colour provided in request body |
+| Steps | 1. POST /api/products with valid payload (no SKU field in body). 2. Inspect response. |
+| Expected Result | Response includes auto-generated SKU in the format {Section}-{ArticleName}-{Category}-{Serial}-{Colour}. SKU is uppercase with hyphens. |
 | Type | Integration |
 
 ---
@@ -3854,6 +4020,855 @@
 
 ---
 
+## 26. Configurable Sections CRUD (NEW)
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-SECT-001 |
+| Module | Sections |
+| Title | GET /sections returns active sections ordered by display_order |
+| Priority | Critical |
+| Preconditions | Multiple active sections exist with different display_order values |
+| Steps | 1. Call GET /api/sections. |
+| Expected Result | Returns array of active sections sorted ascending by display_order. Inactive sections are excluded. |
+| Type | Integration |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-SECT-002 |
+| Module | Sections |
+| Title | GET /sections with include_inactive=true returns inactive sections |
+| Priority | Medium |
+| Preconditions | At least one deactivated section exists |
+| Steps | 1. Call GET /api/sections?include_inactive=true. |
+| Expected Result | Response includes both active and inactive sections. Inactive sections have is_active = false. |
+| Type | Integration |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-SECT-003 |
+| Module | Sections |
+| Title | POST /sections creates a new section (Admin only) |
+| Priority | Critical |
+| Preconditions | Logged in as Admin |
+| Steps | 1. Call POST /api/sections with { name: "New Section", display_order: 10 }. |
+| Expected Result | Section created with 201 response. Returned object includes id, name, display_order, is_active = true. |
+| Type | Integration |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-SECT-004 |
+| Module | Sections |
+| Title | POST /sections rejects duplicate section name |
+| Priority | High |
+| Preconditions | Section named "Hawaii" already exists |
+| Steps | 1. Call POST /api/sections with { name: "Hawaii" }. |
+| Expected Result | Returns 409 Conflict with error "Section name already exists." No new record created. |
+| Type | Integration |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-SECT-005 |
+| Module | Sections |
+| Title | POST /sections returns 403 for non-Admin users |
+| Priority | High |
+| Preconditions | Logged in as Warehouse Operator or Dispatch Operator |
+| Steps | 1. Call POST /api/sections with valid payload. |
+| Expected Result | Returns 403 Forbidden. Section is not created. |
+| Type | Security |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-SECT-006 |
+| Module | Sections |
+| Title | PUT /sections/:id updates section name |
+| Priority | High |
+| Preconditions | Section exists with id = 1, name = "Hawaii" |
+| Steps | 1. Call PUT /api/sections/1 with { name: "Hawaii Updated" }. |
+| Expected Result | Section name updated. Response contains updated name. GET /sections reflects the new name. |
+| Type | Integration |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-SECT-007 |
+| Module | Sections |
+| Title | PUT /sections/:id updates display_order |
+| Priority | Medium |
+| Preconditions | Section exists |
+| Steps | 1. Call PUT /api/sections/:id with { display_order: 5 }. |
+| Expected Result | Section display_order updated to 5. Sections list now orders this section accordingly. |
+| Type | Integration |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-SECT-008 |
+| Module | Sections |
+| Title | PUT /sections/:id rejects duplicate name on rename |
+| Priority | High |
+| Preconditions | Sections "Hawaii" (id=1) and "PU" (id=2) both exist |
+| Steps | 1. Call PUT /api/sections/1 with { name: "PU" }. |
+| Expected Result | Returns 409 Conflict. Section name not updated. |
+| Type | Integration |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-SECT-009 |
+| Module | Sections |
+| Title | DELETE /sections/:id soft-deactivates section (Admin only) |
+| Priority | High |
+| Preconditions | Active section exists; logged in as Admin |
+| Steps | 1. Call DELETE /api/sections/:id. |
+| Expected Result | Section is_active set to false (soft delete). Section no longer appears in GET /sections. Record still in DB. |
+| Type | Integration |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-SECT-010 |
+| Module | Sections |
+| Title | DELETE /sections/:id returns 403 for non-Admin |
+| Priority | Medium |
+| Preconditions | Logged in as Supervisor or Warehouse Operator |
+| Steps | 1. Call DELETE /api/sections/:id. |
+| Expected Result | Returns 403 Forbidden. Section remains active. |
+| Type | Security |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-SECT-011 |
+| Module | Sections |
+| Title | Sections displayed as tabs on Products page (All + API-loaded) |
+| Priority | Critical |
+| Preconditions | Multiple active sections exist in DB |
+| Steps | 1. Navigate to /products page. 2. Observe the tabs/filters at the top of the product list. |
+| Expected Result | Tabs include "All" plus one tab per active section loaded from GET /sections. Tabs are ordered by display_order. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-SECT-012 |
+| Module | Sections |
+| Title | Clicking section tab filters products by that section |
+| Priority | High |
+| Preconditions | Products exist in multiple sections |
+| Steps | 1. Navigate to Products page. 2. Click the "Hawaii" section tab. |
+| Expected Result | Product list filters to show only products with section = "Hawaii". Clicking "All" tab shows all products. |
+| Type | E2E |
+
+---
+
+## 27. SKU Auto-Generation (NEW)
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-SKU-001 |
+| Module | SKU Generation |
+| Title | SKU auto-generated in format {Section}-{ArticleName}-{Category}-{Serial}-{Colour} |
+| Priority | Critical |
+| Preconditions | None |
+| Steps | 1. POST /api/products with section="Hawaii", article_name="Classic", category="Gents", colour="Black". 2. Inspect the SKU in the response. |
+| Expected Result | SKU follows the pattern HAWAII-CLASSIC-GENTS-0001-BLACK (or similar serial-padded format). |
+| Type | Integration |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-SKU-002 |
+| Module | SKU Generation |
+| Title | SKU serial auto-increments for same combo |
+| Priority | Critical |
+| Preconditions | One product already exists with section=Hawaii, article_name=Classic, category=Gents, colour=Black |
+| Steps | 1. Create a second product with the same section, article_name, category, colour but different size. 2. Compare SKUs of both products. |
+| Expected Result | Serial number in SKU increments (e.g., first = ...0001..., second = ...0002...). All other SKU parts remain the same. |
+| Type | Integration |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-SKU-003 |
+| Module | SKU Generation |
+| Title | SKU is uppercased with spaces replaced by hyphens |
+| Priority | High |
+| Preconditions | None |
+| Steps | 1. Create a product with article_name="Sports Classic", section="Sports Shoes". 2. Inspect SKU. |
+| Expected Result | SKU contains "SPORTS-CLASSIC" and "SPORTS-SHOES" (spaces → hyphens, all uppercase). No lowercase characters in SKU. |
+| Type | Unit |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-SKU-004 |
+| Module | SKU Generation |
+| Title | SKU field NOT present in create product modal |
+| Priority | Critical |
+| Preconditions | Logged in as Admin |
+| Steps | 1. Navigate to Products page. 2. Open "Add Product" modal. 3. Inspect all form fields. |
+| Expected Result | No SKU input field is visible in the create product modal. SKU is generated automatically on the backend. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-SKU-005 |
+| Module | SKU Generation |
+| Title | SKU shown as read-only in edit product modal |
+| Priority | High |
+| Preconditions | Product with auto-generated SKU exists |
+| Steps | 1. Open edit modal for an existing product. 2. Locate the SKU field. 3. Attempt to edit the SKU value. |
+| Expected Result | SKU is displayed in the edit modal as a read-only field. User cannot modify it. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-SKU-006 |
+| Module | SKU Generation |
+| Title | Duplicate SKU rejected on creation |
+| Priority | Critical |
+| Preconditions | Product with SKU "HAWAII-CLASSIC-GENTS-0001-BLACK" exists |
+| Steps | 1. Attempt to create another product that would generate the same SKU. |
+| Expected Result | Returns 409 Conflict with error indicating duplicate SKU. No product created. |
+| Type | Integration |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-SKU-007 |
+| Module | SKU Generation |
+| Title | POST /products response contains auto-generated SKU |
+| Priority | High |
+| Preconditions | None |
+| Steps | 1. POST /api/products with valid payload (no sku in body). 2. Inspect response body. |
+| Expected Result | Response body includes a "sku" field with the auto-generated value. HTTP status 201. |
+| Type | Integration |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-SKU-008 |
+| Module | SKU Generation |
+| Title | SKU components match input fields |
+| Priority | High |
+| Preconditions | None |
+| Steps | 1. Create product with known section, article_name, category, colour. 2. Parse the returned SKU. |
+| Expected Result | Each segment of the SKU (section, article_name, category, serial, colour) matches the corresponding input field values (normalized to uppercase with hyphens). |
+| Type | Integration |
+
+---
+
+## 28. Product Image Upload (NEW)
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-IMG-001 |
+| Module | Product Images |
+| Title | Image upload available during product creation |
+| Priority | Critical |
+| Preconditions | Logged in as Admin |
+| Steps | 1. Navigate to Products page. 2. Open "Add Product" modal. 3. Look for image upload control. |
+| Expected Result | An image upload field/button is present in the create product modal. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-IMG-002 |
+| Module | Product Images |
+| Title | Image upload in edit modal for existing product |
+| Priority | High |
+| Preconditions | Product without image exists |
+| Steps | 1. Open edit modal for a product. 2. Upload a valid image file. 3. Save. |
+| Expected Result | Image is uploaded and linked to the product. Product table shows the thumbnail. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-IMG-003 |
+| Module | Product Images |
+| Title | POST /products/:id/image accepts JPEG |
+| Priority | High |
+| Preconditions | Product exists |
+| Steps | 1. Call POST /api/products/:id/image with a JPEG file (multipart/form-data). |
+| Expected Result | Returns 200. image_url stored in product record. |
+| Type | Integration |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-IMG-004 |
+| Module | Product Images |
+| Title | POST /products/:id/image accepts PNG |
+| Priority | High |
+| Preconditions | Product exists |
+| Steps | 1. Call POST /api/products/:id/image with a PNG file. |
+| Expected Result | Returns 200. image_url stored in product record. |
+| Type | Integration |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-IMG-005 |
+| Module | Product Images |
+| Title | POST /products/:id/image accepts WebP |
+| Priority | Medium |
+| Preconditions | Product exists |
+| Steps | 1. Call POST /api/products/:id/image with a WebP file. |
+| Expected Result | Returns 200. image_url stored correctly. |
+| Type | Integration |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-IMG-006 |
+| Module | Product Images |
+| Title | Rejects non-image files (e.g., PDF) |
+| Priority | High |
+| Preconditions | Product exists |
+| Steps | 1. Call POST /api/products/:id/image with a PDF file. |
+| Expected Result | Returns 400 Bad Request with error "Only image files are allowed." Product image_url unchanged. |
+| Type | Integration |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-IMG-007 |
+| Module | Product Images |
+| Title | Rejects files exceeding 5MB |
+| Priority | High |
+| Preconditions | Product exists |
+| Steps | 1. Call POST /api/products/:id/image with an image file larger than 5MB. |
+| Expected Result | Returns 400 Bad Request with error indicating file size limit exceeded. |
+| Type | Integration |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-IMG-008 |
+| Module | Product Images |
+| Title | Image applies to all products with same article_code + colour |
+| Priority | Critical |
+| Preconditions | Multiple products exist with the same article_code and colour but different sizes |
+| Steps | 1. Upload an image for one product (e.g., size 8 of article ART-001 Black). 2. Check other sizes (7, 9, 10) of same article_code + colour. |
+| Expected Result | The uploaded image is shared across all products with matching article_code and colour. All sibling sizes show the same image. |
+| Type | Integration |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-IMG-009 |
+| Module | Product Images |
+| Title | Product table shows Image column with thumbnails |
+| Priority | Medium |
+| Preconditions | At least one product has an uploaded image |
+| Steps | 1. Navigate to Products page. 2. Observe the product table. |
+| Expected Result | Table has an "Image" column. Products with images show a small thumbnail. Products without images show a placeholder icon. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-IMG-010 |
+| Module | Product Images |
+| Title | No image file returns 400 error |
+| Priority | Medium |
+| Preconditions | Product exists |
+| Steps | 1. Call POST /api/products/:id/image with an empty multipart body (no file attached). |
+| Expected Result | Returns 400 Bad Request with error "No image file provided." |
+| Type | Integration |
+
+---
+
+## 29. CSV Bulk Product Upload (NEW)
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-BULK-001 |
+| Module | Bulk Product Upload |
+| Title | GET /products/bulk-upload/sample downloads valid CSV |
+| Priority | Critical |
+| Preconditions | None |
+| Steps | 1. Call GET /api/products/bulk-upload/sample. |
+| Expected Result | Returns a downloadable CSV file with correct column headers and at least one sample data row. Content-Type is text/csv. |
+| Type | Integration |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-BULK-002 |
+| Module | Bulk Product Upload |
+| Title | Sample CSV contains all 13 columns |
+| Priority | High |
+| Preconditions | Sample CSV downloaded |
+| Steps | 1. Download sample CSV. 2. Inspect column headers. |
+| Expected Result | CSV contains exactly these 13 columns: article_code, article_name, colour, size, mrp, section, category, location, description, article_group, hsn_code, size_from, size_to. |
+| Type | Integration |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-BULK-003 |
+| Module | Bulk Product Upload |
+| Title | POST /products/bulk-upload with valid CSV creates products |
+| Priority | Critical |
+| Preconditions | Logged in as Admin. Valid CSV with 5 rows prepared. |
+| Steps | 1. Call POST /api/products/bulk-upload with the CSV file. |
+| Expected Result | Returns 200 with { created: 5, errors: [] }. All 5 products appear in the product list. |
+| Type | Integration |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-BULK-004 |
+| Module | Bulk Product Upload |
+| Title | Bulk upload auto-generates SKU for each row |
+| Priority | Critical |
+| Preconditions | Valid CSV with distinct products |
+| Steps | 1. Upload a valid CSV. 2. Inspect created products via GET /products. |
+| Expected Result | Each created product has a unique auto-generated SKU following the {Section}-{ArticleName}-{Category}-{Serial}-{Colour} format. |
+| Type | Integration |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-BULK-005 |
+| Module | Bulk Product Upload |
+| Title | Rejects CSV with missing required columns |
+| Priority | High |
+| Preconditions | CSV file prepared without the "mrp" column |
+| Steps | 1. Upload CSV missing required columns. |
+| Expected Result | Returns 400 with error listing the missing column names. No products created. |
+| Type | Integration |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-BULK-006 |
+| Module | Bulk Product Upload |
+| Title | Reports per-row errors for invalid data |
+| Priority | High |
+| Preconditions | CSV with 5 rows, 2 of which have invalid data (e.g., negative MRP, invalid category) |
+| Steps | 1. Upload CSV with mixed valid/invalid rows. |
+| Expected Result | Response shows { created: 3, errors: [ { row: 2, error: "..." }, { row: 4, error: "..." } ] }. Valid rows are created; invalid rows are reported. |
+| Type | Integration |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-BULK-007 |
+| Module | Bulk Product Upload |
+| Title | Rejects empty CSV file |
+| Priority | Medium |
+| Preconditions | Empty CSV file (only headers, no data rows) |
+| Steps | 1. Upload CSV with headers but zero data rows. |
+| Expected Result | Returns 400 with error "CSV file contains no data rows." |
+| Type | Integration |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-BULK-008 |
+| Module | Bulk Product Upload |
+| Title | Rejects CSV exceeding 500 rows |
+| Priority | High |
+| Preconditions | CSV with 501 data rows prepared |
+| Steps | 1. Upload CSV with 501 rows. |
+| Expected Result | Returns 400 with error "CSV exceeds maximum of 500 rows per upload." No products created. |
+| Type | Integration |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-BULK-009 |
+| Module | Bulk Product Upload |
+| Title | Rejects invalid category enum values |
+| Priority | High |
+| Preconditions | CSV with category = "Kids" (not a valid enum) |
+| Steps | 1. Upload CSV with invalid category value. |
+| Expected Result | Row reported as error: "Invalid category. Must be one of: Gents, Ladies, Boys, Girls." |
+| Type | Integration |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-BULK-010 |
+| Module | Bulk Product Upload |
+| Title | Rejects invalid location enum values |
+| Priority | Medium |
+| Preconditions | CSV with location = "DELHI" (not a valid location) |
+| Steps | 1. Upload CSV with invalid location value. |
+| Expected Result | Row reported as error: "Invalid location. Must be one of: VKIA, MIA, F540." |
+| Type | Integration |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-BULK-011 |
+| Module | Bulk Product Upload |
+| Title | Rejects negative/zero MRP |
+| Priority | High |
+| Preconditions | CSV row with mrp = 0 or mrp = -100 |
+| Steps | 1. Upload CSV with zero or negative MRP. |
+| Expected Result | Row reported as error: "MRP must be a positive number." |
+| Type | Integration |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-BULK-012 |
+| Module | Bulk Product Upload |
+| Title | Reports duplicate SKU rows as errors |
+| Priority | Critical |
+| Preconditions | CSV contains two rows that would generate the same SKU |
+| Steps | 1. Upload CSV with duplicate SKU-generating rows. |
+| Expected Result | First row created successfully. Second row reported as error: "Duplicate SKU." |
+| Type | Integration |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-BULK-013 |
+| Module | Bulk Product Upload |
+| Title | Returns {created, errors[]} response structure |
+| Priority | High |
+| Preconditions | CSV with at least one valid and one invalid row |
+| Steps | 1. Upload mixed CSV. 2. Inspect JSON response. |
+| Expected Result | Response is { created: N, errors: [ { row: X, field: "...", message: "..." }, ... ] }. Structure consistent regardless of mix. |
+| Type | Integration |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-BULK-014 |
+| Module | Bulk Product Upload |
+| Title | Requires Admin or Supervisor role (403 otherwise) |
+| Priority | High |
+| Preconditions | Logged in as Warehouse Operator |
+| Steps | 1. Call POST /api/products/bulk-upload with a valid CSV. |
+| Expected Result | Returns 403 Forbidden. No products created. |
+| Type | Security |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-BULK-015 |
+| Module | Bulk Product Upload |
+| Title | "Bulk Import" modal opens from Products page |
+| Priority | Critical |
+| Preconditions | Logged in as Admin or Supervisor |
+| Steps | 1. Navigate to Products page. 2. Click the "Bulk Import" button. |
+| Expected Result | Modal opens containing instructions, sample CSV download link, and file upload control. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-BULK-016 |
+| Module | Bulk Product Upload |
+| Title | Sample CSV download link works in modal |
+| Priority | High |
+| Preconditions | Bulk Import modal is open |
+| Steps | 1. Click the "Download Sample CSV" link in the modal. |
+| Expected Result | Browser downloads a CSV file with correct headers and sample data. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-BULK-017 |
+| Module | Bulk Product Upload |
+| Title | File upload in modal accepts only CSV files |
+| Priority | High |
+| Preconditions | Bulk Import modal is open |
+| Steps | 1. Attempt to select a non-CSV file (e.g., .xlsx) in the file picker. |
+| Expected Result | File picker restricts selection to .csv files only. Non-CSV files are not selectable or are rejected on selection. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-BULK-018 |
+| Module | Bulk Product Upload |
+| Title | Modal displays error summary after partial failures |
+| Priority | High |
+| Preconditions | CSV with some invalid rows uploaded |
+| Steps | 1. Upload a CSV with 3 valid and 2 invalid rows via modal. 2. Submit. 3. Observe modal after response. |
+| Expected Result | Modal shows a summary: "3 products created, 2 errors." Error table lists each failing row with row number and error message. |
+| Type | E2E |
+
+---
+
+## 30. Unified Scan & Trace Module (NEW)
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-SCANTRACE-001 |
+| Module | Scan & Trace |
+| Title | Page loads at /scan with Camera Scanner and Manual Entry |
+| Priority | Critical |
+| Preconditions | Logged in as any role |
+| Steps | 1. Navigate to /scan. |
+| Expected Result | Page loads successfully. Both a Camera Scanner section and a Manual Entry input with "Look Up" button are visible. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-SCANTRACE-002 |
+| Module | Scan & Trace |
+| Title | Page title is "Scan & Trace" with correct description |
+| Priority | High |
+| Preconditions | Logged in |
+| Steps | 1. Navigate to /scan. 2. Observe page heading and subtitle. |
+| Expected Result | Page heading reads "Scan & Trace". Subtitle describes the module purpose (scan QR codes to view lifecycle and trace items). |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-SCANTRACE-003 |
+| Module | Scan & Trace |
+| Title | Manual barcode entry with Look Up button triggers trace |
+| Priority | Critical |
+| Preconditions | A valid child box or master carton barcode exists |
+| Steps | 1. Navigate to /scan. 2. Type a valid barcode into the manual input field. 3. Click "Look Up." |
+| Expected Result | System calls the trace API and displays results. No page reload. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-SCANTRACE-004 |
+| Module | Scan & Trace |
+| Title | Enter key in barcode input triggers lookup |
+| Priority | Medium |
+| Preconditions | /scan page loaded |
+| Steps | 1. Type a valid barcode in the manual entry input. 2. Press Enter key. |
+| Expected Result | Lookup is triggered (same as clicking "Look Up"). |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-SCANTRACE-005 |
+| Module | Scan & Trace |
+| Title | Child box barcode shows Child Box details card |
+| Priority | Critical |
+| Preconditions | Valid child box exists with known barcode |
+| Steps | 1. Enter child box barcode. 2. Click Look Up. |
+| Expected Result | A "Child Box" details card appears displaying information for that child box. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-SCANTRACE-006 |
+| Module | Scan & Trace |
+| Title | Child Box card shows barcode, product, SKU, size/colour, MRP, status |
+| Priority | High |
+| Preconditions | Child box exists |
+| Steps | 1. Trace a child box barcode. 2. Observe the result card. |
+| Expected Result | Card displays: barcode, product name/article, SKU, size, colour, MRP, and current status (FREE/PACKED/DISPATCHED). |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-SCANTRACE-007 |
+| Module | Scan & Trace |
+| Title | Master carton barcode shows Master Carton card |
+| Priority | Critical |
+| Preconditions | Valid master carton exists |
+| Steps | 1. Enter master carton barcode. 2. Click Look Up. |
+| Expected Result | A "Master Carton" details card appears. No child box card shown. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-SCANTRACE-008 |
+| Module | Scan & Trace |
+| Title | Master Carton card shows barcode, box count/capacity, status |
+| Priority | High |
+| Preconditions | Master carton with child boxes exists |
+| Steps | 1. Trace a master carton barcode. 2. Observe the result card. |
+| Expected Result | Card shows: carton barcode, number of boxes in carton, capacity, and current status (ACTIVE/CLOSED/DISPATCHED). |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-SCANTRACE-009 |
+| Module | Scan & Trace |
+| Title | Master Carton result shows child boxes list |
+| Priority | High |
+| Preconditions | Master carton with at least 3 child boxes |
+| Steps | 1. Trace a master carton barcode. 2. Scroll to see child boxes section. |
+| Expected Result | A list of child boxes contained in the carton is shown, each with their barcode and basic details. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-SCANTRACE-010 |
+| Module | Scan & Trace |
+| Title | ACTIVE master carton shows "Seal for Storage" button |
+| Priority | Critical |
+| Preconditions | ACTIVE master carton exists |
+| Steps | 1. Trace an ACTIVE master carton barcode. |
+| Expected Result | A "Seal for Storage" action button is visible on the result card. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-SCANTRACE-011 |
+| Module | Scan & Trace |
+| Title | Seal for Storage closes carton to CLOSED status |
+| Priority | Critical |
+| Preconditions | ACTIVE master carton exists; logged in as Warehouse Operator or Admin |
+| Steps | 1. Trace an ACTIVE carton. 2. Click "Seal for Storage." 3. Confirm. |
+| Expected Result | Carton status changes to CLOSED. Success message shown. Result card updates to reflect new status. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-SCANTRACE-012 |
+| Module | Scan & Trace |
+| Title | CLOSED carton shows "Sealed & Stored" indicator |
+| Priority | High |
+| Preconditions | CLOSED master carton exists |
+| Steps | 1. Trace a CLOSED master carton barcode. |
+| Expected Result | Result card shows a "Sealed & Stored" status indicator. No "Seal for Storage" action button. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-SCANTRACE-013 |
+| Module | Scan & Trace |
+| Title | DISPATCHED carton shows "Already Dispatched" indicator |
+| Priority | Medium |
+| Preconditions | DISPATCHED master carton exists |
+| Steps | 1. Trace a DISPATCHED master carton barcode. |
+| Expected Result | Result card shows an "Already Dispatched" status indicator. No seal or other action buttons shown. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-SCANTRACE-014 |
+| Module | Scan & Trace |
+| Title | Dispatch details shown for dispatched items |
+| Priority | High |
+| Preconditions | Dispatched carton or child box exists with dispatch record |
+| Steps | 1. Trace a dispatched barcode. 2. Look for dispatch details section. |
+| Expected Result | Dispatch information is shown: dispatch date, customer name/ID, destination, and dispatch reference. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-SCANTRACE-015 |
+| Module | Scan & Trace |
+| Title | Timeline shows chronological events with action, description, user, timestamp |
+| Priority | Critical |
+| Preconditions | Item has multiple lifecycle events (e.g., created, packed, sealed, dispatched) |
+| Steps | 1. Trace a barcode with multiple events. 2. Observe the timeline section. |
+| Expected Result | Timeline lists events in chronological order. Each event shows: action type, description, username who performed it, and timestamp. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-SCANTRACE-016 |
+| Module | Scan & Trace |
+| Title | Timeline shows "No timeline events" for items without events |
+| Priority | Medium |
+| Preconditions | Item with no recorded events (newly created child box) |
+| Steps | 1. Trace a barcode with no event history. 2. Observe the timeline section. |
+| Expected Result | Timeline section shows "No timeline events" placeholder message. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-SCANTRACE-017 |
+| Module | Scan & Trace |
+| Title | "Clear & Scan Another" resets all results |
+| Priority | Medium |
+| Preconditions | Trace results are displayed on screen |
+| Steps | 1. After viewing trace results, click "Clear & Scan Another." |
+| Expected Result | All result cards, timeline, and dispatch details are cleared. Input field is focused and empty. Ready for next scan. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-SCANTRACE-018 |
+| Module | Scan & Trace |
+| Title | Full-screen scan button present and clickable |
+| Priority | Medium |
+| Preconditions | /scan page loaded on mobile or desktop |
+| Steps | 1. Navigate to /scan. 2. Look for full-screen scan option. 3. Click it. |
+| Expected Result | Full-screen scan button is present. Clicking it opens the camera in a full-screen overlay mode. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-SCANTRACE-019 |
+| Module | Scan & Trace |
+| Title | Empty state shows placeholder text |
+| Priority | Low |
+| Preconditions | /scan page just loaded with no prior scan |
+| Steps | 1. Navigate to /scan without scanning anything. 2. Observe the results area. |
+| Expected Result | Results area shows an empty state with placeholder text like "Scan or enter a barcode to see details." |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-SCANTRACE-020 |
+| Module | Scan & Trace |
+| Title | Offline scan saves to queue with pending badge |
+| Priority | High |
+| Preconditions | Device is offline (network disconnected) |
+| Steps | 1. Disconnect network. 2. Navigate to /scan. 3. Scan a barcode. |
+| Expected Result | Scan is queued locally with a "Pending" badge. Queue count indicator is updated. Item will sync when connectivity is restored. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-SCANTRACE-021 |
+| Module | Scan & Trace |
+| Title | Sidebar shows "Scan & Trace" (Storage/Traceability removed) |
+| Priority | High |
+| Preconditions | Logged in as any role |
+| Steps | 1. View the sidebar navigation. 2. Look for scan-related and storage/traceability links. |
+| Expected Result | Sidebar shows a single "Scan & Trace" navigation link. Separate "Storage" and "Traceability" menu items are not present. |
+| Type | E2E |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-SCANTRACE-022 |
+| Module | Scan & Trace |
+| Title | Master carton trace works without childBox field (regression) |
+| Priority | Critical |
+| Preconditions | Master carton exists; trace API called for its barcode |
+| Steps | 1. Call GET /api/trace/:barcode for a master carton barcode. 2. Inspect response JSON. |
+| Expected Result | Response returns carton details successfully. The response does NOT include a "childBox" field at the top level. No 500 error. |
+| Type | Integration |
+
+---
+
+## 31. Traceability Bug Fix Regression (NEW)
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-TRACEBUG-001 |
+| Module | Traceability |
+| Title | Trace API for master carton returns result without childBox |
+| Priority | Critical |
+| Preconditions | Master carton exists in DB |
+| Steps | 1. GET /api/trace/:masterCartonBarcode. 2. Inspect response structure. |
+| Expected Result | Response contains { type: "masterCarton", carton: {...} } without a childBox key. HTTP 200. No uncaught exceptions. |
+| Type | Integration |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-TRACEBUG-002 |
+| Module | Traceability |
+| Title | Trace API uses correct child_box.id for carton mapping |
+| Priority | Critical |
+| Preconditions | Child box packed into master carton |
+| Steps | 1. Trace a child box barcode. 2. Inspect the carton ID in the result. |
+| Expected Result | Carton ID in the trace result matches the actual master carton that contains this child box. No incorrect carton mapping. |
+| Type | Integration |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-TRACEBUG-003 |
+| Module | Traceability |
+| Title | Dispatch fields use correct DB column names |
+| Priority | High |
+| Preconditions | Dispatched carton with full dispatch record |
+| Steps | 1. Trace a dispatched carton. 2. Inspect dispatch details in response. |
+| Expected Result | Dispatch fields (customer_name, dispatch_date, destination, reference) are populated correctly from DB. No null values due to column name mismatch. |
+| Type | Integration |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-TRACEBUG-004 |
+| Module | Traceability |
+| Title | MRP type coercion handles string values |
+| Priority | Medium |
+| Preconditions | Product with MRP stored as string in DB (legacy data) |
+| Steps | 1. Trace a child box linked to a product with string MRP. 2. Inspect MRP in response. |
+| Expected Result | MRP is returned as a numeric value (not a string). No type errors or NaN values. |
+| Type | Integration |
+
+| Field | Value |
+|-------|-------|
+| TC ID | TC-TRACEBUG-005 |
+| Module | Traceability |
+| Title | Non-existent barcode returns 404 |
+| Priority | Medium |
+| Preconditions | None |
+| Steps | 1. Call GET /api/trace/BARCODE-DOES-NOT-EXIST. |
+| Expected Result | Returns 404 Not Found with error "Barcode not found." No 500 error. |
+| Type | Integration |
+
+---
+
 ## Summary
 
 | Module | Test Case Range | Count |
@@ -3872,14 +4887,24 @@
 | QR Scanning | TC-SCAN-001 to TC-SCAN-010 | 10 |
 | PWA & Mobile (Phase 1) | TC-PWA-001 to TC-PWA-010 | 10 |
 | Label Printing | TC-PRINT-001 to TC-PRINT-010 | 10 |
+| Customer Master | TC-CUST-001 to TC-CUST-018 | 18 |
+| Product Master — Expanded Fields | TC-PRODX-001 to TC-PRODX-014 | 14 |
+| Label Redesign — Child Box | TC-LBLCB-001 to TC-LBLCB-007 | 7 |
+| Label Redesign — Master Carton | TC-LBLMC-001 to TC-LBLMC-007 | 7 |
 | Multi-Size QR Batch Generation | TC-MSQR-001 to TC-MSQR-010 | 10 |
-| Phase 2 UI Enhancement | TC-UI-001 to TC-UI-031 | 31 |
-| UAT Bug Fix Validation | TC-UAT-001 to TC-UAT-006 | 6 |
-| Phase 3 PWA Enhancement | TC-PWA-001 to TC-PWA-034 | 34 |
-| Inventory Module (NEW) | TC-INV-001 to TC-INV-012 | 12 |
 | Edge Cases & Negative Tests | TC-EDGE-001 to TC-EDGE-015 | 15 |
 | Performance Tests | TC-PERF-001 to TC-PERF-005 | 5 |
-| **Total** | | **318** |
+| Phase 2 UI Enhancement | TC-UI-001 to TC-UI-031 | 31 |
+| UAT Bug Fix Validation | TC-UAT-001 to TC-UAT-006 | 6 |
+| Phase 3 PWA Enhancement | TC-PWA3-001 to TC-PWA3-034 | 34 |
+| Inventory Module | TC-INV-001 to TC-INV-012 | 12 |
+| Configurable Sections CRUD (NEW) | TC-SECT-001 to TC-SECT-012 | 12 |
+| SKU Auto-Generation (NEW) | TC-SKU-001 to TC-SKU-008 | 8 |
+| Product Image Upload (NEW) | TC-IMG-001 to TC-IMG-010 | 10 |
+| CSV Bulk Product Upload (NEW) | TC-BULK-001 to TC-BULK-018 | 18 |
+| Unified Scan & Trace Module (NEW) | TC-SCANTRACE-001 to TC-SCANTRACE-022 | 22 |
+| Traceability Bug Fix Regression (NEW) | TC-TRACEBUG-001 to TC-TRACEBUG-005 | 5 |
+| **Total** | | **~418** |
 
 ### Priority Distribution
 

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { loginViaAPI, getAuthToken, BASE_API } from './helpers';
+import { loginViaAPI, getAuthToken, BASE_API, API_BASE_URL } from './helpers';
 
 test.describe('TC-PRODX: Product Management', () => {
   test.beforeEach(async ({ page }) => {
@@ -178,5 +178,107 @@ test.describe('TC-PRODX: Product Management', () => {
     expect(product.sku).toContain('PU');
     expect(product.sku).toContain('GENTS');
     expect(product.sku).toContain('BLUE');
+  });
+
+  test('TC-PRODX-015: Add Product modal has size_from and size_to fields', async ({ page }) => {
+    await page.goto('/products');
+    await page.getByRole('button', { name: /add product/i }).click();
+    await expect(page.getByLabel(/size from/i).or(page.getByPlaceholder(/e\.g\., 6/i))).toBeVisible({ timeout: 5000 });
+    await expect(page.getByLabel(/size to/i).or(page.getByPlaceholder(/e\.g\., 10/i))).toBeVisible();
+  });
+
+  test('TC-PRODX-016: Add Product modal has image upload field', async ({ page }) => {
+    await page.goto('/products');
+    await page.getByRole('button', { name: /add product/i }).click();
+    await expect(page.locator('input[type="file"][accept*="image"]')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText(/image will be uploaded after/i)).toBeVisible();
+  });
+
+  test('TC-PRODX-017: Bulk Import button visible on products page', async ({ page }) => {
+    await page.goto('/products');
+    await expect(page.getByRole('button', { name: /bulk import/i })).toBeVisible({ timeout: 10000 });
+  });
+
+  test('TC-PRODX-018: Bulk Import modal opens with sample download', async ({ page }) => {
+    await page.goto('/products');
+    await page.getByRole('button', { name: /bulk import/i }).click();
+    await expect(page.getByText(/upload a csv file/i)).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText(/download sample csv/i)).toBeVisible();
+    await expect(page.getByText(/required columns/i)).toBeVisible();
+  });
+
+  test('TC-PRODX-019: Sample CSV has size_from and size_to columns (API)', async ({ request }) => {
+    const token = await getAuthToken(request);
+    const response = await request.get(`${API_BASE_URL}/products/bulk-upload/sample`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(response.status()).toBe(200);
+    const csv = await response.text();
+    expect(csv).toContain('size_from');
+    expect(csv).toContain('size_to');
+    expect(csv).not.toContain('size_group');
+  });
+
+  test('TC-PRODX-020: Bulk upload valid CSV creates products (API)', async ({ request }) => {
+    const token = await getAuthToken(request);
+    const uniqueSuffix = Date.now().toString().slice(-6);
+    const csvContent = [
+      'article_code,article_name,colour,size,mrp,section,category,location,size_from,size_to',
+      `BLK${uniqueSuffix},BulkTest${uniqueSuffix},White,7,499,Hawaii,Gents,VKIA,6,10`,
+      `BLK${uniqueSuffix},BulkTest${uniqueSuffix},White,8,499,Hawaii,Gents,VKIA,6,10`,
+    ].join('\n');
+
+    const response = await request.post(`${API_BASE_URL}/products/bulk-upload`, {
+      headers: { Authorization: `Bearer ${token}` },
+      multipart: {
+        file: { name: 'test.csv', mimeType: 'text/csv', buffer: Buffer.from(csvContent) },
+      },
+    });
+    expect(response.status()).toBe(201);
+    const body = await response.json();
+    expect(body.success).toBe(true);
+    expect(body.data.created).toBeGreaterThanOrEqual(2);
+  });
+
+  test('TC-PRODX-021: Bulk upload rejects invalid category (API)', async ({ request }) => {
+    const token = await getAuthToken(request);
+    const csvContent = [
+      'article_code,article_name,colour,size,mrp,section,category',
+      `ERR${Date.now()},ErrProduct,Red,6,299,Hawaii,InvalidCategory`,
+    ].join('\n');
+
+    const response = await request.post(`${API_BASE_URL}/products/bulk-upload`, {
+      headers: { Authorization: `Bearer ${token}` },
+      multipart: {
+        file: { name: 'test.csv', mimeType: 'text/csv', buffer: Buffer.from(csvContent) },
+      },
+    });
+    expect(response.status()).toBe(201);
+    const body = await response.json();
+    expect(body.data.errors.length).toBeGreaterThan(0);
+    expect(body.data.errors[0].error).toContain('category');
+  });
+
+  test('TC-PRODX-022: Product creation stores size_from and size_to (API)', async ({ request }) => {
+    const token = await getAuthToken(request);
+    const uniqueSuffix = Date.now().toString().slice(-6);
+    const createRes = await request.post(`${API_BASE_URL}/products`, {
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      data: {
+        article_code: `SZ${uniqueSuffix}`,
+        article_name: `SizeRangeTest${uniqueSuffix}`,
+        colour: 'Blue',
+        size: '8',
+        mrp: 599,
+        section: 'Hawaii',
+        category: 'Gents',
+        size_from: '6',
+        size_to: '10',
+      },
+    });
+    expect(createRes.status()).toBe(201);
+    const product = (await createRes.json()).data;
+    expect(product.size_from).toBe('6');
+    expect(product.size_to).toBe('10');
   });
 });

@@ -64,6 +64,28 @@
 | 287 | Frontend TypeScript compilation | Done | 0 app source errors |
 | 288 | Deployed to production | Done | All changes deployed — backend (size range migration + CSV bulk upload) + frontend (merged Scan & Trace, product form, customer fix). All containers healthy |
 
+#### E2E Tests: Configurable Sections CRUD
+| # | Activity | Status | Notes |
+|---|----------|--------|-------|
+| 289 | Created `14-sections-crud.spec.ts` | Done | 8 tests (TC-SECT-001 to TC-SECT-008) covering full CRUD lifecycle: GET list validates shape, POST creates with unique timestamp name, duplicate name rejected (4xx), GET by ID, PUT rename, PUT duplicate rename rejected, DELETE soft-deactivates + verifies omission from active list, E2E page test confirms section tabs on /products reflect API data. Uses `test.describe.serial` to share `createdSectionId` across ordered tests. Follows `getAuthToken` + `BASE_API` patterns from helpers.ts |
+
+#### E2E Tests: Rewrite Scan & Trace spec
+| # | Activity | Status | Notes |
+|---|----------|--------|-------|
+| 289 | Rewrote `frontend/e2e/08-scan.spec.ts` for unified Scan & Trace module | Done | 14 tests (TC-SCANTRACE-001 to 014) covering: page layout (Camera Scanner + Manual Entry sections), title, input/button visibility, Enter-key trigger, empty state placeholder, child box lookup via API (card + field labels), master carton lookup, ACTIVE carton "Seal for Storage" button, timeline section, "Clear & Scan Another" reset, full-screen button, sidebar nav item, non-existent barcode error toast |
+
+#### E2E Tests: CSV Bulk Product Upload
+| # | Activity | Status | Notes |
+|---|----------|--------|-------|
+| 290 | Created `frontend/e2e/15-bulk-upload.spec.ts` | Done | 8 tests (TC-BULK-001 to TC-BULK-008) covering: sample CSV download endpoint returns valid CSV with correct Content-Type, sample CSV header contains all 13 expected columns (including size_from/size_to), valid 2-row CSV creates products (created >= 2), CSV missing required columns rejected with 4xx, empty CSV (headers only) rejected with 4xx, invalid category value reported as row-level error, negative MRP reported as row-level error, Bulk Import modal opens on /products page with Download link and file input visible. Uses `getAuthToken` + `Buffer.from` multipart pattern for API tests, `loginViaAPI` for UI test |
+
+#### Documentation: Test Cases Update (v1.5)
+| # | Activity | Status | Notes |
+|---|----------|--------|-------|
+| 291 | Updated `docs/test-cases.md` to v1.5 | Done | Added 6 new sections (26–31): Configurable Sections CRUD (12 TCs), SKU Auto-Generation (8 TCs), Product Image Upload (10 TCs), CSV Bulk Product Upload (18 TCs), Unified Scan & Trace Module (22 TCs), Traceability Bug Fix Regression (5 TCs). Extended Section 15 with TC-CUST-011–018 (dealer hierarchy). Replaced Section 16 TC-PRODX-008 (Size Group) with size_from/size_to tests + added TC-PRODX-009–014. Added "Note: unified Scan & Trace" notices to Sections 6, 10, 12. Updated summary table and total to ~418 test cases. TOC updated with all 31 sections. |
+
+---
+
 ### April 13, 2026 — Phase 4: Meeting Feedback Implementation (Day 1 — Backend)
 
 #### Context
