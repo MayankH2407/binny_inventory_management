@@ -12,6 +12,41 @@
 
 ## Activity Log
 
+### April 14, 2026 — Phase 4: Observations & Fixes (Day 2 — Continued)
+
+#### Production Deployment Fix
+| # | Activity | Status | Notes |
+|---|----------|--------|-------|
+| 271 | Fix: Backend Docker uploads directory permission | Done | Dockerfile prod stage: added `mkdir -p ./uploads/product-images` + `chown -R appuser:appgroup /app` before `USER appuser`. Multer `mkdirSync` was failing with EACCES as non-root |
+| 272 | Fix: Frontend API URL pointing to localhost | Done | `.env` and `frontend/.env.local` had `NEXT_PUBLIC_API_URL=http://localhost:3001/api/v1`. Changed to `https://srv1409601.hstgr.cloud/binny/api/v1`. Frontend rebuilt to bake correct URL. This caused "Unable to reach the server" errors |
+
+#### Feature: Image Upload During Product Creation
+| # | Activity | Status | Notes |
+|---|----------|--------|-------|
+| 273 | Image upload added to product create modal | Done | `products/page.tsx` — File input now shown in both create and edit modals. On create: image stored in state, uploaded via `uploadImage()` after product is created. Shows filename preview with remove button. Helper text: "Image will be uploaded after the product is created" |
+
+#### Feature: Bulk CSV Product Import
+| # | Activity | Status | Notes |
+|---|----------|--------|-------|
+| 274 | Backend: csv-parse dependency added | Done | `npm install csv-parse` for CSV parsing |
+| 275 | Backend: CSV upload middleware | Done | `upload.middleware.ts` — Added `csvUpload` multer config: memory storage, 10MB limit, .csv filter |
+| 276 | Backend: Bulk create product service | Done | `product.service.ts` — `bulkCreateProducts(csvBuffer, createdBy)`: parses CSV, validates required columns (article_code, article_name, colour, size, mrp, section, category), validates each row (types, lengths, enum values), generates SKU, checks duplicates, creates products row-by-row with audit logs. 500-row limit. Returns `{ created, errors[] }` with per-row error details |
+| 277 | Backend: Bulk upload controller + sample download | Done | `product.controller.ts` — `bulkUploadProducts()` accepts multipart CSV, `downloadSampleCsv()` returns CSV with headers + 3 sample rows. Routes: `POST /products/bulk-upload`, `GET /products/bulk-upload/sample` (Admin/Supervisor only) |
+| 278 | Frontend: Bulk import UI | Done | `products/page.tsx` — "Bulk Import" button next to "Add Product" in page header. Modal with: sample CSV download (with auth header fetch), required/optional columns info, file drag area, upload button. Results view: green success banner with count, red error list with row number + article name + error message. "Upload Another File" to reset |
+| 279 | Frontend: Product service bulk methods | Done | `product.service.ts` — Added `BulkUploadResult` and `BulkRowError` types, `bulkUpload(file)` multipart POST, `getSampleCsvUrl()` helper |
+
+#### Bug Fix: Blank Primary Dealer Dropdown
+| # | Activity | Status | Notes |
+|---|----------|--------|-------|
+| 280 | Fix: Primary dealers not showing in sub-dealer creation | Done | Root cause: all 3 seed customers had `is_active = false` in production DB. `getPrimaryDealers()` filters `WHERE is_active = true` → empty results. Activated all 3 customers (Delhi Shoe House, Mumbai Sole Traders, Sharma Footwear Distributors). Verified: dropdown now returns 3 dealers |
+
+#### Compilation & Deployment
+| # | Activity | Status | Notes |
+|---|----------|--------|-------|
+| 281 | Backend TypeScript compilation | Done | 0 errors |
+| 282 | Frontend TypeScript compilation | Done | 0 app source errors (1 pre-existing e2e issue) |
+| 283 | Deployed to production | Done | Backend + frontend Docker images rebuilt, containers restarted, all healthy. Sample CSV endpoint verified (200), primary dealers API verified (3 results) |
+
 ### April 13, 2026 — Phase 4: Meeting Feedback Implementation (Day 1 — Backend)
 
 #### Context
