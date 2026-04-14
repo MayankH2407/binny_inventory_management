@@ -10,14 +10,50 @@ import StatusBadge from '@/components/ui/StatusBadge';
 import QRScanner from '@/components/scanning/QRScanner';
 import PageHeader from '@/components/layout/PageHeader';
 import { inventoryService } from '@/services/inventory.service';
-import type { TraceabilityResult } from '@/types';
+// Trace result from API — childBox is optional (absent for master carton traces)
+interface TraceResult {
+  childBox?: {
+    barcode: string;
+    article_name: string;
+    sku: string;
+    colour: string;
+    size: string;
+    mrp: number | string;
+    status: string;
+    [key: string]: unknown;
+  };
+  masterCarton?: {
+    id: string;
+    carton_barcode: string;
+    status: string;
+    child_count: number;
+    max_capacity: number;
+    [key: string]: unknown;
+  };
+  dispatch?: {
+    dispatch_number?: string;
+    destination?: string;
+    vehicle_number?: string;
+    dispatch_date?: string;
+    status?: string;
+    [key: string]: unknown;
+  };
+  timeline: {
+    id: string;
+    action: string;
+    description: string;
+    performed_by: string;
+    performed_at: string;
+    metadata?: Record<string, unknown>;
+  }[];
+}
 import { formatDateTime, formatCurrency } from '@/lib/utils';
 import toast from 'react-hot-toast';
 
 export default function TraceabilityPage() {
   const searchParams = useSearchParams();
   const [qrCode, setQrCode] = useState(searchParams.get('qr') || '');
-  const [result, setResult] = useState<TraceabilityResult | null>(null);
+  const [result, setResult] = useState<TraceResult | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
 
@@ -26,7 +62,7 @@ export default function TraceabilityPage() {
     setIsSearching(true);
     try {
       const data = await inventoryService.trace(code);
-      setResult(data);
+      setResult(data as unknown as TraceResult);
     } catch {
       toast.error('Item not found in system');
       setResult(null);
@@ -90,42 +126,44 @@ export default function TraceabilityPage() {
       {result && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Card className="p-6">
-              <div className="flex items-center gap-3 mb-3">
-                <div className="p-2 rounded-lg bg-blue-50">
-                  <Package className="h-5 w-5 text-blue-600" />
+            {result.childBox && (
+              <Card className="p-6">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="p-2 rounded-lg bg-blue-50">
+                    <Package className="h-5 w-5 text-blue-600" />
+                  </div>
+                  <h3 className="font-semibold text-brand-text-dark">Child Box</h3>
                 </div>
-                <h3 className="font-semibold text-brand-text-dark">Child Box</h3>
-              </div>
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-brand-text-muted">Barcode</span>
-                  <span className="font-mono text-xs">{result.childBox.barcode}</span>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-brand-text-muted">Barcode</span>
+                    <span className="font-mono text-xs">{result.childBox.barcode}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-brand-text-muted">Product</span>
+                    <span>{result.childBox.article_name}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-brand-text-muted">SKU</span>
+                    <span>{result.childBox.sku}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-brand-text-muted">Size / Colour</span>
+                    <span>
+                      {result.childBox.size} / {result.childBox.colour}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-brand-text-muted">MRP</span>
+                    <span>{formatCurrency(Number(result.childBox.mrp))}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-brand-text-muted">Status</span>
+                    <StatusBadge status={result.childBox.status} size="sm" />
+                  </div>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-brand-text-muted">Product</span>
-                  <span>{result.childBox.article_name}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-brand-text-muted">SKU</span>
-                  <span>{result.childBox.sku}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-brand-text-muted">Size / Colour</span>
-                  <span>
-                    {result.childBox.size} / {result.childBox.colour}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-brand-text-muted">MRP</span>
-                  <span>{formatCurrency(result.childBox.mrp)}</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-brand-text-muted">Status</span>
-                  <StatusBadge status={result.childBox.status} size="sm" />
-                </div>
-              </div>
-            </Card>
+              </Card>
+            )}
 
             {result.masterCarton && (
               <Card className="p-6">
@@ -163,22 +201,24 @@ export default function TraceabilityPage() {
                   <h3 className="font-semibold text-brand-text-dark">Dispatch</h3>
                 </div>
                 <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-brand-text-muted">Dispatch #</span>
-                    <span>{result.dispatch.dispatch_number}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-brand-text-muted">Destination</span>
-                    <span>{result.dispatch.destination}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-brand-text-muted">Vehicle</span>
-                    <span>{result.dispatch.vehicle_number}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-brand-text-muted">Status</span>
-                    <StatusBadge status={result.dispatch.status} size="sm" />
-                  </div>
+                  {result.dispatch.destination && (
+                    <div className="flex justify-between">
+                      <span className="text-brand-text-muted">Destination</span>
+                      <span>{result.dispatch.destination}</span>
+                    </div>
+                  )}
+                  {result.dispatch.vehicle_number && (
+                    <div className="flex justify-between">
+                      <span className="text-brand-text-muted">Vehicle</span>
+                      <span>{result.dispatch.vehicle_number}</span>
+                    </div>
+                  )}
+                  {result.dispatch.dispatch_date && (
+                    <div className="flex justify-between">
+                      <span className="text-brand-text-muted">Dispatch Date</span>
+                      <span>{formatDateTime(result.dispatch.dispatch_date)}</span>
+                    </div>
+                  )}
                 </div>
               </Card>
             )}
