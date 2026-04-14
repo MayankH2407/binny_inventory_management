@@ -41,13 +41,14 @@ interface ProductForm {
   location: string;
   article_group: string;
   hsn_code: string;
-  size_group: string;
+  size_from: string;
+  size_to: string;
 }
 
 const emptyForm: ProductForm = {
   article_name: '', article_code: '', colour: '', size: '', mrp: '',
   description: '', category: '', section: '', location: '', article_group: '',
-  hsn_code: '', size_group: '',
+  hsn_code: '', size_from: '', size_to: '',
 };
 
 export default function ProductsPage() {
@@ -141,7 +142,8 @@ export default function ProductsPage() {
       location: form.location || null,
       article_group: form.article_group || null,
       hsn_code: form.hsn_code || null,
-      size_group: form.size_group || null,
+      size_from: form.size_from || null,
+      size_to: form.size_to || null,
     };
     return payload;
   };
@@ -174,7 +176,7 @@ export default function ProductsPage() {
       description: product.description || '', category: product.category || '',
       section: product.section || '', location: product.location || '',
       article_group: product.article_group || '', hsn_code: product.hsn_code || '',
-      size_group: product.size_group || '',
+      size_from: product.size_from || '', size_to: product.size_to || '',
     });
   };
 
@@ -604,10 +606,11 @@ export default function ProductsPage() {
             />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
             <Input label="Article Group" placeholder="e.g., Premium" value={form.article_group} onChange={(e) => updateField('article_group', e.target.value)} />
             <Input label="HSN Code" placeholder="e.g., 6402" value={form.hsn_code} onChange={(e) => updateField('hsn_code', e.target.value)} />
-            <Input label="Size Group" placeholder="e.g., 6-10" value={form.size_group} onChange={(e) => updateField('size_group', e.target.value)} />
+            <Input label="Size From" placeholder="e.g., 6" value={form.size_from} onChange={(e) => updateField('size_from', e.target.value)} />
+            <Input label="Size To" placeholder="e.g., 10" value={form.size_to} onChange={(e) => updateField('size_to', e.target.value)} />
           </div>
 
           <Input label="Description" placeholder="Optional product description" value={form.description} onChange={(e) => updateField('description', e.target.value)} />
@@ -691,7 +694,7 @@ export default function ProductsPage() {
           <div className="text-xs text-brand-text-muted">
             <p className="font-medium mb-1">Required columns:</p>
             <p>article_code, article_name, colour, size, mrp, section, category</p>
-            <p className="mt-1">Optional: location, description, article_group, hsn_code, size_group</p>
+            <p className="mt-1">Optional: location, description, article_group, hsn_code, size_from, size_to</p>
             <p className="mt-1">Maximum 500 rows per upload. Images must be uploaded separately after import.</p>
           </div>
 

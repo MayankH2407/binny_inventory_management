@@ -19,13 +19,13 @@ export async function createProduct(
   }
 
   const result = await query(
-    `INSERT INTO products (article_name, sku, article_code, colour, size, mrp, description, category, section, location, article_group, hsn_code, size_group)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+    `INSERT INTO products (article_name, sku, article_code, colour, size, mrp, description, category, section, location, article_group, hsn_code, size_from, size_to)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
      RETURNING *`,
     [
       input.article_name, sku, input.article_code, input.colour, input.size, input.mrp, input.description || null,
       input.category, input.section, input.location || null,
-      input.article_group || null, input.hsn_code || null, input.size_group || null,
+      input.article_group || null, input.hsn_code || null, input.size_from || null, input.size_to || null,
     ]
   );
 
@@ -156,7 +156,7 @@ export async function updateProduct(
 
   const updateableFields: (keyof UpdateProductInput)[] = [
     'article_name', 'sku', 'article_code', 'colour', 'size', 'mrp', 'description', 'is_active',
-    'category', 'section', 'location', 'article_group', 'hsn_code', 'size_group',
+    'category', 'section', 'location', 'article_group', 'hsn_code', 'size_from', 'size_to',
   ];
 
   for (const field of updateableFields) {
@@ -363,14 +363,14 @@ export async function bulkCreateProducts(
       }
 
       await query(
-        `INSERT INTO products (article_name, sku, article_code, colour, size, mrp, description, category, section, location, article_group, hsn_code, size_group)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+        `INSERT INTO products (article_name, sku, article_code, colour, size, mrp, description, category, section, location, article_group, hsn_code, size_from, size_to)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
         [
           row.article_name.trim(), sku, row.article_code.trim(), row.colour.trim(),
           row.size.trim(), mrp, row.description?.trim() || null,
           row.category.trim(), row.section.trim(), row.location?.trim() || null,
           row.article_group?.trim() || null, row.hsn_code?.trim() || null,
-          row.size_group?.trim() || null,
+          row.size_from?.trim() || null, row.size_to?.trim() || null,
         ]
       );
 

@@ -38,7 +38,8 @@ export const createProductSchema = z.object({
   location: z.enum(VALID_LOCATIONS, { errorMap: () => ({ message: 'Location must be one of: VKIA, MIA, F540' }) }).nullable().optional(),
   article_group: z.string().max(100, 'Article group must not exceed 100 characters').trim().nullable().optional(),
   hsn_code: z.string().max(20, 'HSN code must not exceed 20 characters').trim().nullable().optional(),
-  size_group: z.string().max(50, 'Size group must not exceed 50 characters').trim().nullable().optional(),
+  size_from: z.string().max(10, 'Size from must not exceed 10 characters').trim().nullable().optional(),
+  size_to: z.string().max(10, 'Size to must not exceed 10 characters').trim().nullable().optional(),
 });
 
 export const updateProductSchema = z.object({
@@ -55,7 +56,8 @@ export const updateProductSchema = z.object({
   location: z.enum(VALID_LOCATIONS).nullable().optional(),
   article_group: z.string().max(100).trim().nullable().optional(),
   hsn_code: z.string().max(20).trim().nullable().optional(),
-  size_group: z.string().max(50).trim().nullable().optional(),
+  size_from: z.string().max(10).trim().nullable().optional(),
+  size_to: z.string().max(10).trim().nullable().optional(),
 });
 
 export const productIdParamSchema = z.object({

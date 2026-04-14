@@ -39,7 +39,8 @@ export interface Product {
   location: string | null;
   article_group: string | null;
   hsn_code: string | null;
-  size_group: string | null;
+  size_from: string | null;
+  size_to: string | null;
   is_active: boolean;
   created_at: Date;
   updated_at: Date;

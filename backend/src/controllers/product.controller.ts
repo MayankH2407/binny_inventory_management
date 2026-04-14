@@ -155,12 +155,12 @@ export function downloadSampleCsv(
   const headers = [
     'article_code', 'article_name', 'colour', 'size', 'mrp',
     'section', 'category', 'location', 'description',
-    'article_group', 'hsn_code', 'size_group',
+    'article_group', 'hsn_code', 'size_from', 'size_to',
   ];
   const sampleRows = [
-    ['ART-001', 'Classic Hawaii Slipper', 'Black', '8', '749', 'Hawaii', 'Gents', 'VKIA', 'Premium hawaii slipper', 'Premium', '6402', '6-10'],
-    ['ART-001', 'Classic Hawaii Slipper', 'Black', '9', '749', 'Hawaii', 'Gents', 'VKIA', 'Premium hawaii slipper', 'Premium', '6402', '6-10'],
-    ['ART-002', 'Ladies PU Sandal', 'Red', '6', '999', 'PU', 'Ladies', 'MIA', 'Comfortable PU sandal', 'Standard', '6402', '4-8'],
+    ['ART-001', 'Classic Hawaii Slipper', 'Black', '8', '749', 'Hawaii', 'Gents', 'VKIA', 'Premium hawaii slipper', 'Premium', '6402', '6', '10'],
+    ['ART-001', 'Classic Hawaii Slipper', 'Black', '9', '749', 'Hawaii', 'Gents', 'VKIA', 'Premium hawaii slipper', 'Premium', '6402', '6', '10'],
+    ['ART-002', 'Ladies PU Sandal', 'Red', '6', '999', 'PU', 'Ladies', 'MIA', 'Comfortable PU sandal', 'Standard', '6402', '4', '8'],
   ];
   const csv = [headers.join(','), ...sampleRows.map((r) => r.join(','))].join('\n');
 
