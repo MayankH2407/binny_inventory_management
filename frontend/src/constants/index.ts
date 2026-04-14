@@ -62,15 +62,13 @@ export const NAV_ITEMS = [
   { label: 'Dashboard', href: ROUTES.DASHBOARD, icon: 'LayoutDashboard' },
   { label: 'Child Boxes', href: ROUTES.CHILD_BOXES, icon: 'Package' },
   { label: 'Master Cartons', href: ROUTES.MASTER_CARTONS, icon: 'Boxes' },
-  { label: 'Storage', href: ROUTES.STORAGE, icon: 'Archive' },
-  { label: 'Scan', href: ROUTES.SCAN, icon: 'ScanLine' },
+  { label: 'Scan & Trace', href: ROUTES.SCAN, icon: 'ScanLine' },
   { label: 'Unpack', href: ROUTES.UNPACK, icon: 'PackageOpen' },
   { label: 'Repack', href: ROUTES.REPACK, icon: 'ArrowLeftRight' },
   { label: 'Dispatch', href: ROUTES.DISPATCH, icon: 'Truck' },
   { label: 'Dispatches', href: ROUTES.DISPATCHES, icon: 'ClipboardList' },
   { label: 'Inventory', href: ROUTES.INVENTORY, icon: 'Warehouse' },
   { label: 'Reports', href: ROUTES.REPORTS, icon: 'BarChart3' },
-  { label: 'Traceability', href: ROUTES.TRACEABILITY, icon: 'Search' },
   { label: 'Products', href: ROUTES.PRODUCTS, icon: 'Tag', adminOnly: true },
   { label: 'Customers', href: ROUTES.CUSTOMERS, icon: 'Building2', adminOnly: true },
   { label: 'Users', href: ROUTES.USERS, icon: 'Users', adminOnly: true },
@@ -79,7 +77,7 @@ export const NAV_ITEMS = [
 
 export const MOBILE_NAV_ITEMS = [
   { label: 'Home', href: ROUTES.DASHBOARD, icon: 'Home' },
-  { label: 'Scan', href: ROUTES.SCAN, icon: 'ScanLine' },
+  { label: 'Scan & Trace', href: ROUTES.SCAN, icon: 'ScanLine' },
   { label: 'Create', href: ROUTES.MASTER_CARTONS_CREATE, icon: 'PlusCircle' },
   { label: 'Dispatch', href: ROUTES.DISPATCH, icon: 'Truck' },
 ] as const;
