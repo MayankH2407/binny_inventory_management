@@ -184,7 +184,7 @@ export default function GenerateQRPage() {
             </tr>
             <tr>
               <td>Colour: ${box.colour}</td>
-              <td class="size-cell" style="width:30%;">
+              <td class="size-cell" style="width:42%;">
                 <div class="size-label">Size:</div>
                 <div class="size-value">${box.size}</div>
               </td>
@@ -218,30 +218,30 @@ export default function GenerateQRPage() {
         <head>
           <title>Print Labels</title>
           <style>
-            @page { size: 40mm 60mm; margin: 1mm; }
+            @page { size: 60mm 60mm; margin: 1.5mm; }
             * { margin: 0; padding: 0; box-sizing: border-box; }
             body { font-family: Arial, Helvetica, sans-serif; }
             .label {
-              width: 38mm;
+              width: 57mm;
               border: 1.5px solid #000;
               page-break-after: always;
-              font-size: 7pt;
+              font-size: 8.5pt;
             }
             .label:last-child { page-break-after: avoid; }
             table.main { width: 100%; border-collapse: collapse; }
-            table.main td { border: 0.5px solid #000; padding: 1mm 1.5mm; vertical-align: top; }
-            .article-row { font-weight: bold; font-size: 8pt; }
+            table.main td { border: 0.5px solid #000; padding: 1.2mm 2mm; vertical-align: top; }
+            .article-row { font-weight: bold; font-size: 10pt; }
             .size-cell { text-align: center; vertical-align: middle; }
-            .size-label { font-size: 6pt; }
-            .size-value { font-size: 14pt; font-weight: bold; line-height: 1.1; }
-            .mrp-line { font-weight: bold; font-size: 7.5pt; }
-            .mrp-sub { font-size: 5.5pt; color: #333; }
-            .qr-cell { text-align: center; vertical-align: middle; padding: 0.5mm; }
-            .qr-cell svg { width: 14mm; height: 14mm; }
+            .size-label { font-size: 7pt; }
+            .size-value { font-size: 18pt; font-weight: bold; line-height: 1.1; }
+            .mrp-line { font-weight: bold; font-size: 9pt; }
+            .mrp-sub { font-size: 6.5pt; color: #333; }
+            .qr-cell { text-align: center; vertical-align: middle; padding: 1mm; }
+            .qr-cell svg { width: 22mm; height: 22mm; }
             .footer {
               border-top: 1px solid #000;
-              padding: 1mm 1.5mm;
-              font-size: 5pt;
+              padding: 1.2mm 2mm;
+              font-size: 6pt;
               line-height: 1.4;
             }
           </style>

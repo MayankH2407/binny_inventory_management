@@ -39,18 +39,18 @@ export function buildChildBoxLabelHtml(data: ChildBoxLabelData): string {
 <head>
   <style>
     body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
-    .label { border: 2px solid #000; width: 36mm; font-size: 7pt; }
+    .label { border: 2px solid #000; width: 57mm; font-size: 8.5pt; }
     table.main { width: 100%; border-collapse: collapse; }
-    table.main td { border: 1px solid #000; padding: 1.5mm 2mm; vertical-align: top; }
-    .article-row { font-weight: bold; font-size: 8pt; }
+    table.main td { border: 1px solid #000; padding: 1.5mm 2.5mm; vertical-align: top; }
+    .article-row { font-weight: bold; font-size: 10pt; }
     .size-cell { text-align: center; font-weight: bold; vertical-align: middle; }
-    .size-label { font-size: 6pt; font-weight: normal; }
-    .size-value { font-size: 16pt; line-height: 1.1; }
-    .mrp-line { font-weight: bold; font-size: 8pt; }
-    .mrp-sub { font-size: 6pt; font-weight: normal; color: #333; }
-    .qr-cell { text-align: center; vertical-align: middle; padding: 1mm; }
-    .qr-cell img { width: 16mm; height: 16mm; }
-    .footer { border-top: 1.5px solid #000; padding: 1.5mm 2mm; font-size: 5.5pt; line-height: 1.4; }
+    .size-label { font-size: 7pt; font-weight: normal; }
+    .size-value { font-size: 18pt; line-height: 1.1; }
+    .mrp-line { font-weight: bold; font-size: 9pt; }
+    .mrp-sub { font-size: 6.5pt; font-weight: normal; color: #333; }
+    .qr-cell { text-align: center; vertical-align: middle; padding: 1.5mm; }
+    .qr-cell img { width: 22mm; height: 22mm; }
+    .footer { border-top: 1.5px solid #000; padding: 1.5mm 2.5mm; font-size: 6pt; line-height: 1.4; }
   </style>
 </head>
 <body>
@@ -61,7 +61,7 @@ export function buildChildBoxLabelHtml(data: ChildBoxLabelData): string {
       </tr>
       <tr>
         <td>Colour: ${data.colour}</td>
-        <td class="size-cell" style="width:30%;">
+        <td class="size-cell" style="width:42%;">
           <div class="size-label">Size:</div>
           <div class="size-value">${data.size}</div>
         </td>

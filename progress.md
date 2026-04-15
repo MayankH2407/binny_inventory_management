@@ -12,6 +12,15 @@
 
 ## Activity Log
 
+### April 15, 2026 — Phase 4: Label Redesign
+
+#### Child Box QR Label Resize (60mm x 60mm)
+| # | Activity | Status | Notes |
+|---|----------|--------|-------|
+| 292 | Redesign child box label from 40x60mm to 60x60mm (square) | Done | Frontend `handlePrint()` in `child-boxes/generate/page.tsx` and backend `buildChildBoxLabelHtml()` in `labelTemplates.ts`. `@page` size changed to `60mm 60mm`. Label width: 57mm (with 1.5mm margins). QR code enlarged from 14mm to 22mm. Size column widened from 30% to 42%. All font sizes scaled up proportionally (body 7pt→8.5pt, article 8pt→10pt, size value 14pt→18pt, MRP 7.5pt→9pt, footer 5pt→6pt). All existing information preserved in same table layout |
+
+---
+
 ### April 14, 2026 — Phase 4: Observations & Fixes (Day 2 — Continued)
 
 #### Production Deployment Fix
