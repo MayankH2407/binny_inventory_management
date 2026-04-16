@@ -17,7 +17,9 @@
 #### Child Box QR Label Resize (60mm x 60mm)
 | # | Activity | Status | Notes |
 |---|----------|--------|-------|
-| 292 | Redesign child box label from 40x60mm to 60x60mm (square) | Done | Frontend `handlePrint()` in `child-boxes/generate/page.tsx` and backend `buildChildBoxLabelHtml()` in `labelTemplates.ts`. `@page` size changed to `60mm 60mm`. Label width: 57mm (with 1.5mm margins). QR code enlarged from 14mm to 22mm. Size column widened from 30% to 42%. All font sizes scaled up proportionally (body 7pt→8.5pt, article 8pt→10pt, size value 14pt→18pt, MRP 7.5pt→9pt, footer 5pt→6pt). All existing information preserved in same table layout |
+| 292 | Redesign child box label to 60x60mm square | Done | Label `width: 60mm; height: 60mm` with `@page { size: 60mm 60mm; margin: 0 }`. Table `height: 100%` fills the square. Layout matches reference: Article No (full width), Colour + Size (rowspan=2, 28pt bold — primary focus), MRP (9pt bold — secondary), Packed on + Content (6pt compact rows), QR (17mm, rowspan=2, vertically centered). Footer moved inside table as `colspan=2` row so it spans full label width |
+| 293 | Visual hierarchy and spacing fixes | Done | Size cell enlarged: 28pt font, rowspan=2 spanning Colour+MRP rows. Colour bumped to 9pt bold. MRP to 9pt bold. Packed on / Content shrunk to 6pt with 4mm row height — values stay single-line. QR rowspan reduced from 3→2 eliminating blank space below. All cells `vertical-align: middle` for uniform spacing |
+| 294 | Fix: Article No and MRP showing undefined/NaN on labels | Done | Root cause: `createBulkMultiSizeChildBoxes`, `createBulkChildBoxes`, and `createChildBox` in `childBox.service.ts` queried product fields but did not pass `article_code` or `mrp` in the response object. Added `article_code` to SELECT and included both `article_code` and `mrp` in all 3 function return objects |
 
 ---
 

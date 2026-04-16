@@ -14,7 +14,7 @@ export async function createChildBox(
 ): Promise<ChildBox & { qr_data_uri: string; product_name: string; product_sku: string; size: string; colour: string }> {
   // Verify product exists
   const productResult = await query(
-    'SELECT id, article_name, sku, size, colour, mrp FROM products WHERE id = $1 AND is_active = true',
+    'SELECT id, article_name, article_code, sku, size, colour, mrp FROM products WHERE id = $1 AND is_active = true',
     [input.product_id]
   );
   if (productResult.rows.length === 0) {
@@ -55,9 +55,11 @@ export async function createChildBox(
     ...result.rows[0],
     qr_data_uri: qrDataUri,
     product_name: product.article_name,
+    article_code: product.article_code,
     product_sku: product.sku,
     size: product.size,
     colour: product.colour,
+    mrp: product.mrp,
   };
 }
 
@@ -66,7 +68,7 @@ export async function createBulkChildBoxes(
   createdBy: string
 ): Promise<Array<ChildBox & { qr_data_uri: string; product_name: string; product_sku: string; size: string; colour: string }>> {
   const productResult = await query(
-    'SELECT id, article_name, sku, size, colour, mrp FROM products WHERE id = $1 AND is_active = true',
+    'SELECT id, article_name, article_code, sku, size, colour, mrp FROM products WHERE id = $1 AND is_active = true',
     [input.product_id]
   );
   if (productResult.rows.length === 0) {
@@ -104,9 +106,11 @@ export async function createBulkChildBoxes(
         ...result.rows[0],
         qr_data_uri: qrDataUri,
         product_name: product.article_name,
+        article_code: product.article_code,
         product_sku: product.sku,
         size: product.size,
         colour: product.colour,
+        mrp: product.mrp,
       });
     }
 
@@ -146,7 +150,7 @@ export async function createBulkMultiSizeChildBoxes(
 
   // Find all sibling products (same article_name + colour) and index by size
   const siblingsResult = await query(
-    `SELECT id, article_name, sku, size, colour, mrp FROM products
+    `SELECT id, article_name, article_code, sku, size, colour, mrp FROM products
      WHERE article_name = $1 AND colour = $2 AND is_active = true`,
     [baseProduct.article_name, baseProduct.colour]
   );
@@ -199,9 +203,11 @@ export async function createBulkMultiSizeChildBoxes(
           ...result.rows[0],
           qr_data_uri: qrDataUri,
           product_name: product.article_name,
+          article_code: product.article_code,
           product_sku: product.sku,
           size: product.size,
           colour: product.colour,
+          mrp: product.mrp,
         });
       }
     }

@@ -39,18 +39,21 @@ export function buildChildBoxLabelHtml(data: ChildBoxLabelData): string {
 <head>
   <style>
     body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
-    .label { border: 2px solid #000; width: 57mm; font-size: 8.5pt; }
-    table.main { width: 100%; border-collapse: collapse; }
-    table.main td { border: 1px solid #000; padding: 1.5mm 2.5mm; vertical-align: top; }
-    .article-row { font-weight: bold; font-size: 10pt; }
+    .label { border: 1.5px solid #000; width: 60mm; height: 60mm; }
+    table.main { width: 100%; height: 100%; border-collapse: collapse; }
+    table.main td { border: 0.5px solid #000; padding: 1mm 1.5mm; vertical-align: middle; }
+    .article-row { font-weight: bold; font-size: 9pt; vertical-align: top; padding: 1.2mm 1.5mm; }
+    .colour-row { font-size: 9pt; font-weight: bold; }
+    .mrp-row { vertical-align: top; }
+    .mrp-line { font-weight: bold; font-size: 9pt; }
+    .mrp-sub { font-size: 5.5pt; font-weight: normal; color: #333; }
     .size-cell { text-align: center; font-weight: bold; vertical-align: middle; }
     .size-label { font-size: 7pt; font-weight: normal; }
-    .size-value { font-size: 18pt; line-height: 1.1; }
-    .mrp-line { font-weight: bold; font-size: 9pt; }
-    .mrp-sub { font-size: 6.5pt; font-weight: normal; color: #333; }
-    .qr-cell { text-align: center; vertical-align: middle; padding: 1.5mm; }
-    .qr-cell img { width: 22mm; height: 22mm; }
-    .footer { border-top: 1.5px solid #000; padding: 1.5mm 2.5mm; font-size: 6pt; line-height: 1.4; }
+    .size-value { font-size: 28pt; line-height: 1; }
+    .small-row { font-size: 6pt; padding: 0.5mm 1.5mm; height: 4mm; }
+    .qr-cell { text-align: center; vertical-align: middle; padding: 0.5mm; }
+    .qr-cell img { width: 17mm; height: 17mm; }
+    .footer-row { font-size: 5.5pt; line-height: 1.3; padding: 1mm 1.5mm; vertical-align: top; border-top: 1px solid #000; }
   </style>
 </head>
 <body>
@@ -60,33 +63,35 @@ export function buildChildBoxLabelHtml(data: ChildBoxLabelData): string {
         <td colspan="2" class="article-row">Article No: ${data.articleCode}</td>
       </tr>
       <tr>
-        <td>Colour: ${data.colour}</td>
-        <td class="size-cell" style="width:42%;">
+        <td class="colour-row">Colour: ${data.colour}</td>
+        <td class="size-cell" rowspan="2" style="width:35%;">
           <div class="size-label">Size:</div>
           <div class="size-value">${data.size}</div>
         </td>
       </tr>
       <tr>
-        <td>
+        <td class="mrp-row">
           <div class="mrp-line">M.R.P.: &#8377; ${mrpFormatted}</div>
           <div class="mrp-sub">(Inc of all taxes)</div>
         </td>
-        <td rowspan="3" class="qr-cell">
+      </tr>
+      <tr>
+        <td class="small-row">Packed on: ${data.packedOn}</td>
+        <td rowspan="2" class="qr-cell">
           <img src="${data.qrDataUri}" alt="QR" />
         </td>
       </tr>
       <tr>
-        <td>Packed on: ${data.packedOn}</td>
+        <td class="small-row">Content: ${contentText}</td>
       </tr>
       <tr>
-        <td>Content: ${contentText}</td>
+        <td colspan="2" class="footer-row">
+          Mfg &amp; Mktd by: Mahavir Polymers Pvt Ltd<br/>
+          FE 16-17 MIA Jaipur - 302017 Raj (India)<br/>
+          Customer Care: 0141 2751684
+        </td>
       </tr>
     </table>
-    <div class="footer">
-      Mfg &amp; Mktd by: Mahavir Polymers Pvt Ltd<br/>
-      FE 16-17 MIA Jaipur - 302017 Raj (India)<br/>
-      Customer Care: 0141 2751684
-    </div>
   </div>
 </body>
 </html>`.trim();

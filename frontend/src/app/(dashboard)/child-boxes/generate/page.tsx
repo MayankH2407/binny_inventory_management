@@ -183,33 +183,35 @@ export default function GenerateQRPage() {
               <td colspan="2" class="article-row">Article No: ${box.article_code}</td>
             </tr>
             <tr>
-              <td>Colour: ${box.colour}</td>
-              <td class="size-cell" style="width:42%;">
+              <td class="colour-row">Colour: ${box.colour}</td>
+              <td class="size-cell" rowspan="2" style="width:35%;">
                 <div class="size-label">Size:</div>
                 <div class="size-value">${box.size}</div>
               </td>
             </tr>
             <tr>
-              <td>
+              <td class="mrp-row">
                 <div class="mrp-line">M.R.P.: &#8377; ${Number(box.mrp).toFixed(2)}</div>
                 <div class="mrp-sub">(Inc of all taxes)</div>
               </td>
-              <td rowspan="3" class="qr-cell">
+            </tr>
+            <tr>
+              <td class="small-row">Packed on: ${today}</td>
+              <td rowspan="2" class="qr-cell">
                 ${qrSvg}
               </td>
             </tr>
             <tr>
-              <td>Packed on: ${today}</td>
+              <td class="small-row">Content: ${(box.quantity || 1) * 2}N (${box.quantity || 1} Pair)</td>
             </tr>
             <tr>
-              <td>Content: ${(box.quantity || 1) * 2}N (${box.quantity || 1} Pair)</td>
+              <td colspan="2" class="footer-row">
+                Mfg &amp; Mktd by: Mahavir Polymers Pvt Ltd<br/>
+                FE 16-17 MIA Jaipur - 302017 Raj (India)<br/>
+                Customer Care: 0141 2751684
+              </td>
             </tr>
           </table>
-          <div class="footer">
-            Mfg &amp; Mktd by: Mahavir Polymers Pvt Ltd<br/>
-            FE 16-17 MIA Jaipur - 302017 Raj (India)<br/>
-            Customer Care: 0141 2751684
-          </div>
         </div>`;
     });
 
@@ -218,32 +220,30 @@ export default function GenerateQRPage() {
         <head>
           <title>Print Labels</title>
           <style>
-            @page { size: 60mm 60mm; margin: 1.5mm; }
+            @page { size: 60mm 60mm; margin: 0; }
             * { margin: 0; padding: 0; box-sizing: border-box; }
             body { font-family: Arial, Helvetica, sans-serif; }
             .label {
-              width: 57mm;
+              width: 60mm;
+              height: 60mm;
               border: 1.5px solid #000;
               page-break-after: always;
-              font-size: 8.5pt;
             }
             .label:last-child { page-break-after: avoid; }
-            table.main { width: 100%; border-collapse: collapse; }
-            table.main td { border: 0.5px solid #000; padding: 1.2mm 2mm; vertical-align: top; }
-            .article-row { font-weight: bold; font-size: 10pt; }
+            table.main { width: 100%; height: 100%; border-collapse: collapse; }
+            table.main td { border: 0.5px solid #000; padding: 1mm 1.5mm; vertical-align: middle; }
+            .article-row { font-weight: bold; font-size: 9pt; vertical-align: top; padding: 1.2mm 1.5mm; }
+            .colour-row { font-size: 9pt; font-weight: bold; }
+            .mrp-row { vertical-align: top; }
+            .mrp-line { font-weight: bold; font-size: 9pt; }
+            .mrp-sub { font-size: 5.5pt; color: #333; }
             .size-cell { text-align: center; vertical-align: middle; }
             .size-label { font-size: 7pt; }
-            .size-value { font-size: 18pt; font-weight: bold; line-height: 1.1; }
-            .mrp-line { font-weight: bold; font-size: 9pt; }
-            .mrp-sub { font-size: 6.5pt; color: #333; }
-            .qr-cell { text-align: center; vertical-align: middle; padding: 1mm; }
-            .qr-cell svg { width: 22mm; height: 22mm; }
-            .footer {
-              border-top: 1px solid #000;
-              padding: 1.2mm 2mm;
-              font-size: 6pt;
-              line-height: 1.4;
-            }
+            .size-value { font-size: 28pt; font-weight: bold; line-height: 1; }
+            .small-row { font-size: 6pt; padding: 0.5mm 1.5mm; height: 4mm; }
+            .qr-cell { text-align: center; vertical-align: middle; padding: 0.5mm; }
+            .qr-cell svg { width: 17mm; height: 17mm; }
+            .footer-row { font-size: 5.5pt; line-height: 1.3; padding: 1mm 1.5mm; vertical-align: top; border-top: 1px solid #000; }
           </style>
         </head>
         <body>${labelHtmlParts.join('')}</body>
