@@ -7,10 +7,18 @@ import { logger } from '../utils/logger';
 import { generateSku } from '../utils/skuGenerator';
 import { parse } from 'csv-parse/sync';
 
+/** Strip all HTML tags from a user-supplied free-text string to prevent XSS storage. */
+function stripHtml(value: string | undefined | null): string | undefined {
+  if (value == null) return value as undefined;
+  return value.replace(/<[^>]*>/g, '').trim();
+}
+
 export async function createProduct(
   input: CreateProductInput,
   createdBy: string
 ): Promise<Product> {
+  input.article_name = stripHtml(input.article_name) ?? input.article_name;
+  if (input.description) input.description = stripHtml(input.description);
   const sku = await generateSku(input.section, input.article_name, input.category, input.colour);
 
   const existing = await query('SELECT id FROM products WHERE sku = $1', [sku]);
@@ -162,7 +170,11 @@ export async function updateProduct(
   for (const field of updateableFields) {
     if (input[field] !== undefined) {
       fields.push(`${field} = $${paramIndex++}`);
-      values.push(input[field]);
+      if ((field === 'article_name' || field === 'description') && typeof input[field] === 'string') {
+        values.push(stripHtml(input[field] as string));
+      } else {
+        values.push(input[field]);
+      }
     }
   }
 
@@ -354,11 +366,13 @@ export async function bulkCreateProducts(
     }
 
     try {
-      const sku = await generateSku(row.section.trim(), row.article_name.trim(), row.category.trim(), row.colour.trim());
+      const cleanName = stripHtml(row.article_name.trim()) ?? row.article_name.trim();
+      const cleanDesc = row.description?.trim() ? stripHtml(row.description.trim()) : null;
+      const sku = await generateSku(row.section.trim(), cleanName, row.category.trim(), row.colour.trim());
 
       const existing = await query('SELECT id FROM products WHERE sku = $1', [sku]);
       if (existing.rows.length > 0) {
-        results.push({ row: rowNum, status: 'error', sku, article_name: row.article_name.trim(), error: `Duplicate SKU: ${sku} already exists` });
+        results.push({ row: rowNum, status: 'error', sku, article_name: cleanName, error: `Duplicate SKU: ${sku} already exists` });
         continue;
       }
 
@@ -366,8 +380,8 @@ export async function bulkCreateProducts(
         `INSERT INTO products (article_name, sku, article_code, colour, size, mrp, description, category, section, location, article_group, hsn_code, size_from, size_to)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
         [
-          row.article_name.trim(), sku, row.article_code.trim(), row.colour.trim(),
-          row.size.trim(), mrp, row.description?.trim() || null,
+          cleanName, sku, row.article_code.trim(), row.colour.trim(),
+          row.size.trim(), mrp, cleanDesc,
           row.category.trim(), row.section.trim(), row.location?.trim() || null,
           row.article_group?.trim() || null, row.hsn_code?.trim() || null,
           row.size_from?.trim() || null, row.size_to?.trim() || null,
@@ -379,10 +393,10 @@ export async function bulkCreateProducts(
         action: 'CREATE_PRODUCT',
         entityType: 'product',
         entityId: sku,
-        newValues: { sku, article_name: row.article_name.trim(), source: 'csv_bulk_upload' },
+        newValues: { sku, article_name: cleanName, source: 'csv_bulk_upload' },
       });
 
-      results.push({ row: rowNum, status: 'success', sku, article_name: row.article_name.trim() });
+      results.push({ row: rowNum, status: 'success', sku, article_name: cleanName });
       created++;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error';

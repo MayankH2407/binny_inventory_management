@@ -45,7 +45,8 @@ export function truncate(str: string, length: number): string {
   return str.slice(0, length) + '...';
 }
 
-export function getInitials(name: string): string {
+export function getInitials(name: string | null | undefined): string {
+  if (!name) return '';
   return name
     .split(' ')
     .map((word) => word[0])

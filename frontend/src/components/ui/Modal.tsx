@@ -60,6 +60,9 @@ export default function Modal({
         onClick={closeOnOverlay ? onClose : undefined}
       />
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={title ? 'modal-title' : undefined}
         className={cn(
           'relative z-50 w-full mx-4 bg-white rounded-xl shadow-2xl',
           'max-h-[90vh] flex flex-col',
@@ -71,7 +74,7 @@ export default function Modal({
           <div className="flex items-start justify-between p-6 border-b border-brand-border">
             <div>
               {title && (
-                <h2 className="text-lg font-semibold text-brand-text-dark">{title}</h2>
+                <h2 id="modal-title" className="text-lg font-semibold text-brand-text-dark">{title}</h2>
               )}
               {description && (
                 <p className="mt-1 text-sm text-brand-text-muted">{description}</p>
