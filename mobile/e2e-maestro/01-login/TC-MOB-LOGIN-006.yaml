@@ -1,0 +1,39 @@
+appId: com.basiq360.binnyinventory
+# TC-MOB-LOGIN-006 — Submit with correct Admin credentials → Dashboard
+# Priority: Critical
+# Verifies: Successful login navigates to tab bar Dashboard
+# Note: Spec says password is Pass@123 but prod uses Admin@123 (re-seeded DB)
+# Observable proof of JWT storage: tab bar + Dashboard visible after auth
+---
+- clearState
+- launchApp
+
+# Wait for initial animation, then wait for login screen to fully render
+- waitForAnimationToEnd:
+    timeout: 30000
+- extendedWaitUntil:
+    visible: "Sign In"
+    timeout: 30000
+
+# Enter Admin credentials (corrected to prod password: Admin@123)
+- tapOn: "admin@binny.com"
+- inputText: "admin@binny.com"
+- hideKeyboard
+- tapOn:
+    point: "50%,64%"
+- inputText: "Admin@123"
+- hideKeyboard
+- tapOn:
+    text: "Sign In"
+    index: 1
+
+# Wait for successful login and navigation to Dashboard
+- extendedWaitUntil:
+    visible: "Welcome to Binny Inventory"
+    timeout: 30000
+
+# Verify tab bar is present (all 4 tabs)
+- assertVisible: "Dashboard"
+- assertVisible: "Scan"
+- assertVisible: "Inventory"
+- assertVisible: "Menu"

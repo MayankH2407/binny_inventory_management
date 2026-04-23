@@ -1,0 +1,27 @@
+appId: com.basiq360.binnyinventory
+# TC-MOB-LOGIN-003 — "Sign In" button visible
+# Priority: Critical
+# Verifies: Sign In button is present, visible, and tappable
+---
+- clearState
+- launchApp
+
+# Wait for initial animation, then wait for login screen to fully render
+- waitForAnimationToEnd:
+    timeout: 30000
+- extendedWaitUntil:
+    visible: "Sign In"
+    timeout: 30000
+
+# Verify Sign In button is visible (heading + button both use "Sign In" text)
+- assertVisible: "Sign In"
+
+# Tap the button by index=1 (second occurrence = the actual button, not the heading)
+- tapOn:
+    text: "Sign In"
+    index: 1
+
+# Error should appear (client-side validation — empty fields)
+- extendedWaitUntil:
+    visible: "Please enter both email and password"
+    timeout: 10000

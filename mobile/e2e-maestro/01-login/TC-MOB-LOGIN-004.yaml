@@ -1,0 +1,29 @@
+appId: com.basiq360.binnyinventory
+# TC-MOB-LOGIN-004 — Submit with empty fields → error shown
+# Priority: High
+# Verifies: Client-side validation fires before any API call
+---
+- clearState
+- launchApp
+
+# Wait for initial animation, then wait for login screen to fully render
+- waitForAnimationToEnd:
+    timeout: 30000
+- extendedWaitUntil:
+    visible: "Sign In"
+    timeout: 30000
+
+# Ensure both fields are empty (fresh state after clearState)
+# Tap the Sign In button specifically (index=1 to skip heading text at index=0)
+- tapOn:
+    text: "Sign In"
+    index: 1
+
+# Expect client-side error message immediately (no network call)
+- extendedWaitUntil:
+    visible: "Please enter both email and password"
+    timeout: 10000
+
+# Verify we are still on the login screen (no navigation)
+- assertVisible: "Binny Inventory"
+- assertNotVisible: "Dashboard"

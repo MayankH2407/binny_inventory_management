@@ -1,0 +1,40 @@
+appId: com.basiq360.binnyinventory
+# TC-MOB-LOGIN-007 — Submit with correct Supervisor credentials → Dashboard
+# Priority: Critical
+# PRE-CONDITION FAILED: supervisor@binny.com does not exist on production.
+#   - Only admin@binny.com (Admin@123) is seeded on prod (as of 2026-04-20).
+#   - This flow is authored for future use once the account is created.
+#   - Observable substitution: tab bar + "Welcome to Binny Inventory" = authenticated
+---
+- clearState
+- launchApp
+
+# Wait for initial animation, then wait for login screen to fully render
+- waitForAnimationToEnd:
+    timeout: 30000
+- extendedWaitUntil:
+    visible: "Sign In"
+    timeout: 30000
+
+# Enter Supervisor credentials
+- tapOn: "admin@binny.com"
+- inputText: "supervisor@binny.com"
+- hideKeyboard
+- tapOn:
+    point: "50%,64%"
+- inputText: "Pass@123"
+- hideKeyboard
+- tapOn:
+    text: "Sign In"
+    index: 1
+
+# Wait for successful login and navigation
+- extendedWaitUntil:
+    visible: "Welcome to Binny Inventory"
+    timeout: 30000
+
+# Verify all 4 tabs visible (Supervisor role)
+- assertVisible: "Dashboard"
+- assertVisible: "Scan"
+- assertVisible: "Inventory"
+- assertVisible: "Menu"

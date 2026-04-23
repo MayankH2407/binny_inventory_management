@@ -1,0 +1,37 @@
+appId: com.basiq360.binnyinventory
+# TC-MOB-LOGIN-002 — Login form has email and password fields
+# Priority: Critical
+# Verifies: Email label + placeholder, Password label + placeholder (masked)
+---
+- clearState
+- launchApp
+
+# Wait for initial animation, then wait for login screen to fully render
+- waitForAnimationToEnd:
+    timeout: 30000
+- extendedWaitUntil:
+    visible: "Sign In"
+    timeout: 30000
+
+# Verify form labels
+- assertVisible: "Email"
+- assertVisible: "Password"
+
+# Verify placeholders are visible (unfocused, empty fields show placeholder)
+- assertVisible: "admin@binny.com"
+- assertVisible: "Enter password"
+
+# Verify form title and subtitle
+- assertVisible: "Sign In"
+- assertVisible: "Enter your credentials to continue"
+
+# Verify email field is interactable — tap and type
+- tapOn: "admin@binny.com"
+- inputText: "test@example.com"
+- hideKeyboard
+
+# Verify password field is interactable — tap by coordinate (50%, 64% of screen height)
+- tapOn:
+    point: "50%,64%"
+- inputText: "testpass"
+- hideKeyboard

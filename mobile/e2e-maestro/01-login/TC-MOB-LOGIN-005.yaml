@@ -1,0 +1,41 @@
+appId: com.basiq360.binnyinventory
+# TC-MOB-LOGIN-005 — Submit with wrong credentials → error shown
+# Priority: High
+# Verifies: Server returns 401, error box shown, no navigation
+# Note: Server error text may vary; regex accepts both known variants
+---
+- clearState
+- launchApp
+
+# Wait for initial animation, then wait for login screen to fully render
+- waitForAnimationToEnd:
+    timeout: 30000
+- extendedWaitUntil:
+    visible: "Sign In"
+    timeout: 30000
+
+# Enter invalid credentials
+# 1. Tap email field → type email
+- tapOn: "admin@binny.com"
+- inputText: "wrong@binny.com"
+# 2. Dismiss keyboard so layout returns to resting position
+- hideKeyboard
+# 3. Tap password EditText by coordinate (50%, 64% of 2400px = y≈1541 = password field center)
+- tapOn:
+    point: "50%,64%"
+- inputText: "wrongpassword"
+- hideKeyboard
+# 4. Tap Sign In button (now visible with keyboard dismissed)
+- tapOn:
+    text: "Sign In"
+    index: 1
+
+# Wait for API response (network call needed) — generous timeout
+- extendedWaitUntil:
+    visible:
+      text: ".*(Login failed|Invalid credentials|Invalid email or password).*"
+    timeout: 30000
+
+# Verify still on login screen
+- assertVisible: "Binny Inventory"
+- assertNotVisible: "Dashboard"

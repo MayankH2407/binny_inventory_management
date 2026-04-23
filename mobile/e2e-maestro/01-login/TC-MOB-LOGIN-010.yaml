@@ -1,0 +1,53 @@
+appId: com.basiq360.binnyinventory
+# TC-MOB-LOGIN-010 — After login, kill and reopen app → auto-login (session persisted)
+# Priority: Critical
+# Observable substitution for "JWT in SecureStore": app reopens directly to tab bar
+# Note: clearState is only used BEFORE initial login. After kill+reopen, state is kept.
+---
+- clearState
+- launchApp
+
+# Wait for initial animation, then wait for login screen to fully render
+- waitForAnimationToEnd:
+    timeout: 30000
+- extendedWaitUntil:
+    visible: "Sign In"
+    timeout: 30000
+
+# Step 1: Login as Admin
+- tapOn: "admin@binny.com"
+- inputText: "admin@binny.com"
+- hideKeyboard
+- tapOn:
+    point: "50%,64%"
+- inputText: "Admin@123"
+- hideKeyboard
+- tapOn:
+    text: "Sign In"
+    index: 1
+
+# Wait for successful login
+- extendedWaitUntil:
+    visible: "Welcome to Binny Inventory"
+    timeout: 30000
+
+# Verify we are on Dashboard
+- assertVisible: "Dashboard"
+
+# Step 2: Kill the app (stopApp does NOT clear state/SecureStore)
+- stopApp
+
+# Step 3: Reopen the app without clearState
+- launchApp
+
+# Step 4: App should skip login and go directly to tab bar (persisted JWT)
+- extendedWaitUntil:
+    visible: "Welcome to Binny Inventory"
+    timeout: 30000
+
+# Verify tab bar is visible — not the login screen
+- assertVisible: "Dashboard"
+- assertVisible: "Scan"
+- assertVisible: "Inventory"
+- assertVisible: "Menu"
+- assertNotVisible: "Mahavir Polymers Pvt. Ltd."

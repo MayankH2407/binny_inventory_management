@@ -1,0 +1,26 @@
+appId: com.basiq360.binnyinventory
+# TC-MOB-LOGIN-001 — App launches → login screen shown
+# Priority: Critical
+# Precondition: App state cleared (clearState ensures no stored session)
+---
+- clearState
+- launchApp
+
+# Wait for login screen to fully render (anchor on "Binny Inventory" which is reliable)
+- extendedWaitUntil:
+    visible: "Binny Inventory"
+    timeout: 15000
+
+# Verify header elements (skip "B" logo letter — too short for reliable text match)
+- assertVisible: "Binny Inventory"
+- assertVisible: "Mahavir Polymers Pvt. Ltd."
+
+# Verify form card elements
+- assertVisible: "Sign In"
+- assertVisible: "Enter your credentials to continue"
+
+# Verify tab bar is NOT visible (not authenticated)
+- assertNotVisible: "Dashboard"
+- assertNotVisible: "Scan"
+- assertNotVisible: "Inventory"
+- assertNotVisible: "Menu"

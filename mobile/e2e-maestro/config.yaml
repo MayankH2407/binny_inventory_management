@@ -1,0 +1,9 @@
+# mobile/e2e-maestro/config.yaml
+# Shared Maestro configuration for Binny Inventory mobile E2E tests.
+# App: com.basiq360.binnyinventory  (Expo bare, Android)
+# Backend: https://srv1409601.hstgr.cloud/binny/api/v1  (Hostinger VPS, PRODUCTION)
+
+appId: com.basiq360.binnyinventory
+---
+- clearState
+- launchApp

@@ -10,6 +10,67 @@
 
 ---
 
+## Phase 5 Mobile — Child Boxes real list screen + detail stub (April 23, 2026)
+
+### April 23, 2026 — Mobile: Child Boxes infinite-scroll list + [id] detail stub
+
+**Goal:** Replace the `child-boxes/index.tsx` placeholder with a full-featured list screen (infinite scroll, search with debounce, status filter chips, aging highlight, FlatList) mirroring the web `/child-boxes` page. Add a tappable `[id].tsx` detail stub so navigation is not dead-ended.
+
+**Files created/rewritten:**
+| File | Lines | Description |
+|------|-------|-------------|
+| `mobile/app/child-boxes/index.tsx` | 290 | Full list screen: `useInfiniteQuery`, debounced search, 4 status chips, aging legend + row tints, FlatList with infinite scroll + pull-to-refresh |
+| `mobile/app/child-boxes/[id].tsx` | 130 | Detail stub: fetches single box via `useApiQuery`, shows all fields in a two-column label/value layout, Phase B.2 note |
+
+**Key implementation details:**
+- `useInfiniteQuery` (TanStack v5) with `initialPageParam: 1`, `getNextPageParam` from `last.page < last.totalPages`. Query key includes `{ status, search }` so filter/search changes auto-invalidate.
+- Debounce: inline `useEffect` + `setTimeout(300ms)` — no lodash dependency.
+- `FlatList` used at root level (not nested in `ScrollView`) to avoid the illegal nesting issue.
+- Card bg tint computed eagerly as a merged object style (spread) rather than a style array — avoids TS2322 on `Card`'s `style?: ViewStyle` prop.
+- Aging legend (yellow/red swatches) shown only when filter is `ALL` or `FREE`.
+- Age pill shows for FREE boxes with age ≥ 90d; yellow 90–179, red 180+.
+- Row tint: `rgba(254,243,199,0.6)` for yellow band, `rgba(254,226,226,0.6)` for red band.
+- Monospace barcode font: `Menlo` (iOS) / `monospace` (Android) via `Platform.OS`.
+
+**tsc result:** 11 pre-existing errors in `__tests__/` (unchanged). Zero errors in new files.
+
+---
+
+## Phase 5 Mobile — Role-gating + stub routes (April 23, 2026)
+
+### April 23, 2026 — Mobile: RoleGate primitive + 14 stub screens + menu navigation wired
+
+**Goal:** Build role-gating wrapper, stub all web route equivalents as expo-router screens, and rewire the Menu tab to push real routes instead of "Coming Soon" alerts.
+
+**Files created:**
+| File | Lines | Description |
+|------|-------|-------------|
+| `mobile/components/RoleGate.tsx` | 22 | `RoleGate` wrapper + `useHasRole` hook; reads `useAuthStore`, no effects |
+| `mobile/components/PlaceholderScreen.tsx` | 57 | Shared stub shell with `Stack.Screen` title injection, primary-color icon tile |
+| `mobile/app/child-boxes/index.tsx` | 9 | Stub: Child Boxes list |
+| `mobile/app/child-boxes/generate.tsx` | 9 | Stub: Generate child box QR labels |
+| `mobile/app/master-cartons/index.tsx` | 9 | Stub: Master Cartons list |
+| `mobile/app/master-cartons/create.tsx` | 9 | Stub: Pack master carton |
+| `mobile/app/dispatch/index.tsx` | 9 | Stub: Dispatch history |
+| `mobile/app/dispatch/create.tsx` | 9 | Stub: Create dispatch |
+| `mobile/app/storage.tsx` | 9 | Stub: Storage |
+| `mobile/app/unpack.tsx` | 9 | Stub: Unpack |
+| `mobile/app/repack.tsx` | 9 | Stub: Repack |
+| `mobile/app/products.tsx` | 9 | Stub: Products |
+| `mobile/app/customers.tsx` | 9 | Stub: Customers |
+| `mobile/app/reports.tsx` | 9 | Stub: Reports |
+| `mobile/app/users.tsx` | 9 | Stub: Users |
+| `mobile/app/settings.tsx` | 9 | Stub: Settings |
+
+**Files modified:**
+- `mobile/app/(tabs)/menu.tsx`: Replaced `Alert.alert('Coming Soon', ...)` with `router.push(item.route as any)`. Added 5 new items (Unpack, Repack, Storage, Settings, Users). Wrapped Products/Customers/Reports in `<RoleGate allow={['Admin','Supervisor']}>` and Users in `<RoleGate allow={['Admin']}>`. Pack route updated to `/master-cartons/create`. Logout handler untouched.
+
+**Root `_layout.tsx`:** No changes needed. Root `<Stack>` only names `(auth)` and `(tabs)` explicitly; all new routes outside those groups are auto-registered by expo-router file routing. Per-screen `headerShown: true` in `PlaceholderScreen` overrides the global `headerShown: false` default correctly.
+
+**tsc result:** 11 pre-existing errors in `__tests__/` (stale `username`/`email` field mismatches and a return-type mismatch in test mocks). Zero errors in new or modified files.
+
+---
+
 ## Phase 6 — Post-QA Modifications (batched; testing deferred to after all mods)
 
 ### April 22, 2026 — Product module: size range bulk-create
@@ -120,23 +181,44 @@ Net effect: same 6-cell table structure, Colour and MRP cells now visibly domina
 
 ---
 
-## CURRENT EXECUTION (resumption marker — PHASE 6 MODIFICATIONS IN PROGRESS 2026-04-22)
+### April 23, 2026 — Mobile Phase A (foundation) complete
 
-**Active workstream:** Phase 6 — user is feeding product/app modifications one at a time; **testing is deferred until all mods are in** (consolidated pass at the end). Each mod: Opus plans, Sonnet executes (or Opus executes directly when the change is a single-file CSS/JSX tweak), backend rebuilt via `docker compose build backend && docker compose up -d backend` when backend changes land, frontend dev server on :3000 hot-reloads.
+**Scope:** Set up the groundwork for web-parity work on the mobile app (Expo SDK 54 + TS + expo-router + Zustand + TanStack Query). Three parallel Sonnet tasks, zero file-level overlap.
 
-**Delivered this session (2026-04-22):**
-1. Product size-range bulk-create — `POST /products/bulk-size-range`, UI mode-switch (size vs from/to). Smoke-tested live on localhost: 5 products created from 6–10 range, unique SKUs, transaction correctness verified.
-2. Child box label redesign — 60mm→50mm page size, MRP restructured to 3-line stack (label / ₹amount / inc-taxes), size number enlarged to 34pt, rebalanced rows so Colour + MRP dominate.
-3. FREE child box aging highlight on `/child-boxes` — yellow at 90+d, red at 180+d (row tint + age pill). Legend above filters.
+**Delivered:**
+1. **Env config + QR prefix fix.** `mobile/.env.example` created; `.gitignore` extended to exclude local `.env`; `constants/index.ts` logs the resolved `API_BASE_URL` under `__DEV__`; `utils/index.ts:parseQRCode` regex rewritten to accept `BINNY-CB-<uuid>` / `BINNY-MC-<uuid>` (old code matched stale `CB-` / `MC-` prefixes that never occur in practice).
+2. **Camera QR scanner.** `mobile/components/BarcodeScanner.tsx` (255 lines) — full-screen Modal, `CameraView` + `useCameraPermissions()`, overlay cutout via 4 `View` strips (no SVG), `expo-haptics` success ping, single-shot debounce with 1500ms cooldown, `expectedType` filter ('child' | 'master' | 'any') that rejects wrong-type scans with an animated red banner. Integrated into `app/(tabs)/scan.tsx` as a prominent "Scan with Camera" button above the text-input fallback; `handleTrace` refactored to accept an explicit barcode argument so camera scans trace immediately without waiting for state to flush.
+3. **RoleGate + stub routes.** `mobile/components/RoleGate.tsx` (wrapper + `useHasRole` hook reading Zustand auth store). `mobile/components/PlaceholderScreen.tsx` (shared shell with `Stack.Screen options={{ title }}` header injection). 14 stub route files created outside the `(tabs)` group — `child-boxes/{index,generate}`, `master-cartons/{index,create}`, `dispatch/{index,create}`, `storage`, `unpack`, `repack`, `products`, `customers`, `reports`, `users`, `settings` — so navigation works end-to-end. `menu.tsx` rewired: `Alert.alert('Coming Soon')` → `router.push(route)`, 5 new items added (Unpack, Repack, Storage, Settings, Users), `<RoleGate>` gates Products/Customers/Reports to Admin+Supervisor and Users to Admin only. `Pack` route corrected from non-existent `/pack` to `/master-cartons/create`.
 
-See Phase 6 activity log entries above for per-mod detail.
+**Files: 16 new, 3 modified.** `npx tsc --noEmit` clean across all created/modified files (11 pre-existing errors remain in `mobile/__tests__/` — stale `username` vs `email` mocks; not introduced here, out of scope).
+
+**Known nit:** unused `allRoles` const left on `menu.tsx:20` — inert, cleanup deferred to a later pass.
+
+**Testing status:** deferred — smoke-test with `expo start` + Android emulator at the end of Phase B once list/pack flows exist.
+
+---
+
+## CURRENT EXECUTION (resumption marker — MOBILE PHASE 5 PARITY IN PROGRESS 2026-04-23)
+
+**Active workstream:** Mobile app feature parity with web portal. Opus plans, Sonnet executes per file-scoped tasks. Web Phase 6 mod queue is **paused** — user shifted focus to mobile after the Apr 23 testing-portal deploy.
+
+**Decisions locked (2026-04-23):**
+- Label printing stays **web-only** for Phase 5 — no Bluetooth TSPL integration on mobile. No print items in the mobile menu.
+- Parity = **adapted, not literal** — scan-heavy operator flows first-class; admin masters read + edit-single; no bulk-size-range on mobile, no 4-tab reports explorer, no CSV export.
+- Offline scan queue → **deferred to Phase 5.5** (post-parity).
+
+**Plan (phased, ~12–17d total):**
+- **Phase A (foundation)** — ✅ done 2026-04-23. Env, camera scanner, RoleGate, stub routes, menu rewire.
+- **Phase B (operator workflows, scan-heavy)** — in progress. Child-boxes list, master-cartons list, pack (create carton by scanning boxes), carton detail, unpack, storage, repack, dispatch create, dispatch list. Camera scanner reused throughout.
+- **Phase C (admin / masters)** — products list+edit, customers list+edit, users admin, settings. Read-first; creates selectively.
+- **Phase D (polish + testing)** — empty states, network-error toasts, Maestro e2e suite expanded from 10 login flows to ~40–50 flows covering all screens.
 
 **Env state:**
-- Docker: `binny_postgres` (healthy), `binny_backend` (up, rebuilt after size-range endpoint). Frontend dev on :3000.
-- Web E2E suite: last green run was Run 9 (277/277, commit `e9e6f9c`). Phase 6 changes not yet tested.
-- Mobile APK tooling: COMPLETE from Apr 20 (JDK 17, Android SDK, AVD, Maestro 2.4.0, APK installed on emulator). Emulator may need re-boot after machine restart.
+- Local backend: `binny_backend` + `binny_postgres` docker containers up; frontend dev on :3000 still hot-reloading for any web work.
+- Testing portal: `srv1409601.hstgr.cloud/binny/` on Phase 6 batch #1 (commit `1b56928` deployed 2026-04-23).
+- Mobile APK tooling: ready from Apr 20. No APK built against the new Phase A code yet — EAS `preview` profile needed when we cut a build for the client.
 
-**Next up (waiting on user):** next modification item. User will direct when testing phase begins.
+**Next up:** Phase B.1 — Child Boxes list + Master Cartons list (parallel Sonnet tasks).
 
 ---
 

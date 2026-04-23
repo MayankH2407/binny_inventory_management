@@ -1,0 +1,22 @@
+{
+  "cli": {
+    "version": ">= 15.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "preview": {
+      "distribution": "internal",
+      "env": {
+        "NODE_ENV": "production"
+      },
+      "android": {
+        "buildType": "apk"
+      }
+    },
+    "production": {
+      "android": {
+        "buildType": "app-bundle"
+      }
+    }
+  }
+}
