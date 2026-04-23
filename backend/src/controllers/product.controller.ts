@@ -129,6 +129,19 @@ export async function uploadProductImage(
   }
 }
 
+export async function bulkCreateBySizeRange(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const products = await productService.bulkCreateProductsBySizeRange(req.body, req.user!.userId);
+    sendSuccess(res, products, `${products.length} product(s) created successfully`, 201);
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function bulkUploadProducts(
   req: AuthenticatedRequest,
   res: Response,

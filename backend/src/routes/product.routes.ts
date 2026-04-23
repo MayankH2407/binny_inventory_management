@@ -9,6 +9,7 @@ import {
   updateProductSchema,
   productIdParamSchema,
   productListQuerySchema,
+  bulkCreateBySizeRangeSchema,
 } from '../models/schemas/product.schema';
 import { productImageUpload, csvUpload } from '../middleware/upload.middleware';
 
@@ -27,6 +28,13 @@ router.post(
   authorize(USER_ROLES.ADMIN, USER_ROLES.SUPERVISOR),
   csvUpload.single('file'),
   productController.bulkUploadProducts
+);
+
+router.post(
+  '/bulk-size-range',
+  authorize(USER_ROLES.ADMIN, USER_ROLES.SUPERVISOR),
+  validate({ body: bulkCreateBySizeRangeSchema }),
+  productController.bulkCreateBySizeRange
 );
 
 router.post(

@@ -26,6 +26,21 @@ import { keepPreviousData } from '@tanstack/react-query';
 import { formatDateTime, formatCurrency } from '@/lib/utils';
 import type { ChildBoxWithProduct } from '@/types';
 
+type AgingState = 'yellow' | 'red' | null;
+
+function getAgingState(status: string, createdAt: string): AgingState {
+  if (status !== 'FREE') return null;
+  const ageMs = Date.now() - new Date(createdAt).getTime();
+  const ageDays = Math.floor(ageMs / (1000 * 60 * 60 * 24));
+  if (ageDays >= 180) return 'red';
+  if (ageDays >= 90) return 'yellow';
+  return null;
+}
+
+function getAgeDays(createdAt: string): number {
+  return Math.floor((Date.now() - new Date(createdAt).getTime()) / (1000 * 60 * 60 * 24));
+}
+
 export default function ChildBoxesPage() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
@@ -70,6 +85,17 @@ export default function ChildBoxesPage() {
       />
 
       <Card padding={false}>
+        <div className="px-4 pt-3 pb-0 flex items-center gap-3 text-xs text-brand-text-muted">
+          <span className="font-medium">FREE box aging:</span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="inline-block w-2.5 h-2.5 rounded-sm bg-yellow-200 border border-yellow-400" />
+            90–179 days
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="inline-block w-2.5 h-2.5 rounded-sm bg-red-200 border border-red-400" />
+            180+ days
+          </span>
+        </div>
         {/* Filters */}
         <div className="p-4 border-b border-brand-border">
           <div className="flex flex-col sm:flex-row gap-3">
@@ -129,17 +155,33 @@ export default function ChildBoxesPage() {
           <>
             {/* Mobile cards */}
             <div className="block md:hidden divide-y divide-brand-border">
-              {data.data.map((box: ChildBoxWithProduct) => (
+              {data.data.map((box: ChildBoxWithProduct) => {
+                const aging = getAgingState(box.status, box.created_at);
+                const ageDays = aging ? getAgeDays(box.created_at) : null;
+                return (
                 <div
                   key={box.id}
-                  className="p-4 cursor-pointer hover:bg-gray-50 transition-colors"
+                  className={`p-4 cursor-pointer transition-colors ${
+                    aging === 'red' ? 'bg-red-50 hover:bg-red-100'
+                      : aging === 'yellow' ? 'bg-yellow-50 hover:bg-yellow-100'
+                      : 'hover:bg-gray-50'
+                  }`}
                   onClick={() => toggleExpand(box.id)}
                 >
                   <div className="flex items-center justify-between mb-2">
                     <span className="font-mono text-xs text-brand-text-dark">
                       {box.barcode}
                     </span>
-                    <StatusBadge status={box.status} size="sm" />
+                    <div className="flex items-center gap-1.5">
+                      <StatusBadge status={box.status} size="sm" />
+                      {aging && (
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                          aging === 'red' ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'
+                        }`}>
+                          {ageDays}d
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <p className="font-medium text-sm text-brand-text-dark">
                     {box.article_name}
@@ -167,7 +209,8 @@ export default function ChildBoxesPage() {
                     </div>
                   )}
                 </div>
-              ))}
+                );
+              })}
             </div>
 
             {/* Desktop table */}
@@ -186,11 +229,15 @@ export default function ChildBoxesPage() {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {data.data.map((box: ChildBoxWithProduct) => (
+                  {data.data.map((box: ChildBoxWithProduct) => {
+                    const aging = getAgingState(box.status, box.created_at);
+                    const ageDays = aging ? getAgeDays(box.created_at) : null;
+                    return (
                     <TableRow
                       key={box.id}
                       clickable
                       onClick={() => toggleExpand(box.id)}
+                      className={aging === 'red' ? 'bg-red-50 hover:bg-red-100' : aging === 'yellow' ? 'bg-yellow-50 hover:bg-yellow-100' : ''}
                     >
                       <TableCell>
                         <span className="font-mono text-xs">{box.barcode}</span>
@@ -201,13 +248,23 @@ export default function ChildBoxesPage() {
                       <TableCell>{box.size}</TableCell>
                       <TableCell>{formatCurrency(box.mrp)}</TableCell>
                       <TableCell>
-                        <StatusBadge status={box.status} size="sm" />
+                        <div className="flex items-center gap-1.5">
+                          <StatusBadge status={box.status} size="sm" />
+                          {aging && (
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                              aging === 'red' ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'
+                            }`}>
+                              {ageDays}d
+                            </span>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell className="text-brand-text-muted text-xs">
                         {formatDateTime(box.created_at)}
                       </TableCell>
                     </TableRow>
-                  ))}
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>

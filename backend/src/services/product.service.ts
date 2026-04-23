@@ -1,8 +1,8 @@
-import { query } from '../config/database';
+import { query, pool } from '../config/database';
 import { Product } from '../types';
 import { ConflictError, NotFoundError } from '../utils/errors';
 import { createAuditLog } from './auditLog.service';
-import { CreateProductInput, UpdateProductInput } from '../models/schemas/product.schema';
+import { CreateProductInput, UpdateProductInput, BulkCreateBySizeRangeInput } from '../models/schemas/product.schema';
 import { logger } from '../utils/logger';
 import { generateSku } from '../utils/skuGenerator';
 import { parse } from 'csv-parse/sync';
@@ -277,6 +277,75 @@ export async function updateProductImage(
   });
 
   logger.info(`Product image updated for article ${article_code} / ${colour}`);
+}
+
+export async function bulkCreateProductsBySizeRange(
+  input: BulkCreateBySizeRangeInput,
+  createdBy: string
+): Promise<Product[]> {
+  const articleName = stripHtml(input.article_name) ?? input.article_name;
+  const description = input.description ? stripHtml(input.description) : input.description;
+
+  const from = parseInt(input.size_from);
+  const to = parseInt(input.size_to);
+
+  const normSection = input.section.trim().toUpperCase().replace(/\s+/g, '-');
+  const normArticle = articleName.trim().toUpperCase().replace(/\s+/g, '-');
+  const normCategory = input.category.trim().toUpperCase().replace(/\s+/g, '-');
+  const normColour = input.colour.trim().toUpperCase().replace(/\s+/g, '-');
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const products: Product[] = [];
+
+    for (let size = from; size <= to; size++) {
+      // Use same client for COUNT so each insert within this txn is visible to the next serial calculation
+      const countResult = await client.query(
+        `SELECT COUNT(*) FROM products
+         WHERE UPPER(REPLACE(section, ' ', '-')) = $1
+           AND UPPER(REPLACE(article_name, ' ', '-')) = $2
+           AND UPPER(REPLACE(category, ' ', '-')) = $3
+           AND UPPER(REPLACE(colour, ' ', '-')) = $4`,
+        [normSection, normArticle, normCategory, normColour]
+      );
+      const serial = parseInt(countResult.rows[0].count, 10) + 1;
+      const serialStr = String(serial).padStart(2, '0');
+      const sku = `${normSection}-${normArticle}-${normCategory}-${serialStr}-${normColour}`;
+
+      const result = await client.query(
+        `INSERT INTO products (article_name, sku, article_code, colour, size, mrp, description, category, section, location, article_group, hsn_code, size_from, size_to)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+         RETURNING *`,
+        [
+          articleName, sku, input.article_code, input.colour, String(size), input.mrp,
+          description || null, input.category, input.section, input.location || null,
+          input.article_group || null, input.hsn_code || null, null, null,
+        ]
+      );
+
+      const product: Product = result.rows[0];
+      products.push(product);
+
+      await createAuditLog({
+        userId: createdBy,
+        action: 'CREATE_PRODUCT',
+        entityType: 'product',
+        entityId: product.id,
+        newValues: { ...input, sku, size: String(size) } as Record<string, unknown>,
+      });
+    }
+
+    await client.query('COMMIT');
+    logger.info(`Bulk size-range product creation: ${products.length} products created for ${articleName} / ${input.colour} (sizes ${from}-${to})`);
+    return products;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 const VALID_CATEGORIES = ['Gents', 'Ladies', 'Boys', 'Girls'];

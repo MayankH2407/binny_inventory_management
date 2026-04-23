@@ -191,7 +191,8 @@ export default function GenerateQRPage() {
             </tr>
             <tr>
               <td class="mrp-row">
-                <div class="mrp-line">M.R.P.: &#8377; ${Number(box.mrp).toFixed(2)}</div>
+                <div class="mrp-label">M.R.P.</div>
+                <div class="mrp-value">&#8377; ${Number(box.mrp).toFixed(2)}</div>
                 <div class="mrp-sub">(Inc of all taxes)</div>
               </td>
             </tr>
@@ -220,30 +221,31 @@ export default function GenerateQRPage() {
         <head>
           <title>Print Labels</title>
           <style>
-            @page { size: 60mm 60mm; margin: 0; }
+            @page { size: 50mm 50mm; margin: 0; }
             * { margin: 0; padding: 0; box-sizing: border-box; }
             body { font-family: Arial, Helvetica, sans-serif; }
             .label {
-              width: 60mm;
-              height: 60mm;
+              width: 50mm;
+              height: 50mm;
               border: 1.5px solid #000;
               page-break-after: always;
             }
             .label:last-child { page-break-after: avoid; }
             table.main { width: 100%; height: 100%; border-collapse: collapse; }
             table.main td { border: 0.5px solid #000; padding: 1mm 1.5mm; vertical-align: middle; }
-            .article-row { font-weight: bold; font-size: 9pt; vertical-align: top; padding: 1.2mm 1.5mm; }
-            .colour-row { font-size: 9pt; font-weight: bold; }
-            .mrp-row { vertical-align: top; }
-            .mrp-line { font-weight: bold; font-size: 9pt; }
-            .mrp-sub { font-size: 5.5pt; color: #333; }
+            .article-row { font-weight: bold; font-size: 8pt; vertical-align: top; padding: 1mm 1.5mm; }
+            .colour-row { font-size: 11pt; font-weight: bold; padding: 1.5mm 1.5mm; }
+            .mrp-row { vertical-align: middle; padding: 1mm 1.5mm; line-height: 1.15; }
+            .mrp-label { font-weight: bold; font-size: 8pt; }
+            .mrp-value { font-weight: bold; font-size: 11pt; }
+            .mrp-sub { font-size: 5pt; color: #333; }
             .size-cell { text-align: center; vertical-align: middle; }
-            .size-label { font-size: 7pt; }
-            .size-value { font-size: 28pt; font-weight: bold; line-height: 1; }
-            .small-row { font-size: 6pt; padding: 0.5mm 1.5mm; height: 4mm; }
-            .qr-cell { text-align: center; vertical-align: middle; padding: 0.5mm; }
-            .qr-cell svg { width: 17mm; height: 17mm; }
-            .footer-row { font-size: 5.5pt; line-height: 1.3; padding: 1mm 1.5mm; vertical-align: top; border-top: 1px solid #000; }
+            .size-label { font-size: 7pt; margin-bottom: 0.5mm; }
+            .size-value { font-size: 34pt; font-weight: bold; line-height: 1; }
+            .small-row { font-size: 6pt; padding: 0.3mm 1.5mm; height: 2.5mm; }
+            .qr-cell { text-align: center; vertical-align: middle; padding: 0.3mm; }
+            .qr-cell svg { width: 13mm; height: 13mm; }
+            .footer-row { font-size: 5pt; line-height: 1.2; padding: 0.8mm 1.5mm; vertical-align: top; border-top: 1px solid #000; }
           </style>
         </head>
         <body>${labelHtmlParts.join('')}</body>

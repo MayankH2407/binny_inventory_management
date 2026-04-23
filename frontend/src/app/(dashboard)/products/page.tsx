@@ -119,6 +119,28 @@ export default function ProductsPage() {
     }
   );
 
+  const { mutate: bulkCreateProducts, isPending: isBulkCreating } = useApiMutation(
+    async (payload: Record<string, unknown>) => {
+      const result = await productService.bulkCreateBySizeRange(payload);
+      if (createImageFile && result.length > 0) {
+        try {
+          await Promise.all(result.map((p) => productService.uploadImage(p.id, createImageFile!)));
+        } catch {
+          toast.error('Products created but image upload failed for some — upload manually via edit');
+        }
+      }
+      return result;
+    },
+    {
+      invalidateKeys: [['products-admin'], ['products-for-generate']],
+      onSuccess: (result: Product[]) => {
+        toast.success(`${result.length} products created successfully`);
+        closeModal();
+        refetch();
+      },
+    }
+  );
+
   const toggleStatus = async (product: Product) => {
     try {
       await productService.update(product.id, { is_active: !product.is_active });
@@ -148,9 +170,30 @@ export default function ProductsPage() {
     return payload;
   };
 
+  const buildRangePayload = (): Record<string, unknown> => {
+    const payload: Record<string, unknown> = {
+      article_name: form.article_name,
+      article_code: form.article_code,
+      colour: form.colour,
+      mrp: parseFloat(form.mrp) || 0,
+      description: form.description || null,
+      category: form.category || null,
+      section: form.section || null,
+      location: form.location || null,
+      article_group: form.article_group || null,
+      hsn_code: form.hsn_code || null,
+      size_from: form.size_from,
+      size_to: form.size_to,
+    };
+    return payload;
+  };
+
   const handleSubmit = () => {
-    if (!form.article_name.trim() || !form.article_code.trim() || !form.colour.trim() || !form.size.trim()) {
-      toast.error('Please fill in all required fields (Article Name, Article Code, Colour, Size)');
+    const isRangeMode = !editingProduct && form.size_from.trim() && form.size_to.trim() && !form.size.trim();
+    const isSingleMode = form.size.trim() && !form.size_from.trim() && !form.size_to.trim();
+
+    if (!form.article_name.trim() || !form.article_code.trim() || !form.colour.trim()) {
+      toast.error('Please fill in all required fields (Article Name, Article Code, Colour)');
       return;
     }
     if (!form.section.trim() || !form.category.trim()) {
@@ -161,8 +204,33 @@ export default function ProductsPage() {
       toast.error('MRP must be a positive number');
       return;
     }
+
     if (editingProduct) {
+      // Edit is always single-mode
       updateProduct({ id: editingProduct.id, payload: buildPayload() });
+      return;
+    }
+
+    // Creating: must be exactly one mode
+    if (!isRangeMode && !isSingleMode) {
+      toast.error('Enter either a single Size, OR a Size From/Size To range — not both');
+      return;
+    }
+
+    if (isRangeMode) {
+      if (!/^\d+$/.test(form.size_from.trim()) || !/^\d+$/.test(form.size_to.trim())) {
+        toast.error('Size From and Size To must be positive integers');
+        return;
+      }
+      if (parseInt(form.size_from) > parseInt(form.size_to)) {
+        toast.error('Size From must be less than or equal to Size To');
+        return;
+      }
+      if (parseInt(form.size_to) - parseInt(form.size_from) + 1 > 20) {
+        toast.error('Size range cannot exceed 20 sizes');
+        return;
+      }
+      bulkCreateProducts(buildRangePayload());
     } else {
       createProduct(buildPayload());
     }
@@ -612,6 +680,11 @@ export default function ProductsPage() {
             <Input label="Size From" placeholder="e.g., 6" value={form.size_from} onChange={(e) => updateField('size_from', e.target.value)} />
             <Input label="Size To" placeholder="e.g., 10" value={form.size_to} onChange={(e) => updateField('size_to', e.target.value)} />
           </div>
+          {!editingProduct && (
+            <p className="text-xs text-brand-text-muted sm:col-span-4">
+              Enter a single <strong>Size</strong> above, OR fill <strong>Size From</strong> and <strong>Size To</strong> to create one product per size in the range (max 20).
+            </p>
+          )}
 
           <Input label="Description" placeholder="Optional product description" value={form.description} onChange={(e) => updateField('description', e.target.value)} />
 
@@ -661,7 +734,7 @@ export default function ProductsPage() {
 
           <div className="flex justify-end gap-3 pt-2">
             <Button variant="secondary" onClick={closeModal}>Cancel</Button>
-            <Button onClick={handleSubmit} isLoading={isCreating || isUpdating}>
+            <Button onClick={handleSubmit} isLoading={isCreating || isUpdating || isBulkCreating}>
               {editingProduct ? 'Update Product' : 'Create Product'}
             </Button>
           </div>

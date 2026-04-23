@@ -83,6 +83,11 @@ export const productService = {
     return response.data;
   },
 
+  async bulkCreateBySizeRange(payload: Record<string, unknown>): Promise<Product[]> {
+    const response = await api.post<Product[]>('/products/bulk-size-range', payload);
+    return response.data;
+  },
+
   async bulkUpload(file: File): Promise<BulkUploadResult> {
     const formData = new FormData();
     formData.append('file', file);

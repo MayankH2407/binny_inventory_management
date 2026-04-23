@@ -6,31 +6,228 @@
 
 ---
 
-## Project Status: PHASE 1 COMPLETE — PHASE 1.5 COMPLETE — PHASE 2 (UI ENHANCEMENT) COMPLETE — PHASE 3 (PWA) COMPLETE — DEPLOYED TO PRODUCTION — PHASE 4 (MEETING FEEDBACK) COMPLETE — PHASE 5 (MOBILE APP) IN PROGRESS
+## Project Status: PHASE 1 COMPLETE — PHASE 1.5 COMPLETE — PHASE 2 (UI ENHANCEMENT) COMPLETE — PHASE 3 (PWA) COMPLETE — DEPLOYED TO PRODUCTION — PHASE 4 (MEETING FEEDBACK) COMPLETE — PHASE 5 (MOBILE APP) IN PROGRESS — PHASE 6 (POST-QA MODIFICATIONS) IN PROGRESS
 
 ---
 
-## CURRENT EXECUTION (resumption marker — ALL GREEN 2026-04-18)
+## Phase 6 — Post-QA Modifications (batched; testing deferred to after all mods)
 
-**Status:** ✅ COMPLETE. Run 9: **277 passed, 0 failed, 0 skipped, 6.5 min.** Full 13-spec suite green. No open blockers.
+### April 22, 2026 — Product module: size range bulk-create
 
-**Failure trajectory this session:** 11 → 8 → 8 → 4 → 3 → 1 → 1 → 1 → **0**.
+**Problem:** Add-Product form had a `Size` field plus orphan `Size From` / `Size To` fields. Range fields stored as metadata but didn't actually create N products — user still had to create one product per size manually (6, 7, 8, 9, 10 = 5 submissions).
 
-### Fixes delivered today:
-- **XSS backend gap** — `backend/src/services/product.service.ts` now strips HTML tags from `article_name` and `description` on `createProduct` / `updateProduct` / `bulkCreateProducts` (items 358–361). Resolves TC-EDGE-008.
-- **`?barcode=` filter mis-use** — spec 27 TC-STATE-001 + TC-STATE-003 switched to `/child-boxes/qr/:barcode` precise lookup (items 362–363).
-- **`/unpack` → `/full-unpack` rename** — spec 27 TC-STATE-003 + TC-STATE-004 switched to the current per-carton endpoint (items 365–366). Matches item #342's fix for spec 28.
+**Fix (scope-contained, no breaking changes):**
+- Backend: new endpoint `POST /api/v1/products/bulk-size-range` (Admin + Supervisor). Schema `bulkCreateBySizeRangeSchema` enforces integer from/to, from ≤ to, max 20 sizes. Service `bulkCreateProductsBySizeRange` runs a DB transaction — loops `from..to`, inlines SKU-serial calculation using the same pg client so successive inserts are visible to the next COUNT (critical — the shared `generateSku` helper uses the pool and would miss uncommitted rows). Per-product audit log. Returns `Product[]`.
+- Frontend: new `productService.bulkCreateBySizeRange()`. Form detects mode — if only `size` → existing single-create path; if only `size_from` + `size_to` → new bulk-range path. Validation rejects both/neither. Hint text under size inputs explains the two paths. Edit mode stays single-size only. If image uploaded + range mode → image uploads to all N created products in parallel.
+- `skuGenerator.ts`, existing `POST /products`, CSV bulk upload, DB schema, and mobile app all untouched.
 
-### Infra commands (if needed after next reboot):
-- Start Docker Desktop: `"/c/Program Files/Docker/Docker/Docker Desktop.exe" &`
-- Start containers: `cd "D:/Projects/Mahavir Polymers - Inverntory Management" && docker compose up -d postgres backend`
-- Start frontend dev: `cd "D:/Projects/Mahavir Polymers - Inverntory Management/frontend" && npm run dev &`
+**Files changed:**
+| File | Lines | Change |
+|------|-------|--------|
+| `backend/src/models/schemas/product.schema.ts` | 86–134 | Added `bulkCreateBySizeRangeSchema` + `BulkCreateBySizeRangeInput` |
+| `backend/src/services/product.service.ts` | 282–349 | Added `bulkCreateProductsBySizeRange` (txn, inline serial) |
+| `backend/src/controllers/product.controller.ts` | 132–143 | Added `bulkCreateBySizeRange` controller |
+| `backend/src/routes/product.routes.ts` | 33–38 | Wired `POST /bulk-size-range` |
+| `frontend/src/services/product.service.ts` | 86–89 | Added service method |
+| `frontend/src/app/(dashboard)/products/page.tsx` | 122–142, 173–237, 683–687, 737 | Added `bulkCreateProducts` mutation, `buildRangePayload`, mode-aware `handleSubmit`, hint text, button isLoading includes `isBulkCreating` |
 
-**Execution model:** Opus plans + edits, Sonnet subagents run test suites. Progress updates happen per completed test case (no interval-based checkpointer).
+**Verification:** backend `tsc --noEmit` clean; frontend `tsc --noEmit` clean (pre-existing errors in `e2e/03-child-boxes.spec.ts` and `e2e/27-edge-cases.spec.ts` unrelated).
+
+**Testing status:** deferred — user batching all Phase 6 modifications before running a consolidated test pass.
+
+---
+
+### April 22, 2026 — FREE child box aging highlight on list view
+
+**Problem:** Warehouse operators couldn't eyeball which FREE child boxes have been sitting too long. User wanted visual aging cues — yellow after 90 days, red after 180 days.
+
+**Where applied:** `/child-boxes` list only. The `/inventory` page is aggregated hierarchy (section → article → colour → size counts) with no per-box dates in the payload, so per-box aging is impossible there without a schema/API change.
+
+**Aging logic** — `Date.now() - box.created_at` in days, applied only when `box.status === 'FREE'`:
+- `age ≥ 180` → **red** (`bg-red-50`/`bg-red-100` hover, age pill `bg-red-100 text-red-800`)
+- `90 ≤ age < 180` → **yellow** (`bg-yellow-50`/`bg-yellow-100` hover, age pill `bg-yellow-100 text-yellow-800`)
+- Otherwise → default (no change)
+
+Note: we use `created_at` as the age proxy because the schema has no `became_free_at` / `unpacked_at` column. For boxes that were PACKED and later unpacked back to FREE, the clock still starts from creation. Flag for follow-up if the client wants "days since last became free" semantics.
+
+**Changes** (single file, `frontend/src/app/(dashboard)/child-boxes/page.tsx`):
+- Lines 29–42: `getAgingState(status, createdAt)` + `getAgeDays(createdAt)` module-level helpers.
+- Lines 88–98: aging legend ("90–179 days" yellow swatch, "180+ days" red swatch) above the filters row.
+- Mobile card (lines 158–212) and desktop TableRow (lines 232–267): conditional tint className + age pill (`92d`, `193d`, etc.) rendered next to `StatusBadge`.
+
+Backend + schema + types untouched. `tsc --noEmit` clean.
+
+**Testing status:** deferred.
+
+---
+
+### April 22, 2026 — Child box label: Size number enlarged (follow-up)
+
+**Problem:** Size cell was visibly empty — the 3-line MRP restructure grew the right-column rowspan to ~17mm, but `.size-value` was still 24pt (~8.5mm cap), leaving dead vertical space.
+
+**Fix** (same file): `.size-value` 24pt → **34pt** (cap ~12mm, "10" digit width ~13.4mm fits inside the 14.5mm usable cell width). `.size-label` bumped 6pt → 7pt with 0.5mm `margin-bottom` for breathing room above the big number.
+
+---
+
+### April 22, 2026 — Child box label: MRP cell restructured (follow-up)
+
+**Problem:** After the 50mm resize, `M.R.P.: ₹ 299.00` on one line was wrapping awkwardly — "₹ 299.00" dropped to the next line.
+
+**Fix** (same file, `handlePrint`): Split the MRP cell into a 3-line stack:
+- Line 1: `M.R.P.` (bold, 8pt)
+- Line 2: `₹ 299.00` (bold, 11pt — the amount stays prominent)
+- Line 3: `(Inc of all taxes)` (5pt — unchanged)
+
+Changed `.mrp-row` to `vertical-align: middle` with `line-height: 1.15` and 1mm top/bottom padding so the 3 lines breathe evenly. Replaced `.mrp-line` with `.mrp-label` + `.mrp-value` classes; `.mrp-sub` unchanged.
+
+---
+
+### April 22, 2026 — Child box label: 60mm → 50mm, layout rebalanced
+
+**Problem:** Label was 60×60mm. User wants 50×50mm with Packed on / Content cells shrunk so Colour and MRP get more visual weight, and fonts scaled to maximise cell space.
+
+**Fix** (single file, CSS-only in `handlePrint` at `frontend/src/app/(dashboard)/child-boxes/generate/page.tsx:218–251`):
+- `@page` + `.label` size: 60mm → **50mm** square
+- QR: 17mm → **13mm** (frees ~4mm vertical; `level: 'M'` error correction at 128px rendered size keeps it scannable)
+- `.small-row` (Packed on, Content): height 4mm → **2.5mm**, padding tightened
+- `.colour-row`: 9pt → **11pt bold**, extra row padding 1.5mm
+- `.mrp-line`: 9pt → **11pt bold**, extra row padding 1.5mm on its row
+- `.size-value`: 28pt → **24pt** (proportional to label shrink, still the dominant element)
+- `.article-row`: 9pt → 8pt, `.size-label`: 7pt → 6pt, `.mrp-sub`: 5.5pt → 5pt, footer: 5.5pt → 5pt with line-height 1.3 → 1.2 (all minor trims so the visibility gains for Colour/MRP stick)
+
+Net effect: same 6-cell table structure, Colour and MRP cells now visibly dominate the top half; Packed on / Content compress into a thin band next to the smaller QR; the two rebalanced cells can't overflow because the container is a fixed 50mm print box.
+
+**Testing status:** deferred.
+
+---
+
+## CURRENT EXECUTION (resumption marker — PHASE 6 MODIFICATIONS IN PROGRESS 2026-04-22)
+
+**Active workstream:** Phase 6 — user is feeding product/app modifications one at a time; **testing is deferred until all mods are in** (consolidated pass at the end). Each mod: Opus plans, Sonnet executes (or Opus executes directly when the change is a single-file CSS/JSX tweak), backend rebuilt via `docker compose build backend && docker compose up -d backend` when backend changes land, frontend dev server on :3000 hot-reloads.
+
+**Delivered this session (2026-04-22):**
+1. Product size-range bulk-create — `POST /products/bulk-size-range`, UI mode-switch (size vs from/to). Smoke-tested live on localhost: 5 products created from 6–10 range, unique SKUs, transaction correctness verified.
+2. Child box label redesign — 60mm→50mm page size, MRP restructured to 3-line stack (label / ₹amount / inc-taxes), size number enlarged to 34pt, rebalanced rows so Colour + MRP dominate.
+3. FREE child box aging highlight on `/child-boxes` — yellow at 90+d, red at 180+d (row tint + age pill). Legend above filters.
+
+See Phase 6 activity log entries above for per-mod detail.
+
+**Env state:**
+- Docker: `binny_postgres` (healthy), `binny_backend` (up, rebuilt after size-range endpoint). Frontend dev on :3000.
+- Web E2E suite: last green run was Run 9 (277/277, commit `e9e6f9c`). Phase 6 changes not yet tested.
+- Mobile APK tooling: COMPLETE from Apr 20 (JDK 17, Android SDK, AVD, Maestro 2.4.0, APK installed on emulator). Emulator may need re-boot after machine restart.
+
+**Next up (waiting on user):** next modification item. User will direct when testing phase begins.
+
+---
+
+## DEFERRED — Mobile Testing (Phase 5, ~5–7 hrs, to resume after Phase 6 mods are complete)
+
+**Phase 1 Login suite (6/10 pass, 3 fail, 1 unrun — 2026-04-20):**
+- TC-MOB-LOGIN-001..006 ✅ pass. Admin needs `Admin@123` (not `Pass@123` as spec says).
+- TC-MOB-LOGIN-007/008/009 ❌ fail — prod creds don't match spec for supervisor/wh/dispatch (or accounts missing after Apr 16 wipe).
+- TC-MOB-LOGIN-010 ⏸ unrun.
+- Resume plan: curl-probe prod for 4 accounts, patch or skip, run TC-010, close Phase 1.
+
+**Phases 2–6 remaining (48 TCs):** Dashboard (8), Scan & Trace (12), Inventory (10), Menu (8), Navigation & Auth (6). See breakdown in earlier conversation.
+
+**Env restore after reboot:**
+```bash
+export JAVA_HOME="/c/jdk17/jdk-17.0.18+8"
+export ANDROID_HOME="/c/Android/Sdk"
+export PATH="$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/build-tools/34.0.0:$HOME/.maestro/bin:$PATH"
+adb devices  # if empty: nohup emulator -avd Pixel6_API34 -no-boot-anim -gpu swiftshader_indirect > /tmp/emu.log 2>&1 &
+# Wait for: adb shell getprop sys.boot_completed == 1
+adb shell monkey -p com.basiq360.binnyinventory -c android.intent.category.LAUNCHER 1
+```
+
+**Infra restart (if containers stopped):**
+```bash
+"/c/Program Files/Docker/Docker/Docker Desktop.exe" &
+docker compose up -d postgres backend
+cd frontend && npm run dev &
+```
+
+Files: 10 Maestro YAMLs at `mobile/e2e-maestro/01-login/`. Shared config at `mobile/e2e-maestro/config.yaml`. 44 more YAMLs to author for sections 47–51.
 
 ---
 
 ## Activity Log
+
+### April 20, 2026 — Phase 1 Mobile: Login Maestro Suite (Partial — 6/10 Pass)
+
+#### Authoring + execution — session ended before final cleanup
+| # | Activity | Status | Notes |
+|---|----------|--------|-------|
+| 380 | Scaffold `mobile/e2e-maestro/` — shared `config.yaml`, `README.md`, `01-login/` directory | Done | `appId: com.basiq360.binnyinventory`. `clearState` + `launchApp` baked into each flow for known start state. |
+| 381 | Author 10 Maestro YAML flows `TC-MOB-LOGIN-001..010.yaml` | Done | One file per TC to isolate failures. Total 10 flows, ~10KB. |
+| 382 | Run + iterate TC-001..006 | Passed | After 3–5 iterations to resolve selector issues: (a) single-char "B" logo text was not reliably matched → substituted visual landmark assertions; (b) password field required coord tap `{point: 50%, 64%}` after keyboard hide (placeholder-text tap was inconsistent post-keyboard); (c) `Sign In` selector disambiguated via `Index: 1` because the form title ALSO reads "Sign In". |
+| 383 | Run TC-007/008/009 (supervisor, warehouse, dispatch roles) | **Failed** | All three fail at `Assert "Welcome to Binny Inventory" is visible` after Sign-In tap. Root cause: test credentials `Pass@123` in TC spec don't match prod. TC-006 only passed because the agent tried `Admin@123` and that worked — so **prod Admin password is `Admin@123`, not `Pass@123`**. Other three roles: either use a different password or accounts are missing (prod was data-wiped on Apr 16, item #316). |
+| 384 | Run TC-010 (auto-login after kill+reopen) | Not Run | Session halted before reaching it. YAML exists, emulator still up, can run in 2 min. |
+
+#### Key discoveries for next session
+1. **Prod credentials don't match TC spec.** Spec says `Pass@123` for all roles; reality is `Admin@123` for Admin and unknown for supervisor/wh/dispatch. Need curl probe to determine correct passwords OR confirm accounts missing (and decide whether to re-seed).
+2. **Maestro + React Native Text element selectors are finicky.** Single-char/very-short text elements (e.g. the "B" logo) don't reliably match. Prefer longer text assertions or coordinate-based taps for inputs once keyboard animation has occurred.
+3. **`Sign In` appears twice** in the form (title + button). Use `Index: 1` to target the button.
+
+#### Files added
+- `mobile/e2e-maestro/config.yaml`
+- `mobile/e2e-maestro/README.md`
+- `mobile/e2e-maestro/01-login/TC-MOB-LOGIN-001.yaml` through `TC-MOB-LOGIN-010.yaml`
+- Session logs: `/tmp/maestro-TC-MOB-LOGIN-001.log` through `009.log` (ephemeral — recreated on re-run)
+
+#### Phase 1 close-out plan (next session, ~30–45 min)
+1. Probe prod via curl for each of 4 accounts (5 min)
+2. Patch TC-007/008/009 with correct passwords or mark Skipped (15 min)
+3. Run TC-010 (5 min)
+4. Full suite re-run to confirm green (5 min)
+5. Update progress.md with Phase 1 close + move to Phase 2 (Dashboard, 8 TCs, ~30–45 min budget)
+
+---
+
+### April 20, 2026 — Phase 5 Mobile: Tooling Setup (Partial, Ongoing)
+
+#### Android test tooling bootstrap on Windows 10 Pro — blockers hit on JDK + Maestro
+| # | Activity | Status | Notes |
+|---|----------|--------|-------|
+| 368 | Attempt JDK 17 install via `winget install Microsoft.OpenJDK.17` | Failed | Exit code **1602** (installation cancelled — likely UAC prompt dismissed or silent flag mismatch). Installer hash verified OK before failure. |
+| 369 | Fallback: download Microsoft OpenJDK 17 portable zip | Done | ~187MB downloaded (186,773,339 bytes). Tried multiple mirrors in parallel (GitHub, Microsoft CDN, PowerShell Invoke-WebRequest) — at least one completed. Extraction + PATH export in bash shell not confirmed this session. |
+| 370 | Install Android cmdline-tools + SDK packages | Done | SDK root: `C:/Android/Sdk` (~5.6GB). Installed: `platform-tools`, `emulator`, `platforms;android-34`, `system-images;android-34;google_apis;x86_64`, `build-tools;34.0.0`. Licenses accepted. |
+| 371 | Create AVD `Pixel6_API34` + cold boot smoke test | Done | Booted to `sys.boot_completed=1` at elapsed 302s (first boot is slow, expected). Device `emulator-5554` observable via `adb devices`. Headless flags: `-no-snapshot-load -no-boot-anim -gpu swiftshader_indirect`. |
+| 372 | Install Maestro via shell installer | Done | First attempt failed with `java not found`. Maestro was ultimately extracted to `~/.maestro/bin/maestro`. Verified in resumed foreground work — `maestro --version` → **2.4.0**. |
+| 373 | Resume foreground: set JAVA_HOME + ANDROID_HOME + PATH in bash, verify tools | Done | `java -version` → OpenJDK 17.0.18 LTS (Microsoft build). `javac 17.0.18`. `adb 1.0.41`. `maestro 2.4.0`. All green. |
+| 374 | Persist env vars via PowerShell `[Environment]::SetEnvironmentVariable(..., 'User')` | Done | JAVA_HOME=`C:\jdk17\jdk-17.0.18+8`, ANDROID_HOME=`C:\Android\Sdk`. PATH merged idempotently with JDK bin, platform-tools, emulator, cmdline-tools/latest/bin, `%USERPROFILE%\.maestro\bin`. Future shells inherit these. |
+| 375 | Boot `Pixel6_API34` AVD | Done | `nohup emulator ... -gpu swiftshader_indirect &`. `sys.boot_completed=1` at **70s** (snapshot boot, vs 302s cold first-boot on Apr 18). Emulator left running. |
+| 376 | Pre-flight inspect APK via `aapt dump badging` | Done | `package=com.basiq360.binnyinventory versionCode=1 versionName=1.0.0 targetSdk=36 sdkVersion=24 launchable-activity=com.basiq360.binnyinventory.MainActivity`. Camera + internet perms present. |
+| 377 | `adb install -r app17_04.apk` | Done | Streamed install succeeded. `pm list packages -3` confirms `com.basiq360.binnyinventory` present. |
+| 378 | Launch app + verify foreground activity | Done | `adb shell monkey -p com.basiq360.binnyinventory ... 1` → `Events injected: 1`. After 4s settle, `mFocusedApp=com.basiq360.binnyinventory/.MainActivity` and `mCurrentFocus=Window{... com.basiq360.binnyinventory/com.basiq360.binnyinventory.MainActivity}`. First attempt caught systemui ANR overlay (unrelated emulator noise); re-launch after wait rendered cleanly. |
+| 379 | Capture login screen screenshot | Done | `adb exec-out screencap -p > mobile/screenshots/login-verify-clean.png` (87KB). Visible: red B logo, "Binny Inventory" heading, "Mahavir Polymers Pvt. Ltd." subtitle, Sign In card with "Enter your credentials to continue", Email field (placeholder `admin@binny.com`), Password field, navy "Sign In" button, "Powered by Basiq360" footer. Matches login screen spec from item #310. |
+
+#### Tooling setup — COMPLETE
+| Tool | Version | Path |
+|------|---------|------|
+| JDK | 17.0.18 (Microsoft OpenJDK LTS) | `C:\jdk17\jdk-17.0.18+8` |
+| Android SDK | cmdline-tools (latest), platform-tools 37.0.0, build-tools 34.0.0, platforms android-34 | `C:\Android\Sdk` |
+| AVD | `Pixel6_API34` (google_apis x86_64, Android 14) | `~/.android/avd/Pixel6_API34.avd` |
+| Maestro | 2.4.0 | `~/.maestro/bin/maestro` |
+| APK | `com.basiq360.binnyinventory` 1.0.0 | installed on emulator-5554 |
+
+#### Setup timing
+| Checkpoint | Elapsed |
+|-----------|---------|
+| Apr 18 session — JDK/SDK start | — |
+| Apr 20 session — state inventory | 0 min |
+| Apr 20 — PATH/env setup + verify java/adb/maestro | 2 min |
+| Apr 20 — setx persist | 1 min |
+| Apr 20 — emulator snapshot boot | 70s |
+| Apr 20 — APK install + launch + screenshot + verify | 4 min |
+| **Apr 20 total (resumed work)** | **~8 min** |
+
+#### Next session entry point
+- Steps 1–5 complete. Next is Step 6 (author 54 TC-MOB Maestro YAMLs) when user authorizes.
+- Emulator stays up in background. `adb devices` should still show `emulator-5554` until machine reboot.
+
+---
 
 ### April 18, 2026 — QA: Crash Recovery + Full Phase 1-14 Test Stabilization (Ongoing)
 

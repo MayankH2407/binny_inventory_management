@@ -83,5 +83,52 @@ export const productListQuerySchema = z.object({
   article_group: z.string().optional(),
 });
 
+export const bulkCreateBySizeRangeSchema = z.object({
+  article_name: z
+    .string()
+    .min(2, 'Article name must be at least 2 characters')
+    .max(150, 'Article name must not exceed 150 characters')
+    .trim(),
+  article_code: z
+    .string()
+    .min(1, 'Article code is required')
+    .max(20, 'Article code must not exceed 20 characters')
+    .trim(),
+  colour: z
+    .string()
+    .min(1, 'Colour is required')
+    .max(50, 'Colour must not exceed 50 characters')
+    .trim(),
+  mrp: z
+    .number()
+    .positive('MRP must be positive')
+    .max(99999999.99, 'MRP must not exceed 99999999.99'),
+  description: z
+    .string()
+    .max(1000, 'Description must not exceed 1000 characters')
+    .nullable()
+    .optional(),
+  category: z.enum(VALID_CATEGORIES, { errorMap: () => ({ message: 'Category must be one of: Gents, Ladies, Boys, Girls' }) }),
+  section: z.string().min(1, 'Section is required').max(100).trim(),
+  location: z.enum(VALID_LOCATIONS, { errorMap: () => ({ message: 'Location must be one of: VKIA, MIA, F540' }) }).nullable().optional(),
+  article_group: z.string().max(100, 'Article group must not exceed 100 characters').trim().nullable().optional(),
+  hsn_code: z.string().max(20, 'HSN code must not exceed 20 characters').trim().nullable().optional(),
+  size_from: z
+    .string()
+    .regex(/^\d+$/, 'size_from must be a positive integer string')
+    .min(1, 'size_from is required'),
+  size_to: z
+    .string()
+    .regex(/^\d+$/, 'size_to must be a positive integer string')
+    .min(1, 'size_to is required'),
+}).refine(
+  (data) => parseInt(data.size_from) <= parseInt(data.size_to),
+  { message: 'size_from must be less than or equal to size_to', path: ['size_from'] }
+).refine(
+  (data) => parseInt(data.size_to) - parseInt(data.size_from) + 1 <= 20,
+  { message: 'Size range cannot exceed 20 sizes', path: ['size_to'] }
+);
+
 export type CreateProductInput = z.infer<typeof createProductSchema>;
 export type UpdateProductInput = z.infer<typeof updateProductSchema>;
+export type BulkCreateBySizeRangeInput = z.infer<typeof bulkCreateBySizeRangeSchema>;
