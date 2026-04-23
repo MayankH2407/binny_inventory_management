@@ -8,7 +8,6 @@ import {
   TouchableOpacity,
   RefreshControl,
   ScrollView,
-  Alert,
   Platform,
 } from 'react-native';
 import { Stack, router } from 'expo-router';
@@ -135,10 +134,7 @@ export default function DispatchScreen() {
     return (
       <TouchableOpacity
         activeOpacity={0.7}
-        onPress={() => {
-          // TODO: route to /dispatch/[id] once detail screen is built
-          Alert.alert('Dispatch detail', 'Detail view coming soon.');
-        }}
+        onPress={() => router.push(`/dispatch/${dispatch.id}` as any)}
         style={styles.rowTouchable}
       >
         <Card style={styles.itemCard}>

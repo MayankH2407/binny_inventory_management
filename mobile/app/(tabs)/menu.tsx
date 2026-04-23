@@ -17,8 +17,6 @@ export default function MenuScreen() {
   const router = useRouter();
   const { user, logout } = useAuthStore();
 
-  const allRoles = ['Admin', 'Supervisor', 'Warehouse Operator', 'Dispatch Operator'] as const;
-
   function handleItem(item: MenuItem) {
     if (item.onPress) {
       item.onPress();

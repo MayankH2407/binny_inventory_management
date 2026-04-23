@@ -62,7 +62,7 @@ describe('useAuthStore — login()', () => {
   it('calls authService.login with the provided credentials', async () => {
     (authService.login as jest.Mock).mockResolvedValueOnce(mockLoginResponse);
 
-    const credentials = { username: 'testuser', password: 'secret' };
+    const credentials = { email: 'admin@example.com', password: 'secret' };
     await useAuthStore.getState().login(credentials);
 
     expect(authService.login).toHaveBeenCalledWith(credentials);
@@ -71,7 +71,7 @@ describe('useAuthStore — login()', () => {
   it('stores the access token in SecureStore', async () => {
     (authService.login as jest.Mock).mockResolvedValueOnce(mockLoginResponse);
 
-    await useAuthStore.getState().login({ username: 'testuser', password: 'secret' });
+    await useAuthStore.getState().login({ email: 'admin@example.com', password: 'secret' });
 
     expect(SecureStore.setItemAsync).toHaveBeenCalledWith(
       STORAGE_KEY_TOKEN,
@@ -82,7 +82,7 @@ describe('useAuthStore — login()', () => {
   it('stores serialised user data in SecureStore', async () => {
     (authService.login as jest.Mock).mockResolvedValueOnce(mockLoginResponse);
 
-    await useAuthStore.getState().login({ username: 'testuser', password: 'secret' });
+    await useAuthStore.getState().login({ email: 'admin@example.com', password: 'secret' });
 
     expect(SecureStore.setItemAsync).toHaveBeenCalledWith(
       STORAGE_KEY_USER,
@@ -93,7 +93,7 @@ describe('useAuthStore — login()', () => {
   it('sets isAuthenticated to true after a successful login', async () => {
     (authService.login as jest.Mock).mockResolvedValueOnce(mockLoginResponse);
 
-    await useAuthStore.getState().login({ username: 'testuser', password: 'secret' });
+    await useAuthStore.getState().login({ email: 'admin@example.com', password: 'secret' });
 
     expect(useAuthStore.getState().isAuthenticated).toBe(true);
   });
@@ -101,7 +101,7 @@ describe('useAuthStore — login()', () => {
   it('sets the user and token in state after a successful login', async () => {
     (authService.login as jest.Mock).mockResolvedValueOnce(mockLoginResponse);
 
-    await useAuthStore.getState().login({ username: 'testuser', password: 'secret' });
+    await useAuthStore.getState().login({ email: 'admin@example.com', password: 'secret' });
 
     const { user, token } = useAuthStore.getState();
     expect(user).toEqual(mockUser);
@@ -113,7 +113,7 @@ describe('useAuthStore — login()', () => {
     (authService.login as jest.Mock).mockRejectedValueOnce(error);
 
     await expect(
-      useAuthStore.getState().login({ username: 'wrong', password: 'wrong' })
+      useAuthStore.getState().login({ email: 'admin@example.com', password: 'wrong' })
     ).rejects.toThrow('Invalid credentials');
   });
 
@@ -121,7 +121,7 @@ describe('useAuthStore — login()', () => {
     (authService.login as jest.Mock).mockRejectedValueOnce(new Error('Unauthorized'));
 
     try {
-      await useAuthStore.getState().login({ username: 'x', password: 'y' });
+      await useAuthStore.getState().login({ email: 'admin@example.com', password: 'y' });
     } catch {
       // expected
     }

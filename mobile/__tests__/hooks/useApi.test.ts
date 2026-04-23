@@ -75,7 +75,7 @@ describe('useApiQuery', () => {
     const { result } = renderHook(
       () =>
         useApiQuery(['opts-test'], queryFn, {
-          select: (data: string[]) => data.length,
+          select: (data: string[]) => data.length as unknown as string[],
         }),
       { wrapper: createWrapper() },
     );

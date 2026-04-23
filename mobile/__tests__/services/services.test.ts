@@ -40,7 +40,7 @@ beforeEach(() => {
 describe('authService', () => {
   describe('login()', () => {
     it('calls POST /auth/login with the provided credentials', async () => {
-      const credentials = { username: 'admin', password: 'pass' };
+      const credentials = { email: 'admin@example.com', password: 'pass' };
       const responseData = { user: { id: '1' }, accessToken: 'token' };
       mockPost.mockResolvedValueOnce({ data: responseData });
 
@@ -54,7 +54,7 @@ describe('authService', () => {
       const responseData = { user: { id: '2', username: 'test' }, accessToken: 'abc' };
       mockPost.mockResolvedValueOnce({ data: responseData });
 
-      const result = await authService.login({ username: 'test', password: '123' });
+      const result = await authService.login({ email: 'admin@example.com', password: '123' });
 
       expect(result).toEqual(responseData);
     });
@@ -293,8 +293,8 @@ describe('customerService', () => {
 
   describe('update()', () => {
     it('calls PUT /customers/:id with the update payload', async () => {
-      const updates = { phone: '1234567890' };
-      const updated = { id: 'cust-1', name: 'Existing', phone: '1234567890', customer_type: 'DEALER' };
+      const updates = { contact_person_mobile: '1234567890' };
+      const updated = { id: 'cust-1', name: 'Existing', contact_person_mobile: '1234567890', customer_type: 'DEALER' };
       mockPut.mockResolvedValueOnce({ data: updated });
 
       const result = await customerService.update('cust-1', updates);
