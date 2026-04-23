@@ -10,6 +10,21 @@ export interface User {
 
 export type UserRole = 'Admin' | 'Supervisor' | 'Warehouse Operator' | 'Dispatch Operator';
 
+export interface CreateUserRequest {
+  email: string;
+  password: string;
+  name: string;
+  role: UserRole;
+}
+
+export interface UpdateUserRequest {
+  email?: string;
+  name?: string;
+  role?: UserRole;
+  is_active?: boolean;
+  password?: string;
+}
+
 export interface LoginRequest {
   email: string;
   password: string;
@@ -252,4 +267,75 @@ export interface InventoryHierarchyItem {
   packed: number;
   dispatched: number;
   total: number;
+}
+
+// ─── Report types ─────────────────────────────────────────────────────────────
+
+export interface InventorySummaryResponse {
+  totalProducts: number;
+  totalPairsInStock: number;
+  totalPairsDispatched: number;
+  totalChildBoxes: number;
+  totalCartons: number;
+  sections?: string[];
+  articles?: string[];
+}
+
+export interface ProductWiseRow {
+  sku: string;
+  article_name: string;
+  colour: string;
+  size: string;
+  total_boxes: number;
+  free_boxes: number;
+  packed_boxes: number;
+  dispatched_boxes: number;
+  pairs_in_stock: number;
+  pairs_dispatched: number;
+}
+
+export interface CartonRow {
+  carton_barcode: string;
+  status: string;
+  child_count: number;
+  created_at: string;
+  closed_at: string | null;
+  dispatched_at: string | null;
+  destination: string | null;
+}
+
+export interface DispatchItemDetail {
+  article_name: string;
+  colour: string;
+  sizes: string;
+  mrp: number;
+  carton_count: number;
+  box_count: number;
+}
+
+export interface CustomerDispatchGroup {
+  customer_id: string | null;
+  customer_name: string;
+  total_cartons: number;
+  total_dispatches: number;
+  dispatch_dates: string[];
+  destinations: string[];
+  items: DispatchItemDetail[];
+}
+
+export interface DispatchSummary {
+  total_dispatches: number;
+  total_cartons_dispatched: number;
+  by_customer: CustomerDispatchGroup[];
+}
+
+export interface DailyActivityRow {
+  date: string;
+  boxes_created: number;
+  boxes_packed: number;
+  boxes_unpacked: number;
+  boxes_dispatched: number;
+  cartons_created: number;
+  cartons_closed: number;
+  cartons_dispatched: number;
 }

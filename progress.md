@@ -232,6 +232,36 @@ Net effect: same 6-cell table structure, Colour and MRP cells now visibly domina
 
 ---
 
+### April 23, 2026 — Mobile Phase C.2 + C.3 (Users admin + Reports) complete
+
+**Scope:** Finishes Phase C. Users and Reports each needed a new mobile service file (`user.service.ts`, `report.service.ts`) since the mobile service layer didn't previously wrap those endpoints. Two parallel Sonnet tasks, both with an explicit "Do NOT modify progress.md" instruction — verified on completion that neither touched it.
+
+**Screens delivered:**
+
+| # | Files | Highlights |
+|---|---|---|
+| C.2 Users | `services/user.service.ts` (new, 30 lines), `types/index.ts` (+15 lines for `CreateUserRequest` / `UpdateUserRequest`), `app/users.tsx` (530 lines) | List with infinite scroll, debounced search, 4-role filter chips + Active-only toggle. Tap row opens inline `EditModal`. Admin sees full edit form (name / email / role picker / is_active switch / optional password) + Delete (guarded against self-deletion). Supervisor sees read-only rows + Close button. FAB (Admin-only) opens create modal with name / email / password / role. Role picker is a custom wrapping button-group — no native Picker jank. |
+| C.3 Reports | `services/report.service.ts` (new, 41 lines), `types/index.ts` (+71 lines for report response interfaces), `app/reports.tsx` (1064 lines incl. styles) | 4-tab pill switcher: Stock, Cartons, Dispatches, Daily Activity. Each tab fetches its own query and renders mobile-friendly cards (not tables). Stock: summary cards + product-wise list with status filter. Cartons: list with status chips. Dispatches: summary + date range filter (Today / 7d / 30d / Clear) + destination grouping. Daily Activity: per-day cards + same date filter. All CSV export paths intentionally dropped — web-only per decisions. |
+
+**Role gating:**
+- Users list: Admin + Supervisor can view. Only Admin can create / edit / delete (enforced in UI, defence-in-depth via RoleGate on screen).
+- Reports: Admin + Supervisor (matches backend rbac).
+
+**Types added to `types/index.ts`:**
+- `CreateUserRequest`, `UpdateUserRequest`
+- Report response interfaces (8 total): summaries for inventory / dispatch / daily activity / carton inventory, plus the product-wise row shape.
+
+**Deferrals (not blocking Phase C):**
+- Dispatch detail screen still shows "Detail view coming soon" alert on tap from the dispatches list.
+- `app/child-boxes/generate.tsx` is still a PlaceholderScreen — will turn it into a "Use web portal for bulk generation" info screen in Phase D.
+- `getCartonInventory` response shape lacks a creator field (same as web) — surfaced only if backend extends the response later.
+
+**tsc clean** for all new / modified files. 11 pre-existing `__tests__/` errors persist (stale `username` vs `email` fixtures + one bad mock return type + one wrong `phone` key) — Phase D cleanup.
+
+**Phase 5 / mobile parity checkpoint:** All 16 web routes that were planned for mobile parity now have real screens (not placeholders). Remaining mobile work is polish + testing (Phase D). No APK has been cut against this code yet — Phase D starts with an EAS `preview` build.
+
+---
+
 ## DEFERRED — Mobile Testing (Phase 5, ~5–7 hrs, to resume after Phase 6 mods are complete)
 
 **Phase 1 Login suite (6/10 pass, 3 fail, 1 unrun — 2026-04-20):**
