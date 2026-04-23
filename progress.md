@@ -101,6 +101,25 @@ Net effect: same 6-cell table structure, Colour and MRP cells now visibly domina
 
 ---
 
+### April 23, 2026 — Portal deploy to testing VPS (Phase 6 batch #1 visible to client)
+
+**Context:** After pushing Phase 6 commit `1b56928` to `origin/main` the client reported `/binny/child-boxes` still showed the old build. Investigation: `/opt/binny` on the VPS is a plain copy (no `.git`), last synced Apr 14; containers were running 7-day-old images. There is no CI/webhook — deploy is manual rsync/tar + `docker compose build`.
+
+**Deploy steps executed:**
+1. Tar-over-ssh streamed `backend/src/`, `frontend/src/`, `progress.md`, and the five `docs/test-cases-v2-phases-*.md` files into `/opt/binny/` as `root@srv1409601.hstgr.cloud` (authenticated via `~/.ssh/id_ed25519`, not the project `.ssh/binny-deploy` key — that one is still not in the server's `authorized_keys`). Skipped `.env*`, `node_modules`, `.next`, `mobile/`, local APK/PNGs, and `frontend/e2e/` (not needed by the runtime).
+2. `docker compose -f docker-compose.prod.yml build binny-backend binny-frontend` on the server — both rebuilt cleanly (frontend build ~88s, backend shorter).
+3. `docker compose -f docker-compose.prod.yml up -d binny-backend binny-frontend` — containers recreated; backend reported healthy within ~35s, frontend within ~5s. `binny-db` left running.
+
+**Verification:**
+- `GET /binny/api/v1/health` → `{"status":"ok"}`
+- `OPTIONS /binny/api/v1/products/bulk-size-range` → HTTP 204 (route registered; pre-deploy build would have 404'd)
+
+**Notes for next deploy:**
+- Server deploy user is `root`; the key that works is **personal** `~/.ssh/id_ed25519`, not `.ssh/binny-deploy`. The project deploy key is effectively unused.
+- No automation exists — every push to GitHub requires a manual tar+build+up on the VPS to reflect on the testing portal.
+
+---
+
 ## CURRENT EXECUTION (resumption marker — PHASE 6 MODIFICATIONS IN PROGRESS 2026-04-22)
 
 **Active workstream:** Phase 6 — user is feeding product/app modifications one at a time; **testing is deferred until all mods are in** (consolidated pass at the end). Each mod: Opus plans, Sonnet executes (or Opus executes directly when the change is a single-file CSS/JSX tweak), backend rebuilt via `docker compose build backend && docker compose up -d backend` when backend changes land, frontend dev server on :3000 hot-reloads.
