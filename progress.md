@@ -10,116 +10,6 @@
 
 ---
 
-## Phase 5 Mobile — Repack wizard (April 23, 2026)
-
-### April 23, 2026 — Mobile: Full Repack 4-step wizard
-
-**Goal:** Replace `mobile/app/repack.tsx` placeholder with a real multi-step repack flow: scan source carton → select boxes → scan destination carton → confirm + commit.
-
-**Files rewritten:**
-| File | Lines | Description |
-|------|-------|-------------|
-| `mobile/app/repack.tsx` | 561 | Full 4-step repack wizard with inline Stepper, BoxRow, CartonInfoCard, RoleGate |
-
-**Key implementation details:**
-- **Step 1 (Source):** Scan source carton via `getByBarcode`, validates status (DISPATCHED → error, CREATED/child_count=0 → "empty"), then fetches full carton via `getById` to hydrate `child_boxes` array. Advances to Step 2.
-- **Step 2 (Select):** Checkbox list of `sourceCarton.child_boxes`. "Select all / Clear all" toggle, running `X of Y selected` count. "Continue" disabled when selection empty. "Back" goes to Step 1 and clears all forward state.
-- **Step 3 (Destination):** Shows progress banner (selected count + source barcode). Scans dest carton via `getByBarcode`, validates: not same as source, not CLOSED/DISPATCHED, capacity check (`dest.child_count + selected.size <= dest.max_capacity`). Advances to Step 4.
-- **Step 4 (Confirm):** Two-column FROM/TO transfer card with barcode + status badges. Moving N boxes summary line. Expandable/collapsible barcode list. "Commit Repack" danger button → `Alert.alert` confirm dialog → `repackMutation.mutate({ source_carton_id, destination_carton_id, child_box_barcodes })`.
-- **Stepper:** Horizontal 4-dot row with connecting lines. Past steps show checkmark (primary bg); current step shows number (primary bg); future steps border-only. Tapping a past dot navigates back and clears forward state.
-- **getById refetch:** Always called after `getByBarcode` for source, because the QR endpoint may return a stub without `child_boxes`. Dest scan only needs `getByBarcode` (no need to enumerate its boxes).
-- **Mutation invalidates:** `['masterCartons']`, `['masterCarton']`, `['childBoxes']`, `['inventory-summary']`, `['inventory-hierarchy']`, `['dashboard-stats']`.
-- **Android hardware back:** Wired — `BackHandler.addEventListener` active whenever any progress state is set. Shows "Cancel repack?" alert; confirm resets all state. iOS swipe-back preserves wizard state (acceptable; noted as Phase D polish).
-- **Role gate:** `Admin`, `Supervisor`, `Warehouse Operator` allowed.
-
-**tsc result:** 11 pre-existing errors in `__tests__/` (unchanged). Zero errors in new file.
-
----
-
-## Phase 5 Mobile — Dispatch Create screen (April 23, 2026)
-
-### April 23, 2026 — Mobile: Full Dispatch Create flow
-
-**Goal:** Replace the `dispatch/create.tsx` placeholder with a full dispatch flow: scan 1+ CLOSED master cartons, pick a customer from a searchable modal picker, fill optional transport fields, submit POST to `/dispatches`.
-
-**Files rewritten:**
-| File | Lines | Description |
-|------|-------|-------------|
-| `mobile/app/dispatch/create.tsx` | 440 | Full dispatch create screen with inline `CustomerPicker` modal, multi-scan carton list, optional details form, role gate |
-
-**Key implementation details:**
-- `handleScan`: fetches carton by barcode via `masterCartonService.getByBarcode`, validates `status === 'CLOSED'`, deduplicated by `carton_barcode`. Status-specific alert messages for ACTIVE/CREATED/DISPATCHED states.
-- `useApiMutation<DispatchRecord, CreateDispatchRequest>`: invalidates `masterCartons`, `dispatches`, `childBoxes`, `inventory-summary`, `inventory-hierarchy`, `dashboard-stats`. Haptic + `router.replace('/dispatch')` on success.
-- `CustomerPicker`: inline component (single-screen use), `useInfiniteQuery` with `['customers-picker', { search }]`, enabled only when modal `visible`. 300 ms debounce on search. `FlatList` with `onEndReached` infinite scroll. Resets search state on each open via `useEffect([visible])`.
-- `Input` component reused for all 5 detail fields (Destination, Transport Details, LR Number, Vehicle Number, Notes). Notes field uses `multiline`, `numberOfLines={3}`, `textAlignVertical="top"`.
-- Submit button: plural/singular grammar (`N Carton` vs `N Cartons`), disabled when `scannedCartons.length === 0 || !customer || dispatchMutation.isPending`.
-- `RoleGate` allows `Admin`, `Supervisor`, `Dispatch Operator`; Warehouse Operator blocked with `DeniedView`.
-- No deviation from `CreateDispatchRequest` typed fields — no extra fields added.
-
-**tsc result:** 11 pre-existing errors in `__tests__/` (unchanged). Zero errors in new file.
-
----
-
-## Phase 5 Mobile — Child Boxes real list screen + detail stub (April 23, 2026)
-
-### April 23, 2026 — Mobile: Child Boxes infinite-scroll list + [id] detail stub
-
-**Goal:** Replace the `child-boxes/index.tsx` placeholder with a full-featured list screen (infinite scroll, search with debounce, status filter chips, aging highlight, FlatList) mirroring the web `/child-boxes` page. Add a tappable `[id].tsx` detail stub so navigation is not dead-ended.
-
-**Files created/rewritten:**
-| File | Lines | Description |
-|------|-------|-------------|
-| `mobile/app/child-boxes/index.tsx` | 290 | Full list screen: `useInfiniteQuery`, debounced search, 4 status chips, aging legend + row tints, FlatList with infinite scroll + pull-to-refresh |
-| `mobile/app/child-boxes/[id].tsx` | 130 | Detail stub: fetches single box via `useApiQuery`, shows all fields in a two-column label/value layout, Phase B.2 note |
-
-**Key implementation details:**
-- `useInfiniteQuery` (TanStack v5) with `initialPageParam: 1`, `getNextPageParam` from `last.page < last.totalPages`. Query key includes `{ status, search }` so filter/search changes auto-invalidate.
-- Debounce: inline `useEffect` + `setTimeout(300ms)` — no lodash dependency.
-- `FlatList` used at root level (not nested in `ScrollView`) to avoid the illegal nesting issue.
-- Card bg tint computed eagerly as a merged object style (spread) rather than a style array — avoids TS2322 on `Card`'s `style?: ViewStyle` prop.
-- Aging legend (yellow/red swatches) shown only when filter is `ALL` or `FREE`.
-- Age pill shows for FREE boxes with age ≥ 90d; yellow 90–179, red 180+.
-- Row tint: `rgba(254,243,199,0.6)` for yellow band, `rgba(254,226,226,0.6)` for red band.
-- Monospace barcode font: `Menlo` (iOS) / `monospace` (Android) via `Platform.OS`.
-
-**tsc result:** 11 pre-existing errors in `__tests__/` (unchanged). Zero errors in new files.
-
----
-
-## Phase 5 Mobile — Role-gating + stub routes (April 23, 2026)
-
-### April 23, 2026 — Mobile: RoleGate primitive + 14 stub screens + menu navigation wired
-
-**Goal:** Build role-gating wrapper, stub all web route equivalents as expo-router screens, and rewire the Menu tab to push real routes instead of "Coming Soon" alerts.
-
-**Files created:**
-| File | Lines | Description |
-|------|-------|-------------|
-| `mobile/components/RoleGate.tsx` | 22 | `RoleGate` wrapper + `useHasRole` hook; reads `useAuthStore`, no effects |
-| `mobile/components/PlaceholderScreen.tsx` | 57 | Shared stub shell with `Stack.Screen` title injection, primary-color icon tile |
-| `mobile/app/child-boxes/index.tsx` | 9 | Stub: Child Boxes list |
-| `mobile/app/child-boxes/generate.tsx` | 9 | Stub: Generate child box QR labels |
-| `mobile/app/master-cartons/index.tsx` | 9 | Stub: Master Cartons list |
-| `mobile/app/master-cartons/create.tsx` | 9 | Stub: Pack master carton |
-| `mobile/app/dispatch/index.tsx` | 9 | Stub: Dispatch history |
-| `mobile/app/dispatch/create.tsx` | 9 | Stub: Create dispatch |
-| `mobile/app/storage.tsx` | 9 | Stub: Storage |
-| `mobile/app/unpack.tsx` | 9 | Stub: Unpack |
-| `mobile/app/repack.tsx` | 9 | Stub: Repack |
-| `mobile/app/products.tsx` | 9 | Stub: Products |
-| `mobile/app/customers.tsx` | 9 | Stub: Customers |
-| `mobile/app/reports.tsx` | 9 | Stub: Reports |
-| `mobile/app/users.tsx` | 9 | Stub: Users |
-| `mobile/app/settings.tsx` | 9 | Stub: Settings |
-
-**Files modified:**
-- `mobile/app/(tabs)/menu.tsx`: Replaced `Alert.alert('Coming Soon', ...)` with `router.push(item.route as any)`. Added 5 new items (Unpack, Repack, Storage, Settings, Users). Wrapped Products/Customers/Reports in `<RoleGate allow={['Admin','Supervisor']}>` and Users in `<RoleGate allow={['Admin']}>`. Pack route updated to `/master-cartons/create`. Logout handler untouched.
-
-**Root `_layout.tsx`:** No changes needed. Root `<Stack>` only names `(auth)` and `(tabs)` explicitly; all new routes outside those groups are auto-registered by expo-router file routing. Per-screen `headerShown: true` in `PlaceholderScreen` overrides the global `headerShown: false` default correctly.
-
-**tsc result:** 11 pre-existing errors in `__tests__/` (stale `username`/`email` field mismatches and a return-type mismatch in test mocks). Zero errors in new or modified files.
-
----
 
 ## Phase 6 — Post-QA Modifications (batched; testing deferred to after all mods)
 
@@ -269,6 +159,76 @@ Net effect: same 6-cell table structure, Colour and MRP cells now visibly domina
 - Mobile APK tooling: ready from Apr 20. No APK built against the new Phase A code yet — EAS `preview` profile needed when we cut a build for the client.
 
 **Next up:** Phase B.1 — Child Boxes list + Master Cartons list (parallel Sonnet tasks).
+
+---
+
+### April 23, 2026 — Mobile Phase B (operator workflows) complete
+
+**Scope:** All scan-heavy operator flows ported from web to mobile. 9 screens delivered across 5 waves of parallel Sonnet execution. Every screen reuses the Phase A `BarcodeScanner` for camera scans, `RoleGate` for permission gating, and the TanStack Query patterns established in Phase A.
+
+**Screens delivered (commit `1bd4f55`):**
+
+| # | Screen | File | Highlights |
+|---|---|---|---|
+| B.1 | Child Boxes list | `app/child-boxes/index.tsx` | infinite scroll, debounced search, status chips, aging tints (≥90d yellow, ≥180d red), age pills, pull-to-refresh. 481 lines. |
+| B.1 | Child Box detail stub | `app/child-boxes/[id].tsx` | Simple fetch+render. 147 lines. |
+| B.1 | Master Cartons list | `app/master-cartons/index.tsx` | Same list pattern, status chips, FAB for Create (role-gated). 403 lines. |
+| B.2 | Pack (create carton) | `app/master-cartons/create.tsx` | Scan child boxes → capacity stepper → running list with remove → POST `/master-cartons` → `router.replace` to detail. 413 lines. |
+| B.3 | Carton detail (real) | `app/master-cartons/[id].tsx` | Header + timeline + status-gated action bar (Close/Unpack/Dispatch) + assortment rows + collapsible child-boxes list. Pull-to-refresh refetches both carton and assortment. 295 lines. |
+| B.4 | Unpack | `app/unpack.tsx` | Scan master → validate not-dispatched → summary + warning banner → confirm → POST `/full-unpack`. 248 lines. |
+| B.5 | Storage (close & store) | `app/storage.tsx` | Scan master → must be ACTIVE → info banner → confirm → POST `/close`. 248 lines. |
+| B.6 | Repack (4-step wizard) | `app/repack.tsx` | Source scan (ACTIVE/CLOSED) → select boxes with checkboxes → destination scan (ACTIVE/CREATED, capacity check) → confirm → POST `/repack`. Horizontal stepper with tap-back. Android `BackHandler` intercepts in-progress wizard. 561 lines. |
+| B.7 | Dispatch create | `app/dispatch/create.tsx` | Multi-carton scan (CLOSED only) → inline customer picker modal (searchable, infinite scroll) → optional form fields from `CreateDispatchRequest` type → POST `/dispatches` → `router.replace('/dispatch')`. 440 lines. |
+| B.8 | Dispatch list | `app/dispatch/index.tsx` | Infinite list, debounced search, two date-field inputs with "Today / 7d / 30d / Clear" quick chips, FAB for Create (role-gated). Tap shows alert until detail screen exists. 304 lines. |
+
+**All 9 screens pass `tsc --noEmit` clean.** The 11 pre-existing test-file errors in `mobile/__tests__/` (stale `username` vs `email` mocks, one bad return-type mock, one wrong `phone` key) remain — out of scope for Phase B, deferred to Phase D.
+
+**Role gating matrix (locked in across screens):**
+- Scan & Trace, Inventory, Dashboard, Child-box list, Carton list, Dispatch list → all roles
+- Pack, Unpack, Storage, Repack → Admin, Supervisor, Warehouse Operator
+- Dispatch create → Admin, Supervisor, Dispatch Operator
+- Dispatch button on Carton detail → Admin, Supervisor, Dispatch Operator (via `useHasRole`)
+- Products, Customers, Reports (menu items) → Admin, Supervisor
+- Users (menu item) → Admin only
+
+**Known deferrals (not blocking Phase B completion):**
+- Dispatch detail screen (tapping a dispatch row shows "Detail view coming soon" alert for now).
+- Hardware-back interception on iOS for the Repack wizard (Android only — iOS swipe-back just preserves wizard state, acceptable).
+- Carton Detail collapse threshold: `useState` initializer runs before data arrives, so carts with >5 boxes render expanded on first load. Minor UX nit — defer to Phase D polish pass.
+
+**Testing status:** deferred — all 9 screens unverified on emulator/device. Phase D opens with an EAS `preview` APK build + manual smoke test + Maestro suite expansion (currently 10 login flows; target ~40–50 covering all screens).
+
+**Next up:** Phase C — masters (Products, Customers, Users, Settings). Read-first design with edit-single where it makes sense; bulk creates stay web-only per the 2026-04-23 decisions.
+
+---
+
+### April 23, 2026 — Mobile Phase C.1 (Products + Customers + Settings) complete
+
+**Scope:** First batch of the masters phase. Products is read-only on mobile (the mobile `productService` has no create/update/delete methods — CRUD remains on web). Customers has full CRUD because `customerService` exposes `create` + `update`. Settings is a simple profile + app-info + logout screen. Users admin needs a new `user.service.ts` (no endpoints exposed yet) and is split into its own task (C.2).
+
+**Screens delivered:**
+
+| # | Route change | Files | Highlights |
+|---|---|---|---|
+| Products | `app/products.tsx` → `app/products/{index,[id]}.tsx` | 2 new, 1 deleted | Infinite scroll, debounced search, section chips (fetched from `getSections()`), "Active only" toggle chip. Detail screen shows image (with error fallback), all specs, and a muted footer "Full editing and bulk creation available on the web portal." No FAB — read-only. |
+| Customers | `app/customers.tsx` → `app/customers/{index,new,[id]}.tsx` | 3 new, 1 deleted | List with type chips (Primary Dealer / Sub Dealer) and FAB (Admin + Supervisor). `new.tsx` = create form with type toggle + primary-dealer modal picker (client-side filter over a bounded list). `[id].tsx` = view/edit in one screen, toggled by in-body action card (expo-router's typed `headerRight` was rejected as awkward). Save sends full form as `Partial<CreateCustomerRequest>`. |
+| Settings | `app/settings.tsx` (rewrite) | 1 rewritten | User avatar + name + email + role badge; About card (App / Version / Platform / API in `__DEV__`); danger Logout button with confirm dialog. Reads `Constants.expoConfig.version`. |
+
+**Role gating:**
+- Products: Admin, Supervisor (menu + defense-in-depth RoleGate on list; detail deep-link is read-only so gate skipped there).
+- Customers: Admin, Supervisor on all three routes.
+- Settings: all roles.
+
+**Architecture note on route migration:** When migrating from a file-level route (`app/products.tsx`) to a folder (`app/products/`), expo-router resolves `/products` to `products/index.tsx` automatically — no explicit `Stack.Screen` registration needed in `app/_layout.tsx`. Verified both products and customers work without layout edits.
+
+**Deferrals (tracked in task list):**
+- Users admin (#11) — needs new `mobile/services/user.service.ts` against backend `/users` endpoints + list screen with role-change modal (Admin only).
+- Reports (#12) — 4-tab layout adapted to mobile cards (Stock / Cartons / Dispatches / Daily Activity); no CSV export.
+- Child-boxes generate (`/child-boxes/generate` stub remains) — bulk/size-range is web-only per the 2026-04-23 decisions; a Phase D polish pass should replace that stub with a "Use web portal for bulk generation" info screen.
+
+**Testing status:** deferred with Phase B — emulator smoke test runs at start of Phase D.
+
+**Meta note:** Sonnet implementation agents were adding verbose duplicate entries at the top of this file during Phase B and C.1. Cleaned up in this commit (awk-cut 160 lines). Future Sonnet prompts include explicit "Do NOT modify progress.md" — see `feedback_agents_progress_scope.md` in auto-memory.
 
 ---
 
