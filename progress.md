@@ -262,6 +262,34 @@ Net effect: same 6-cell table structure, Colour and MRP cells now visibly domina
 
 ---
 
+### April 23, 2026 — Mobile Phase D (polish + EAS build) in progress
+
+**Polish delivered (commit `fedaaed`):**
+- Real Dispatch detail screen at `app/dispatch/[id].tsx` — header / customer / shipment / contents / notes / audit-footer cards. Dispatches list now pushes to it instead of showing the "coming soon" alert.
+- `child-boxes/generate.tsx` rewritten from `PlaceholderScreen` to a dedicated "Bulk generation is web-only" info screen with a link to the portal URL and a list of what IS possible on mobile.
+- Dead `allRoles` const removed from `menu.tsx:20`.
+- **All 11 pre-existing `__tests__/` type errors fixed** (stale `username`→`email` fixtures across 7 lines in `authStore.test.ts`, 2 lines in `services.test.ts`; one `phone`→`contact_person_mobile`; one `useApi.test.ts` mock return-type cast).
+
+**`npx tsc --noEmit` on the mobile app now returns clean — zero errors.** First time since Phase A kickoff.
+
+**EAS build in-flight (2026-04-23):**
+- Command: `EXPO_TOKEN=… npx eas-cli build --profile preview --platform android --non-interactive`
+- Build ID: `6d90b3f2-d70d-4ddd-8f4a-13c08375ea04`
+- Tracking URL: https://expo.dev/accounts/kanikabehl/projects/binny-inventory/builds/6d90b3f2-d70d-4ddd-8f4a-13c08375ea04
+- **Code at submit time:** commit `042b1e6` (Phase C.2 + C.3 complete). The subsequent polish commit `fedaaed` is NOT in this APK — the queued build locked its source when it was uploaded.
+- Status: uploaded (47.3 MB), fingerprint computed, **waiting in free-tier queue** as of submission. Free tier queues can wait 10–30 min before the 10–15 min build kicks off.
+- Build profile uses `NODE_ENV=production`; `EXPO_PUBLIC_API_URL` is unset so the APK will hit the production default `https://srv1409601.hstgr.cloud/binny/api/v1` — the client's testing portal.
+
+**Auth breakthrough:** Project is owned by Expo account `kanikabehl` (password unavailable). Resolved via an access token generated from https://expo.dev/settings/access-tokens and passed as `EXPO_TOKEN` env var. Noted in auto-memory as `reference_eas_auth.md` so future sessions don't re-discover this.
+
+**Remaining Phase D work (after APK delivery + client first-pass):**
+- Emulator smoke test against the actual APK
+- Maestro e2e suite expansion (currently 10 login flows; target ~40–50 flows across new screens)
+- Typography / empty-state consistency pass based on findings from smoke test
+- Optional: a polish-commit APK rebuild if Phase D commit `fedaaed` needs to reach the client separately
+
+---
+
 ## DEFERRED — Mobile Testing (Phase 5, ~5–7 hrs, to resume after Phase 6 mods are complete)
 
 **Phase 1 Login suite (6/10 pass, 3 fail, 1 unrun — 2026-04-20):**
