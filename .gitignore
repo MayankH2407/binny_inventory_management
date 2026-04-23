@@ -100,3 +100,11 @@ uploads/
 basiq_b64.txt
 binny_b64.txt
 Basiq360 Logo.png
+
+# Locally downloaded APKs
+*.apk
+*.aab
+
+# Root-level PNG scan debug images
+/child qr*.png
+/qr child*.png
