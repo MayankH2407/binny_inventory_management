@@ -138,25 +138,63 @@ Net effect: same 6-cell table structure, Colour and MRP cells now visibly domina
 
 ---
 
-## CURRENT EXECUTION (resumption marker — MOBILE PHASE 5 PARITY IN PROGRESS 2026-04-23)
+## CURRENT EXECUTION (resumption marker — SESSION PAUSED 2026-04-23 END OF DAY; resume 2026-04-24)
 
-**Active workstream:** Mobile app feature parity with web portal. Opus plans, Sonnet executes per file-scoped tasks. Web Phase 6 mod queue is **paused** — user shifted focus to mobile after the Apr 23 testing-portal deploy.
+**Active workstream:** Mobile app feature parity with web portal — **Phase 5 parity 100% code-complete, Phase D partially done.** Web Phase 6 mod queue still paused; can resume anytime.
+
+**Where to pick up tomorrow:**
+
+1. **Confirm with user: cut a polish APK?** The APK delivered today is on commit `042b1e6` (Phase C.2+C.3 complete). Subsequent polish commit `fedaaed` is NOT in it — ships with "Detail view coming soon" alert on dispatch rows and a placeholder generate screen instead of the polished versions. User hasn't decided whether to cut a second build; offer at session start.
+2. **Emulator smoke test** — boot the AVD (commands below), install today's APK (`binny-inventory-042b1e6-preview.apk` in repo root), walk through login → scan → pack → unpack → dispatch happy path to verify no runtime regressions.
+3. **Resume Phase 6 web mods if user wants** — they were feeding one-at-a-time mods; last delivered batch was size-range bulk-create + label redesign + aging highlight, all deployed to testing portal on Apr 23.
+
+**Status of Phase D items:**
+- [x] Dispatch detail real screen (commit `fedaaed`)
+- [x] child-boxes/generate → "use web portal" info screen (`fedaaed`)
+- [x] Dead code cleanup (`allRoles` const in menu.tsx) (`fedaaed`)
+- [x] 11 pre-existing `__tests__/` type errors fixed → `tsc --noEmit` is 0 errors (`fedaaed`)
+- [x] `.gitignore` extended for `*.apk`, `*.aab`, and root-level scan debug PNGs (`f749b47`)
+- [x] EAS preview APK built + downloaded (commit `042b1e6`, see build `6d90b3f2-d70d-4ddd-8f4a-13c08375ea04`)
+- [x] Jest test run — 93/114 pass (82%). See separate entry below.
+- [ ] Emulator smoke test on the APK
+- [ ] Fix 21 pre-existing jest infra failures (axios.create mock hoisting in `api.test.ts`, Expo streams polyfill + TanStack v5 signature in `useApi.test.ts`, RNTL disabled behavior in `ui.test.tsx`)
+- [ ] Maestro e2e suite expansion (10 login flows → target ~40–50 across all screens)
+- [ ] Typography / empty-state consistency pass (defer until smoke test)
+- [ ] Optional polish APK rebuild on commit `fedaaed` or later
 
 **Decisions locked (2026-04-23):**
-- Label printing stays **web-only** for Phase 5 — no Bluetooth TSPL integration on mobile. No print items in the mobile menu.
-- Parity = **adapted, not literal** — scan-heavy operator flows first-class; admin masters read + edit-single; no bulk-size-range on mobile, no 4-tab reports explorer, no CSV export.
+- Label printing stays **web-only** for Phase 5 — no Bluetooth TSPL integration on mobile.
+- Parity = **adapted, not literal** — scan-heavy operator flows first-class; admin masters read + edit-single; no bulk-size-range on mobile, no 4-tab reports explorer with CSV export.
 - Offline scan queue → **deferred to Phase 5.5** (post-parity).
 
-**Plan (phased, ~12–17d total):**
-- **Phase A (foundation)** — ✅ done 2026-04-23. Env, camera scanner, RoleGate, stub routes, menu rewire.
-- **Phase B (operator workflows, scan-heavy)** — in progress. Child-boxes list, master-cartons list, pack (create carton by scanning boxes), carton detail, unpack, storage, repack, dispatch create, dispatch list. Camera scanner reused throughout.
-- **Phase C (admin / masters)** — products list+edit, customers list+edit, users admin, settings. Read-first; creates selectively.
-- **Phase D (polish + testing)** — empty states, network-error toasts, Maestro e2e suite expanded from 10 login flows to ~40–50 flows covering all screens.
-
-**Env state:**
+**Env state at session end:**
 - Local backend: `binny_backend` + `binny_postgres` docker containers up; frontend dev on :3000 still hot-reloading for any web work.
 - Testing portal: `srv1409601.hstgr.cloud/binny/` on Phase 6 batch #1 (commit `1b56928` deployed 2026-04-23).
-- Mobile APK tooling: ready from Apr 20. No APK built against the new Phase A code yet — EAS `preview` profile needed when we cut a build for the client.
+- Android emulator: may need re-boot. Commands to restore:
+  ```bash
+  export JAVA_HOME="/c/jdk17/jdk-17.0.18+8"
+  export ANDROID_HOME="/c/Android/Sdk"
+  export PATH="$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/build-tools/34.0.0:$HOME/.maestro/bin:$PATH"
+  adb devices
+  # If empty:
+  nohup emulator -avd Pixel6_API34 -no-boot-anim -gpu swiftshader_indirect > /tmp/emu.log 2>&1 &
+  # Wait for: adb shell getprop sys.boot_completed == 1
+  # Install today's APK:
+  adb install -r "/d/Projects/Mahavir Polymers - Inverntory Management/binny-inventory-042b1e6-preview.apk"
+  adb shell monkey -p com.basiq360.binnyinventory -c android.intent.category.LAUNCHER 1
+  ```
+- EAS auth: **use `EXPO_TOKEN` env var** (from https://expo.dev/settings/access-tokens while logged in as `kanikabehl` in browser). The CLI does not stay logged in on this machine. Details: `reference_eas_auth.md` in auto-memory. Tomorrow's session may need a fresh token if the current one was revoked.
+
+**Commits pushed this session (2026-04-23):**
+- `e574515` — Phase A foundation + B.1 list screens
+- `1bd4f55` — Phase B (9 operator screens)
+- `8d88d84` — Phase C.1 (Products, Customers, Settings)
+- `042b1e6` — Phase C.2 + C.3 (Users, Reports) ← **APK built from this**
+- `fedaaed` — Phase D polish (dispatch detail, generate info, test fixes)
+- `9610415` — progress.md log
+- `f749b47` — .gitignore extension
+
+All on `origin/main`.
 
 **Next up:** Phase B.1 — Child Boxes list + Master Cartons list (parallel Sonnet tasks).
 
@@ -287,6 +325,30 @@ Net effect: same 6-cell table structure, Colour and MRP cells now visibly domina
 - Maestro e2e suite expansion (currently 10 login flows; target ~40–50 flows across new screens)
 - Typography / empty-state consistency pass based on findings from smoke test
 - Optional: a polish-commit APK rebuild if Phase D commit `fedaaed` needs to reach the client separately
+
+---
+
+### April 23, 2026 — Mobile APK delivered + jest run
+
+**APK build (commit `042b1e6`):**
+- EAS Build ID: `6d90b3f2-d70d-4ddd-8f4a-13c08375ea04`
+- Install page (QR + direct Android install): https://expo.dev/accounts/kanikabehl/projects/binny-inventory/builds/6d90b3f2-d70d-4ddd-8f4a-13c08375ea04
+- Direct `.apk` URL: https://expo.dev/artifacts/eas/ewHw8hK68cQcgBa9TYp4Gh.apk
+- Local file: `binny-inventory-042b1e6-preview.apk` at repo root (97 MB, git-ignored via new `*.apk` rule in `.gitignore`)
+- Build profile: `preview` → APK / `NODE_ENV=production` / fallback `EXPO_PUBLIC_API_URL` = `https://srv1409601.hstgr.cloud/binny/api/v1` (testing portal)
+- **Caveat:** does NOT include polish commit `fedaaed` — the in-APK dispatch list still fires "Detail view coming soon" alert instead of the new detail screen; the generate menu item still lands on a placeholder.
+
+**Jest suite run:**
+- 5 suites, 114 tests total → **93 pass (82%), 21 fail**
+- Today's 2 fixed files (`services.test.ts`, `authStore.test.ts`) both pass cleanly — the 11 type errors I fixed do not re-surface as runtime failures.
+- All 21 failures are **pre-existing infra issues**, not anything today's commits caused:
+  - `api.test.ts` (18 failures): `axios.create` spy installs after `services/api.ts` module has already evaluated — Jest module-hoisting order issue. Fix requires restructuring the test to use `jest.mock('axios', …)` factory form before import.
+  - `useApi.test.ts` (crash + 1 failure): (a) module-load crash — Expo's streams polyfill clashes with axios's fetch adapter at import time (`TypeError: Cannot cancel a stream that already has a reader`); (b) TanStack Query v5 changed `mutationFn` to receive a context object as second arg — test expects legacy v4 signature.
+  - `ui.test.tsx` (1 failure): `@testing-library/react-native`'s `fireEvent.press` fires even when `disabled={true}` is on a `TouchableOpacity` — a known RNTL behavior. The Button component sets `disabled` correctly; test needs to be rewritten to test the `disabled` *style* effect rather than press behavior, OR use `userEvent` which respects accessibility state.
+
+**Fix estimate for jest infra:** ~30–60 min of targeted debugging — not blocking Phase D.
+
+**.gitignore updated (commit `f749b47`):** new patterns for `*.apk`, `*.aab`, and the loose `child qr.png` / `qr child.png` debug images that kept showing as untracked.
 
 ---
 
