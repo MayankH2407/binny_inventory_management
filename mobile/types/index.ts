@@ -72,7 +72,7 @@ export interface ProductSection {
   updated_at: string;
 }
 
-export type ChildBoxStatus = 'FREE' | 'PACKED' | 'DISPATCHED';
+export type ChildBoxStatus = 'GENERATED' | 'FREE' | 'PACKED' | 'SAMPLE' | 'ECOMMERCE' | 'DISPATCHED';
 
 export interface ChildBox {
   id: string;
@@ -102,6 +102,59 @@ export interface MasterCarton {
   status: MasterCartonStatus;
   child_count: number;
   max_capacity: number;
+  closed_at: string | null;
+  dispatched_at: string | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+  child_boxes?: ChildBoxWithProduct[];
+  creator?: User;
+  article_summary?: string | null;
+  colour_summary?: string | null;
+  size_summary?: string | null;
+  mrp_summary?: number | null;
+}
+
+export type SampleStatus = 'CREATED' | 'ACTIVE' | 'CLOSED' | 'DISPATCHED';
+
+export interface SampleRecord {
+  id: string;
+  sample_barcode: string;
+  name: string;
+  customer_id: string | null;
+  recipient_name: string | null;
+  purpose: string | null;
+  sample_date: string | null;
+  notes: string | null;
+  status: SampleStatus;
+  child_count: number;
+  closed_at: string | null;
+  dispatched_at: string | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+  child_boxes?: ChildBoxWithProduct[];
+  creator?: User;
+  customer_firm_name?: string | null;
+  article_summary?: string | null;
+  colour_summary?: string | null;
+  size_summary?: string | null;
+  mrp_summary?: number | null;
+}
+
+export type EcommerceStatus = 'CREATED' | 'ACTIVE' | 'CLOSED' | 'DISPATCHED';
+
+export interface EcommerceRecord {
+  id: string;
+  ecommerce_barcode: string;
+  name: string;
+  marketplace: string | null;
+  order_reference: string | null;
+  listing_sku: string | null;
+  mapped_date: string | null;
+  notes: string | null;
+  status: EcommerceStatus;
+  child_count: number;
   closed_at: string | null;
   dispatched_at: string | null;
   created_by: string;

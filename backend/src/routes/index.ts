@@ -9,6 +9,8 @@ import inventoryRoutes from './inventory.routes';
 import dispatchRoutes from './dispatch.routes';
 import reportRoutes from './report.routes';
 import customerRoutes from './customer.routes';
+import sampleRoutes from './sample.routes';
+import ecommerceRoutes from './ecommerce.routes';
 
 const router = Router();
 
@@ -23,6 +25,8 @@ router.use('/products', productRoutes);
 router.use('/sections', sectionRoutes);
 router.use('/child-boxes', childBoxRoutes);
 router.use('/master-cartons', masterCartonRoutes);
+router.use('/samples', sampleRoutes);
+router.use('/ecommerce', ecommerceRoutes);
 router.use('/inventory', inventoryRoutes);
 router.use('/dispatches', dispatchRoutes);
 router.use('/reports', reportRoutes);

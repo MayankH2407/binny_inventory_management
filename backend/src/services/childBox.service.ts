@@ -2,11 +2,12 @@ import { v4 as uuidv4 } from 'uuid';
 import { query, getClient } from '../config/database';
 import { ChildBox } from '../types';
 import { CHILD_BOX_STATUS, TRANSACTION_TYPES } from '../config/constants';
-import { BadRequestError, NotFoundError } from '../utils/errors';
+import { BadRequestError, NotFoundError, ConflictError } from '../utils/errors';
 import { generateChildBoxQR } from '../utils/qrGenerator';
 import { createAuditLog } from './auditLog.service';
-import { CreateChildBoxInput, CreateBulkChildBoxInput, CreateBulkMultiSizeChildBoxInput } from '../models/schemas/childBox.schema';
+import { CreateChildBoxInput, CreateBulkChildBoxInput, CreateBulkMultiSizeChildBoxInput, bulkUploadChildBoxRowSchema } from '../models/schemas/childBox.schema';
 import { logger } from '../utils/logger';
+import { parse } from 'csv-parse/sync';
 
 export async function createChildBox(
   input: CreateChildBoxInput,
@@ -31,7 +32,7 @@ export async function createChildBox(
      VALUES ($1, $2, $3, $4, $5, $6)
      RETURNING *`,
     [
-      id, barcode, product.id, input.quantity, CHILD_BOX_STATUS.FREE, createdBy,
+      id, barcode, product.id, input.quantity, CHILD_BOX_STATUS.GENERATED, createdBy,
     ]
   );
 
@@ -92,14 +93,14 @@ export async function createBulkChildBoxes(
          VALUES ($1, $2, $3, $4, $5, $6)
          RETURNING *`,
         [
-          id, barcode, product.id, input.quantity, CHILD_BOX_STATUS.FREE, createdBy,
+          id, barcode, product.id, input.quantity, CHILD_BOX_STATUS.GENERATED, createdBy,
         ]
       );
 
       await client.query(
         `INSERT INTO inventory_transactions (transaction_type, child_box_id, performed_by, notes)
          VALUES ($1, $2, $3, $4)`,
-        [TRANSACTION_TYPES.CHILD_CREATED, id, createdBy, `Bulk child box created with barcode ${barcode}`]
+        [TRANSACTION_TYPES.CHILD_CREATED, id, createdBy, `Bulk child box generated (label printed) with barcode ${barcode}`]
       );
 
       childBoxes.push({
@@ -190,13 +191,13 @@ export async function createBulkMultiSizeChildBoxes(
           `INSERT INTO child_boxes (id, barcode, product_id, quantity, status, created_by)
            VALUES ($1, $2, $3, $4, $5, $6)
            RETURNING *`,
-          [id, barcode, product.id, input.quantity, CHILD_BOX_STATUS.FREE, createdBy]
+          [id, barcode, product.id, input.quantity, CHILD_BOX_STATUS.GENERATED, createdBy]
         );
 
         await client.query(
           `INSERT INTO inventory_transactions (transaction_type, child_box_id, performed_by, notes)
            VALUES ($1, $2, $3, $4)`,
-          [TRANSACTION_TYPES.CHILD_CREATED, id, createdBy, `Multi-size bulk child box created with barcode ${barcode}`]
+          [TRANSACTION_TYPES.CHILD_CREATED, id, createdBy, `Multi-size bulk child box generated (label printed) with barcode ${barcode}`]
         );
 
         childBoxes.push({
@@ -330,6 +331,207 @@ export async function updateChildBoxStatus(
   }
 
   return result.rows[0];
+}
+
+export async function bulkUploadChildBoxesFromCSV(
+  csvBuffer: Buffer,
+  createdBy: string
+): Promise<{
+  totalRows: number;
+  created: number;
+  errors: Array<{ row: number; sku?: string; error: string }>;
+  createdBarcodes: string[];
+}> {
+  let records: Record<string, string>[];
+  try {
+    records = parse(csvBuffer, {
+      columns: true,
+      skip_empty_lines: true,
+      trim: true,
+      bom: true,
+    });
+  } catch {
+    throw new ConflictError('Invalid CSV format. Please ensure the file is a valid CSV with headers.');
+  }
+
+  if (records.length === 0) {
+    throw new ConflictError('CSV file is empty. Please add child box rows below the header.');
+  }
+
+  if (records.length > 1000) {
+    throw new ConflictError('Maximum 1000 rows per upload');
+  }
+
+  const headerKeys = Object.keys(records[0]).map((h) => h.toLowerCase().trim());
+  const requiredCols = ['sku', 'count'];
+  const missingCols = requiredCols.filter((c) => !headerKeys.includes(c));
+  if (missingCols.length > 0) {
+    throw new ConflictError(`Missing required columns: ${missingCols.join(', ')}`);
+  }
+
+  // Pre-validate total box count before any inserts
+  let totalBoxCount = 0;
+  for (const record of records) {
+    const raw: Record<string, string> = {};
+    for (const [key, val] of Object.entries(record)) {
+      raw[key.toLowerCase().trim()] = val;
+    }
+    const n = parseInt(raw['count'], 10);
+    if (!isNaN(n)) totalBoxCount += n;
+  }
+  if (totalBoxCount > 5000) {
+    throw new ConflictError('Total boxes across all rows must not exceed 5000');
+  }
+
+  const errors: Array<{ row: number; sku?: string; error: string }> = [];
+  const createdBarcodes: string[] = [];
+  let created = 0;
+
+  for (let i = 0; i < records.length; i++) {
+    const rawRecord = records[i];
+    const rowNum = i + 1; // row 1 = first data row (after header)
+
+    // Normalize keys to lowercase
+    const raw: Record<string, string> = {};
+    for (const [key, val] of Object.entries(rawRecord)) {
+      raw[key.toLowerCase().trim()] = val;
+    }
+
+    const parsed = bulkUploadChildBoxRowSchema.safeParse(raw);
+    if (!parsed.success) {
+      const msg = parsed.error.errors.map((e) => e.message).join('; ');
+      errors.push({ row: rowNum, sku: raw['sku'] || undefined, error: msg });
+      continue;
+    }
+
+    const { sku, quantity, count } = parsed.data;
+
+    // Look up product by SKU
+    let product: { id: string; is_active: boolean; sku: string } | null = null;
+    try {
+      const productResult = await query(
+        'SELECT id, is_active, sku FROM products WHERE sku = $1',
+        [sku]
+      );
+      if (productResult.rows.length === 0) {
+        errors.push({ row: rowNum, sku, error: `Product with SKU "${sku}" not found` });
+        continue;
+      }
+      product = productResult.rows[0];
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      errors.push({ row: rowNum, sku, error: message });
+      continue;
+    }
+
+    if (!product!.is_active) {
+      errors.push({ row: rowNum, sku, error: `Product "${sku}" is inactive` });
+      continue;
+    }
+
+    // Insert all boxes for this row in a single transaction
+    const client = await getClient();
+    const rowBarcodes: string[] = [];
+    try {
+      await client.query('BEGIN');
+
+      for (let j = 0; j < count; j++) {
+        const id = uuidv4();
+        const barcode = `BINNY-CB-${id}`;
+        const qrDataUri = await generateChildBoxQR(id);
+
+        await client.query(
+          `INSERT INTO child_boxes (id, barcode, product_id, quantity, status, created_by)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [id, barcode, product!.id, quantity, CHILD_BOX_STATUS.GENERATED, createdBy]
+        );
+
+        await client.query(
+          `INSERT INTO inventory_transactions (transaction_type, child_box_id, performed_by, notes)
+           VALUES ($1, $2, $3, $4)`,
+          [TRANSACTION_TYPES.CHILD_CREATED, id, createdBy, `CSV bulk import: child box generated (label printed) with barcode ${barcode}`]
+        );
+
+        rowBarcodes.push(barcode);
+
+        await createAuditLog({
+          userId: createdBy,
+          action: 'CREATE_CHILD_BOX',
+          entityType: 'child_box',
+          entityId: id,
+          newValues: { product_id: product!.id, sku, quantity, barcode, source: 'csv_bulk_upload' },
+        });
+
+        void qrDataUri; // QR generated but not returned in bulk CSV upload
+      }
+
+      await client.query('COMMIT');
+      createdBarcodes.push(...rowBarcodes);
+      created += count;
+    } catch (err) {
+      await client.query('ROLLBACK');
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      errors.push({ row: rowNum, sku, error: message });
+    } finally {
+      client.release();
+    }
+  }
+
+  logger.info(`CSV bulk child-box upload: ${created} created, ${errors.length} errors`);
+  return { totalRows: records.length, created, errors, createdBarcodes };
+}
+
+export async function activateChildBox(
+  id: string,
+  activatedBy: string
+): Promise<ChildBox & { product_name: string; product_sku: string; size: string; colour: string }> {
+  // Look up the box first (outside transaction — read-only check)
+  const box = await getChildBoxById(id);
+
+  if (box.status === CHILD_BOX_STATUS.FREE) {
+    // Already active — idempotent no-op
+    return box;
+  }
+
+  if (box.status === CHILD_BOX_STATUS.PACKED || box.status === CHILD_BOX_STATUS.DISPATCHED) {
+    throw new ConflictError(`Cannot activate child box in ${box.status} status`);
+  }
+
+  // Status is GENERATED — activate it
+  const client = await getClient();
+  try {
+    await client.query('BEGIN');
+
+    await client.query(
+      `UPDATE child_boxes SET status = $1, updated_at = NOW() WHERE id = $2`,
+      [CHILD_BOX_STATUS.FREE, id]
+    );
+
+    await client.query(
+      `INSERT INTO inventory_transactions (transaction_type, child_box_id, performed_by, notes)
+       VALUES ($1, $2, $3, $4)`,
+      [TRANSACTION_TYPES.CHILD_ACTIVATED, id, activatedBy, `Child box activated (label scanned, now real inventory): ${box.barcode}`]
+    );
+
+    await createAuditLog({
+      userId: activatedBy,
+      action: 'ACTIVATE_CHILD_BOX',
+      entityType: 'child_box',
+      entityId: id,
+      oldValues: { status: CHILD_BOX_STATUS.GENERATED },
+      newValues: { status: CHILD_BOX_STATUS.FREE },
+    });
+
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+
+  logger.info(`Child box activated: ${box.barcode}`);
+  return getChildBoxById(id);
 }
 
 export async function getFreeChildBoxes(

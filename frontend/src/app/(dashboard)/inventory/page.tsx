@@ -4,7 +4,7 @@ import { useState, useMemo } from 'react';
 import {
   Warehouse, ChevronRight, Package, Boxes, ArrowLeft,
   TrendingUp, TrendingDown, BarChart3, Layers, Palette, Ruler,
-  RefreshCw,
+  RefreshCw, IndianRupee,
 } from 'lucide-react';
 import { useApiQuery } from '@/hooks/useApi';
 import api from '@/services/api';
@@ -24,6 +24,7 @@ interface StockNode {
   childBoxCount: number;
   cartonCount: number;
   children: number;
+  distinctMrpCount: number;
 }
 
 interface StockSummary {
@@ -37,9 +38,11 @@ interface StockSummary {
 }
 
 interface BreadcrumbItem {
-  level: 'root' | 'section' | 'article_name' | 'colour' | 'product';
+  level: 'root' | 'section' | 'article_name' | 'mrp' | 'colour' | 'product';
   label: string;
   filters: Record<string, string>;
+  /** Set when the breadcrumb level is 'article_name'. If 1, the MRP grouping level is skipped (children render as colours directly). */
+  distinctMrpCount?: number;
 }
 
 // ─── API helpers ────────────────────────────────────────────────────────────
@@ -82,6 +85,13 @@ const LEVEL_CONFIG: Record<string, {
     gradient: 'from-blue-500 to-cyan-600',
     accent: 'border-blue-400',
   },
+  mrp: {
+    label: 'MRP',
+    icon: IndianRupee,
+    childLabel: 'Colours',
+    gradient: 'from-rose-500 to-pink-600',
+    accent: 'border-rose-400',
+  },
   colour: {
     label: 'Colour',
     icon: Palette,
@@ -101,9 +111,16 @@ const LEVEL_CONFIG: Record<string, {
 const NEXT_LEVEL: Record<string, string> = {
   root: 'section',
   section: 'article_name',
-  article_name: 'colour',
+  article_name: 'mrp',
+  mrp: 'colour',
   colour: 'product',
 };
+
+function getChildLevel(crumb: BreadcrumbItem): string {
+  // Conditional skip: when an article has only one distinct MRP, jump straight to colour.
+  if (crumb.level === 'article_name' && crumb.distinctMrpCount === 1) return 'colour';
+  return NEXT_LEVEL[crumb.level] || 'section';
+}
 
 // ─── Components ─────────────────────────────────────────────────────────────
 
@@ -212,6 +229,11 @@ function NodeCard({
   const config = LEVEL_CONFIG[levelKey];
   const Icon = config?.icon || Layers;
   const isLeaf = levelKey === 'product';
+  // At the article level, articles with multiple MRPs route to an MRP bucket level (not directly to colours).
+  // Adapt the subtitle so users know what they'll see when they click.
+  const showsMrpBuckets = levelKey === 'article_name' && node.distinctMrpCount > 1;
+  const childCount = showsMrpBuckets ? node.distinctMrpCount : node.children;
+  const childLabel = showsMrpBuckets ? 'MRPs' : (config?.childLabel || 'items');
 
   return (
     <div
@@ -228,9 +250,9 @@ function NodeCard({
             </div>
             <div className="min-w-0">
               <h3 className="font-semibold text-brand-text-dark truncate">{node.name}</h3>
-              {!isLeaf && node.children > 0 && (
+              {!isLeaf && childCount > 0 && (
                 <p className="text-xs text-brand-text-muted">
-                  {node.children} {config?.childLabel || 'items'}
+                  {childCount} {childLabel}
                 </p>
               )}
             </div>
@@ -337,7 +359,7 @@ export default function InventoryPage() {
   ]);
 
   const currentBreadcrumb = breadcrumbs[breadcrumbs.length - 1];
-  const currentLevel = NEXT_LEVEL[currentBreadcrumb.level] || 'section';
+  const currentLevel = getChildLevel(currentBreadcrumb);
 
   const { data: summary, isLoading: summaryLoading } = useApiQuery<StockSummary>(
     ['stock-summary'],
@@ -350,9 +372,8 @@ export default function InventoryPage() {
   );
 
   const handleDrillDown = (node: StockNode) => {
-    const nextLevel = currentLevel as 'section' | 'article_name' | 'colour';
+    const nextLevel = currentLevel as 'section' | 'article_name' | 'mrp' | 'colour';
     const newFilters = { ...currentBreadcrumb.filters, [nextLevel]: node.key };
-    const config = LEVEL_CONFIG[nextLevel];
 
     setBreadcrumbs((prev) => [
       ...prev,
@@ -360,6 +381,8 @@ export default function InventoryPage() {
         level: nextLevel,
         label: node.name,
         filters: newFilters,
+        // Carry through distinctMrpCount only when landing on an article — used by getChildLevel to decide whether to skip the MRP bucket level.
+        distinctMrpCount: nextLevel === 'article_name' ? node.distinctMrpCount : undefined,
       },
     ]);
   };

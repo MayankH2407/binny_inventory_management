@@ -45,4 +45,9 @@ export const childBoxService = {
     const response = await api.get<ChildBoxWithProduct[]>('/child-boxes/free', { params });
     return response.data;
   },
+
+  async activate(id: string): Promise<ChildBoxWithProduct> {
+    const response = await api.post<ChildBoxWithProduct>(`/child-boxes/${id}/activate`);
+    return response.data;
+  },
 };

@@ -8,21 +8,26 @@ import Select from '@/components/ui/Select';
 import { Card } from '@/components/ui/Card';
 import { Table, TableHead, TableBody, TableRow, TableHeader, TableCell } from '@/components/ui/Table';
 import StatusBadge from '@/components/ui/StatusBadge';
+import Badge from '@/components/ui/Badge';
 import PageHeader from '@/components/layout/PageHeader';
 import { PageSpinner } from '@/components/ui/Spinner';
 import { reportService } from '@/services/report.service';
+import { customerService } from '@/services/customer.service';
 import { useApiQuery } from '@/hooks/useApi';
 import { keepPreviousData } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { formatDateTime, formatCurrency } from '@/lib/utils';
+import type { SampleReportResponse, EcommerceReportResponse } from '@/types';
 
-type TabId = 'stock' | 'cartons' | 'dispatch' | 'daily';
+type TabId = 'stock' | 'cartons' | 'dispatch' | 'daily' | 'samples' | 'ecommerce';
 
 const tabs: Array<{ id: TabId; label: string }> = [
   { id: 'stock', label: 'Stock Report' },
   { id: 'cartons', label: 'Carton Inventory' },
   { id: 'dispatch', label: 'Dispatch Report' },
   { id: 'daily', label: 'Daily Activity' },
+  { id: 'samples', label: 'Samples' },
+  { id: 'ecommerce', label: 'E-commerce' },
 ];
 
 interface ProductWiseRow {
@@ -99,6 +104,18 @@ export default function ReportsPage() {
   const [dailyFromDate, setDailyFromDate] = useState(weekAgo);
   const [dailyToDate, setDailyToDate] = useState(today);
 
+  // Sample report filters
+  const [sampleFromDate, setSampleFromDate] = useState(weekAgo);
+  const [sampleToDate, setSampleToDate] = useState(today);
+  const [sampleStatus, setSampleStatus] = useState('');
+  const [sampleCustomerId, setSampleCustomerId] = useState('');
+
+  // Ecommerce report filters
+  const [ecFromDate, setEcFromDate] = useState(weekAgo);
+  const [ecToDate, setEcToDate] = useState(today);
+  const [ecStatus, setEcStatus] = useState('');
+  const [ecMarketplace, setEcMarketplace] = useState('');
+
   // Stock Report
   const { data: stockData, isLoading: stockLoading } = useApiQuery<ProductWiseRow[]>(
     ['reports', 'product-wise'],
@@ -126,6 +143,38 @@ export default function ReportsPage() {
     () => reportService.getDailyActivity({ from_date: dailyFromDate, to_date: dailyToDate }),
     { enabled: activeTab === 'daily', placeholderData: keepPreviousData }
   );
+
+  // Sample Report
+  const { data: sampleData, isLoading: sampleLoading } = useApiQuery<SampleReportResponse>(
+    ['reports', 'samples', sampleFromDate, sampleToDate, sampleStatus, sampleCustomerId],
+    () => reportService.getSampleReport({
+      from: sampleFromDate || undefined,
+      to: sampleToDate || undefined,
+      status: sampleStatus || undefined,
+      customer_id: sampleCustomerId || undefined,
+    }),
+    { enabled: activeTab === 'samples', placeholderData: keepPreviousData }
+  );
+
+  // Ecommerce Report
+  const { data: ecData, isLoading: ecLoading } = useApiQuery<EcommerceReportResponse>(
+    ['reports', 'ecommerce', ecFromDate, ecToDate, ecStatus, ecMarketplace],
+    () => reportService.getEcommerceReport({
+      from: ecFromDate || undefined,
+      to: ecToDate || undefined,
+      status: ecStatus || undefined,
+      marketplace: ecMarketplace || undefined,
+    }),
+    { enabled: activeTab === 'ecommerce', placeholderData: keepPreviousData }
+  );
+
+  // Customers for sample report filter
+  const { data: customersData } = useApiQuery(
+    ['customers-for-reports'],
+    () => customerService.getAll({ limit: 200, is_active: true }),
+    { enabled: activeTab === 'samples' }
+  );
+  const customers = customersData?.data ?? [];
 
   const handleExport = async (endpoint: string, filename: string, params?: Record<string, string>) => {
     try {
@@ -224,6 +273,68 @@ export default function ReportsPage() {
             Export CSV
           </Button>
         );
+      case 'samples':
+        return (
+          <Button
+            variant="secondary"
+            leftIcon={<Download className="h-4 w-4" />}
+            onClick={async () => {
+              try {
+                const blob = await reportService.exportSampleReportCsv({
+                  from: sampleFromDate || undefined,
+                  to: sampleToDate || undefined,
+                  status: sampleStatus || undefined,
+                  customer_id: sampleCustomerId || undefined,
+                });
+                const blobObj = new Blob([blob], { type: 'text/csv' });
+                const url = window.URL.createObjectURL(blobObj);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `samples-report-${today}.csv`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+                toast.success('Report exported');
+              } catch {
+                toast.error('Export failed');
+              }
+            }}
+          >
+            Export CSV
+          </Button>
+        );
+      case 'ecommerce':
+        return (
+          <Button
+            variant="secondary"
+            leftIcon={<Download className="h-4 w-4" />}
+            onClick={async () => {
+              try {
+                const blob = await reportService.exportEcommerceReportCsv({
+                  from: ecFromDate || undefined,
+                  to: ecToDate || undefined,
+                  status: ecStatus || undefined,
+                  marketplace: ecMarketplace || undefined,
+                });
+                const blobObj = new Blob([blob], { type: 'text/csv' });
+                const url = window.URL.createObjectURL(blobObj);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `ecommerce-report-${today}.csv`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+                toast.success('Report exported');
+              } catch {
+                toast.error('Export failed');
+              }
+            }}
+          >
+            Export CSV
+          </Button>
+        );
       default:
         return null;
     }
@@ -285,6 +396,35 @@ export default function ReportsPage() {
           toDate={dailyToDate}
           onFromDateChange={setDailyFromDate}
           onToDateChange={setDailyToDate}
+        />
+      )}
+      {activeTab === 'samples' && (
+        <SamplesTab
+          data={sampleData ?? null}
+          isLoading={sampleLoading}
+          fromDate={sampleFromDate}
+          toDate={sampleToDate}
+          status={sampleStatus}
+          customerId={sampleCustomerId}
+          customers={customers}
+          onFromDateChange={setSampleFromDate}
+          onToDateChange={setSampleToDate}
+          onStatusChange={setSampleStatus}
+          onCustomerChange={setSampleCustomerId}
+        />
+      )}
+      {activeTab === 'ecommerce' && (
+        <EcommerceTab
+          data={ecData ?? null}
+          isLoading={ecLoading}
+          fromDate={ecFromDate}
+          toDate={ecToDate}
+          status={ecStatus}
+          marketplace={ecMarketplace}
+          onFromDateChange={setEcFromDate}
+          onToDateChange={setEcToDate}
+          onStatusChange={setEcStatus}
+          onMarketplaceChange={setEcMarketplace}
         />
       )}
     </div>
@@ -749,6 +889,345 @@ function DailyTab({
             </Table>
           </div>
         </>
+      )}
+    </>
+  );
+}
+
+/* ─── Samples Tab ─── */
+function SamplesTab({
+  data,
+  isLoading,
+  fromDate,
+  toDate,
+  status,
+  customerId,
+  customers,
+  onFromDateChange,
+  onToDateChange,
+  onStatusChange,
+  onCustomerChange,
+}: {
+  data: SampleReportResponse | null;
+  isLoading: boolean;
+  fromDate: string;
+  toDate: string;
+  status: string;
+  customerId: string;
+  customers: Array<{ id: string; firm_name: string }>;
+  onFromDateChange: (v: string) => void;
+  onToDateChange: (v: string) => void;
+  onStatusChange: (v: string) => void;
+  onCustomerChange: (v: string) => void;
+}) {
+  return (
+    <>
+      <Card className="p-4 mb-6">
+        <div className="flex flex-wrap gap-4">
+          <Input
+            label="From Date"
+            type="date"
+            value={fromDate}
+            onChange={(e) => onFromDateChange(e.target.value)}
+            leftIcon={<Calendar className="h-4 w-4" />}
+          />
+          <Input
+            label="To Date"
+            type="date"
+            value={toDate}
+            onChange={(e) => onToDateChange(e.target.value)}
+            leftIcon={<Calendar className="h-4 w-4" />}
+          />
+          <Select
+            label="Status"
+            placeholder="All statuses"
+            options={[
+              { value: '', label: 'All Statuses' },
+              { value: 'CREATED', label: 'Created' },
+              { value: 'ACTIVE', label: 'Active' },
+              { value: 'CLOSED', label: 'Closed' },
+              { value: 'DISPATCHED', label: 'Dispatched' },
+            ]}
+            value={status}
+            onChange={(e) => onStatusChange(e.target.value)}
+          />
+          <Select
+            label="Customer"
+            placeholder="All customers"
+            options={[
+              { value: '', label: 'All Customers' },
+              ...customers.map((c) => ({ value: c.id, label: c.firm_name })),
+            ]}
+            value={customerId}
+            onChange={(e) => onCustomerChange(e.target.value)}
+          />
+        </div>
+      </Card>
+
+      {isLoading ? (
+        <PageSpinner />
+      ) : data ? (
+        <>
+          {/* Summary cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+            <Card className="p-4">
+              <p className="text-xs text-brand-text-muted mb-1">Total</p>
+              <p className="text-2xl font-bold text-brand-text-dark">{data.summary.total}</p>
+            </Card>
+            <Card className="p-4">
+              <p className="text-xs text-brand-text-muted mb-1">Total Pairs</p>
+              <p className="text-2xl font-bold text-brand-text-dark">{data.summary.total_pairs}</p>
+            </Card>
+            {Object.entries(data.summary.by_status).map(([s, count]) => (
+              <Card key={s} className="p-4">
+                <p className="text-xs text-brand-text-muted mb-1">{s}</p>
+                <p className="text-2xl font-bold text-brand-text-dark">{count}</p>
+              </Card>
+            ))}
+          </div>
+
+          {/* Mobile cards */}
+          <div className="space-y-3 lg:hidden">
+            {data.rows.map((row) => (
+              <Card key={row.id} className="p-4">
+                <div className="flex justify-between items-start mb-2">
+                  <div>
+                    <p className="font-semibold text-brand-text-dark text-sm">{row.name}</p>
+                    <p className="text-xs font-mono text-brand-text-muted">{row.sample_barcode}</p>
+                  </div>
+                  <StatusBadge status={row.status} />
+                </div>
+                <div className="grid grid-cols-2 gap-1 text-xs">
+                  {row.recipient && <div className="col-span-2"><span className="text-brand-text-muted">Recipient:</span> {row.recipient}</div>}
+                  <div><span className="text-brand-text-muted">Boxes:</span> {row.child_count}</div>
+                  {row.sample_date && <div><span className="text-brand-text-muted">Date:</span> {row.sample_date}</div>}
+                  {row.dispatched_at && <div className="col-span-2"><span className="text-brand-text-muted">Dispatched:</span> {formatDateTime(row.dispatched_at)}</div>}
+                </div>
+              </Card>
+            ))}
+            {data.rows.length === 0 && (
+              <p className="text-center text-brand-text-muted py-8">No samples data for the selected filters</p>
+            )}
+          </div>
+
+          {/* Desktop table */}
+          <div className="hidden lg:block">
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableHeader>Barcode</TableHeader>
+                  <TableHeader>Name</TableHeader>
+                  <TableHeader>Recipient</TableHeader>
+                  <TableHeader>Status</TableHeader>
+                  <TableHeader className="text-right">Boxes</TableHeader>
+                  <TableHeader>Sample Date</TableHeader>
+                  <TableHeader>Created</TableHeader>
+                  <TableHeader>Dispatched</TableHeader>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {data.rows.map((row) => (
+                  <TableRow key={row.id}>
+                    <TableCell className="font-mono text-xs">{row.sample_barcode}</TableCell>
+                    <TableCell className="font-medium">{row.name}</TableCell>
+                    <TableCell>{row.recipient ?? '-'}</TableCell>
+                    <TableCell><StatusBadge status={row.status} /></TableCell>
+                    <TableCell className="text-right">{row.child_count}</TableCell>
+                    <TableCell>{row.sample_date ?? '-'}</TableCell>
+                    <TableCell>{formatDateTime(row.created_at)}</TableCell>
+                    <TableCell>{row.dispatched_at ? formatDateTime(row.dispatched_at) : '-'}</TableCell>
+                  </TableRow>
+                ))}
+                {data.rows.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={8} className="text-center text-brand-text-muted py-8">
+                      No samples data for the selected filters
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </>
+      ) : (
+        <p className="text-center text-brand-text-muted py-8">No samples data available</p>
+      )}
+    </>
+  );
+}
+
+/* ─── E-commerce Tab ─── */
+function EcommerceTab({
+  data,
+  isLoading,
+  fromDate,
+  toDate,
+  status,
+  marketplace,
+  onFromDateChange,
+  onToDateChange,
+  onStatusChange,
+  onMarketplaceChange,
+}: {
+  data: EcommerceReportResponse | null;
+  isLoading: boolean;
+  fromDate: string;
+  toDate: string;
+  status: string;
+  marketplace: string;
+  onFromDateChange: (v: string) => void;
+  onToDateChange: (v: string) => void;
+  onStatusChange: (v: string) => void;
+  onMarketplaceChange: (v: string) => void;
+}) {
+  return (
+    <>
+      <Card className="p-4 mb-6">
+        <div className="flex flex-wrap gap-4">
+          <Input
+            label="From Date"
+            type="date"
+            value={fromDate}
+            onChange={(e) => onFromDateChange(e.target.value)}
+            leftIcon={<Calendar className="h-4 w-4" />}
+          />
+          <Input
+            label="To Date"
+            type="date"
+            value={toDate}
+            onChange={(e) => onToDateChange(e.target.value)}
+            leftIcon={<Calendar className="h-4 w-4" />}
+          />
+          <Select
+            label="Status"
+            placeholder="All statuses"
+            options={[
+              { value: '', label: 'All Statuses' },
+              { value: 'CREATED', label: 'Created' },
+              { value: 'ACTIVE', label: 'Active' },
+              { value: 'CLOSED', label: 'Closed' },
+              { value: 'DISPATCHED', label: 'Dispatched' },
+            ]}
+            value={status}
+            onChange={(e) => onStatusChange(e.target.value)}
+          />
+          <Input
+            label="Marketplace"
+            placeholder="e.g., Amazon, Flipkart..."
+            value={marketplace}
+            onChange={(e) => onMarketplaceChange(e.target.value)}
+          />
+        </div>
+      </Card>
+
+      {isLoading ? (
+        <PageSpinner />
+      ) : data ? (
+        <>
+          {/* Summary cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
+            <Card className="p-4">
+              <p className="text-xs text-brand-text-muted mb-1">Total</p>
+              <p className="text-2xl font-bold text-brand-text-dark">{data.summary.total}</p>
+            </Card>
+            <Card className="p-4">
+              <p className="text-xs text-brand-text-muted mb-1">Total Pairs</p>
+              <p className="text-2xl font-bold text-brand-text-dark">{data.summary.total_pairs}</p>
+            </Card>
+            {Object.entries(data.summary.by_status).map(([s, count]) => (
+              <Card key={s} className="p-4">
+                <p className="text-xs text-brand-text-muted mb-1">{s}</p>
+                <p className="text-2xl font-bold text-brand-text-dark">{count}</p>
+              </Card>
+            ))}
+          </div>
+
+          {/* By marketplace */}
+          {data.summary.by_marketplace.length > 0 && (
+            <Card className="p-4 mb-6">
+              <p className="text-sm font-semibold text-brand-text-dark mb-3">By Marketplace</p>
+              <div className="flex flex-wrap gap-2">
+                {data.summary.by_marketplace.map((mp) => (
+                  <div key={mp.marketplace} className="flex items-center gap-2">
+                    <Badge variant="purple" size="sm">{mp.marketplace}</Badge>
+                    <span className="text-xs text-brand-text-muted">{mp.count}</span>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+
+          {/* Mobile cards */}
+          <div className="space-y-3 lg:hidden">
+            {data.rows.map((row) => (
+              <Card key={row.id} className="p-4">
+                <div className="flex justify-between items-start mb-2">
+                  <div>
+                    <p className="font-semibold text-brand-text-dark text-sm">{row.name}</p>
+                    <p className="text-xs font-mono text-brand-text-muted">{row.ecommerce_barcode}</p>
+                  </div>
+                  <StatusBadge status={row.status} />
+                </div>
+                <div className="grid grid-cols-2 gap-1 text-xs">
+                  {row.marketplace && <div><span className="text-brand-text-muted">Marketplace:</span> {row.marketplace}</div>}
+                  {row.order_reference && <div><span className="text-brand-text-muted">Order:</span> {row.order_reference}</div>}
+                  {row.listing_sku && <div><span className="text-brand-text-muted">SKU:</span> {row.listing_sku}</div>}
+                  <div><span className="text-brand-text-muted">Boxes:</span> {row.child_count}</div>
+                  {row.mapped_date && <div><span className="text-brand-text-muted">Mapped:</span> {row.mapped_date}</div>}
+                  {row.dispatched_at && <div className="col-span-2"><span className="text-brand-text-muted">Dispatched:</span> {formatDateTime(row.dispatched_at)}</div>}
+                </div>
+              </Card>
+            ))}
+            {data.rows.length === 0 && (
+              <p className="text-center text-brand-text-muted py-8">No e-commerce data for the selected filters</p>
+            )}
+          </div>
+
+          {/* Desktop table */}
+          <div className="hidden lg:block">
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableHeader>Barcode</TableHeader>
+                  <TableHeader>Name</TableHeader>
+                  <TableHeader>Marketplace</TableHeader>
+                  <TableHeader>Order Ref</TableHeader>
+                  <TableHeader>Listing SKU</TableHeader>
+                  <TableHeader>Status</TableHeader>
+                  <TableHeader className="text-right">Boxes</TableHeader>
+                  <TableHeader>Mapped Date</TableHeader>
+                  <TableHeader>Created</TableHeader>
+                  <TableHeader>Dispatched</TableHeader>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {data.rows.map((row) => (
+                  <TableRow key={row.id}>
+                    <TableCell className="font-mono text-xs">{row.ecommerce_barcode}</TableCell>
+                    <TableCell className="font-medium">{row.name}</TableCell>
+                    <TableCell>{row.marketplace ?? '-'}</TableCell>
+                    <TableCell>{row.order_reference ?? '-'}</TableCell>
+                    <TableCell>{row.listing_sku ?? '-'}</TableCell>
+                    <TableCell><StatusBadge status={row.status} /></TableCell>
+                    <TableCell className="text-right">{row.child_count}</TableCell>
+                    <TableCell>{row.mapped_date ?? '-'}</TableCell>
+                    <TableCell>{formatDateTime(row.created_at)}</TableCell>
+                    <TableCell>{row.dispatched_at ? formatDateTime(row.dispatched_at) : '-'}</TableCell>
+                  </TableRow>
+                ))}
+                {data.rows.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={10} className="text-center text-brand-text-muted py-8">
+                      No e-commerce data for the selected filters
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </>
+      ) : (
+        <p className="text-center text-brand-text-muted py-8">No e-commerce data available</p>
       )}
     </>
   );

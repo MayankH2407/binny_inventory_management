@@ -47,8 +47,8 @@ function getCardBgColor(status: string, createdAt: string): string | undefined {
 
 // ─── Status filter chips ──────────────────────────────────────────────────────
 
-type StatusFilter = 'ALL' | 'FREE' | 'PACKED' | 'DISPATCHED';
-const STATUS_OPTIONS: StatusFilter[] = ['ALL', 'FREE', 'PACKED', 'DISPATCHED'];
+type StatusFilter = 'ALL' | 'GENERATED' | 'FREE' | 'PACKED' | 'DISPATCHED';
+const STATUS_OPTIONS: StatusFilter[] = ['ALL', 'GENERATED', 'FREE', 'PACKED', 'DISPATCHED'];
 const PAGE_SIZE = 20;
 
 // ─── Main component ───────────────────────────────────────────────────────────

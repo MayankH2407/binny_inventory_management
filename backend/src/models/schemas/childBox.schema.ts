@@ -65,3 +65,11 @@ export const createBulkMultiSizeChildBoxSchema = z.object({
 export type CreateChildBoxInput = z.infer<typeof createChildBoxSchema>;
 export type CreateBulkChildBoxInput = z.infer<typeof createBulkChildBoxSchema>;
 export type CreateBulkMultiSizeChildBoxInput = z.infer<typeof createBulkMultiSizeChildBoxSchema>;
+
+export const bulkUploadChildBoxRowSchema = z.object({
+  sku: z.string().trim().min(1, 'SKU is required'),
+  quantity: z.coerce.number().int().min(1).max(10000).default(1),
+  count: z.coerce.number().int().min(1).max(500),
+});
+
+export type BulkUploadChildBoxRow = z.infer<typeof bulkUploadChildBoxRowSchema>;

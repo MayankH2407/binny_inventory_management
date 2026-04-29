@@ -1,6 +1,19 @@
 import api from './api';
 import type { ChildBox, ChildBoxWithProduct, BulkCreateChildBoxRequest, BulkCreateMultiSizeRequest } from '@/types';
 
+export interface BulkRowError {
+  row: number;
+  sku?: string;
+  error: string;
+}
+
+export interface BulkUploadResult {
+  totalRows: number;
+  created: number;
+  errors: BulkRowError[];
+  createdBarcodes: string[];
+}
+
 export interface ChildBoxListResponse {
   data: ChildBoxWithProduct[];
   total: number;
@@ -49,5 +62,24 @@ export const childBoxService = {
   async bulkCreateMultiSize(data: BulkCreateMultiSizeRequest): Promise<ChildBoxWithProduct[]> {
     const response = await api.post<ChildBoxWithProduct[]>('/child-boxes/bulk-multi-size', data);
     return response.data;
+  },
+
+  async bulkUpload(file: File): Promise<BulkUploadResult> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await api.post<BulkUploadResult>('/child-boxes/bulk-upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  },
+
+  async activate(id: string): Promise<ChildBoxWithProduct> {
+    const response = await api.post<ChildBoxWithProduct>(`/child-boxes/${id}/activate`);
+    return response.data;
+  },
+
+  getSampleCsvUrl(): string {
+    const base = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1';
+    return `${base}/child-boxes/bulk-upload/sample`;
   },
 };

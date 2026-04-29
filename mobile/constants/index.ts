@@ -33,12 +33,29 @@ export const STORAGE_KEYS = {
 };
 
 export const CHILD_BOX_STATUS_COLORS: Record<string, string> = {
+  GENERATED: '#6B7280',
   FREE: COLORS.statusFree,
   PACKED: COLORS.statusPacked,
+  SAMPLE: '#DC2626',     // red
+  ECOMMERCE: '#7C3AED',  // purple
   DISPATCHED: COLORS.statusDispatched,
 };
 
 export const CARTON_STATUS_COLORS: Record<string, string> = {
+  CREATED: COLORS.textSecondary,
+  ACTIVE: COLORS.statusActive,
+  CLOSED: COLORS.statusClosed,
+  DISPATCHED: COLORS.statusDispatched,
+};
+
+export const SAMPLE_STATUS_COLORS: Record<string, string> = {
+  CREATED: COLORS.textSecondary,
+  ACTIVE: COLORS.statusActive,
+  CLOSED: COLORS.statusClosed,
+  DISPATCHED: COLORS.statusDispatched,
+};
+
+export const ECOMMERCE_STATUS_COLORS: Record<string, string> = {
   CREATED: COLORS.textSecondary,
   ACTIVE: COLORS.statusActive,
   CLOSED: COLORS.statusClosed,

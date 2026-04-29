@@ -11,10 +11,24 @@ import {
   childBoxIdParamSchema,
   childBoxListQuerySchema,
 } from '../models/schemas/childBox.schema';
+import { csvUpload } from '../middleware/upload.middleware';
 
 const router = Router();
 
 router.use(authenticate);
+
+router.get(
+  '/bulk-upload/sample',
+  authorize(USER_ROLES.ADMIN, USER_ROLES.SUPERVISOR),
+  childBoxController.getBulkUploadSample
+);
+
+router.post(
+  '/bulk-upload',
+  authorize(USER_ROLES.ADMIN, USER_ROLES.SUPERVISOR),
+  csvUpload.single('file'),
+  childBoxController.bulkUploadChildBoxes
+);
 
 router.post(
   '/',
@@ -51,6 +65,12 @@ router.get(
 router.get(
   '/qr/:qrCode',
   childBoxController.getChildBoxByQR
+);
+
+router.post(
+  '/:id/activate',
+  authorize(USER_ROLES.ADMIN, USER_ROLES.SUPERVISOR, USER_ROLES.WAREHOUSE_OPERATOR, USER_ROLES.DISPATCH_OPERATOR),
+  childBoxController.activateChildBox
 );
 
 router.get(

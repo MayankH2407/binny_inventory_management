@@ -109,3 +109,50 @@ export async function createBulkMultiSizeChildBoxes(
     next(error);
   }
 }
+
+export async function bulkUploadChildBoxes(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const file = (req as AuthenticatedRequest & { file?: { buffer: Buffer } }).file;
+    if (!file) {
+      res.status(400).json({ success: false, message: 'No CSV file provided' });
+      return;
+    }
+    const result = await childBoxService.bulkUploadChildBoxesFromCSV(file.buffer, req.user!.userId);
+    sendSuccess(res, result, `Bulk upload complete: ${result.created} child boxes created${result.errors.length > 0 ? `, ${result.errors.length} errors` : ''}`, 201);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function activateChildBox(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const result = await childBoxService.activateChildBox(req.params.id, req.user!.userId);
+    sendSuccess(res, result, 'Child box activated', 200);
+  } catch (err) {
+    next(err);
+  }
+}
+
+export function getBulkUploadSample(
+  _req: AuthenticatedRequest,
+  res: Response,
+): void {
+  const headers = 'sku,quantity,count';
+  const sampleRows = [
+    'BFW-MEN-CASUAL-RED-7,1,50',
+    'BFW-MEN-CASUAL-RED-8,1,40',
+    'BFW-MEN-CASUAL-BLUE-9,1,30',
+  ];
+  const csv = [headers, ...sampleRows].join('\n');
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="child-boxes-bulk-upload-sample.csv"');
+  res.send(csv);
+}

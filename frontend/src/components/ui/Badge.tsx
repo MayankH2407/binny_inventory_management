@@ -1,7 +1,7 @@
 import { type ReactNode, type HTMLAttributes } from 'react';
 import { cn } from '@/lib/utils';
 
-type BadgeVariant = 'default' | 'red' | 'green' | 'blue' | 'yellow' | 'orange' | 'gray';
+type BadgeVariant = 'default' | 'red' | 'green' | 'blue' | 'yellow' | 'orange' | 'gray' | 'purple';
 type BadgeSize = 'sm' | 'md';
 
 interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
@@ -19,6 +19,7 @@ const variantStyles: Record<BadgeVariant, string> = {
   yellow: 'bg-yellow-100 text-yellow-700 border border-yellow-200',
   orange: 'bg-orange-100 text-orange-700 border border-orange-200',
   gray: 'bg-gray-100 text-gray-600 border border-gray-200',
+  purple: 'bg-purple-100 text-purple-700 border border-purple-200',
 };
 
 const dotColors: Record<BadgeVariant, string> = {
@@ -29,6 +30,7 @@ const dotColors: Record<BadgeVariant, string> = {
   yellow: 'bg-yellow-500',
   orange: 'bg-orange-500',
   gray: 'bg-gray-400',
+  purple: 'bg-purple-500',
 };
 
 const sizeStyles: Record<BadgeSize, string> = {

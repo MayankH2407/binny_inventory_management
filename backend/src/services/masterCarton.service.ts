@@ -49,15 +49,27 @@ export async function createMasterCarton(
         }
         const childBox = cbResult.rows[0];
 
-        if (childBox.status !== CHILD_BOX_STATUS.FREE) {
+        if (childBox.status !== CHILD_BOX_STATUS.FREE && childBox.status !== CHILD_BOX_STATUS.GENERATED) {
           throw new BadRequestError(
-            `Child box ${barcode} is currently ${childBox.status} and cannot be packed. Only FREE boxes can be packed.`
+            `Child box ${barcode} is currently ${childBox.status} and cannot be packed. Only FREE or GENERATED boxes can be packed.`
           );
         }
 
         if (packedCount >= (input.max_capacity || 50)) {
           throw new BadRequestError(
             `Master carton is full (${packedCount}/${input.max_capacity || 50})`
+          );
+        }
+
+        // If the box is GENERATED, emit an implicit activation transaction first
+        if (childBox.status === CHILD_BOX_STATUS.GENERATED) {
+          await client.query(
+            `INSERT INTO inventory_transactions (transaction_type, child_box_id, performed_by, notes)
+             VALUES ($1, $2, $3, $4)`,
+            [
+              TRANSACTION_TYPES.CHILD_ACTIVATED, childBox.id, createdBy,
+              `Child box ${barcode} auto-activated (implicit activation during pack into carton ${cartonBarcode})`,
+            ]
           );
         }
 
@@ -239,9 +251,9 @@ export async function packChildBox(
     }
     const childBox = cbResult.rows[0];
 
-    if (childBox.status !== CHILD_BOX_STATUS.FREE) {
+    if (childBox.status !== CHILD_BOX_STATUS.FREE && childBox.status !== CHILD_BOX_STATUS.GENERATED) {
       throw new BadRequestError(
-        `Child box is currently ${childBox.status} and cannot be packed. Only FREE boxes can be packed.`
+        `Child box is currently ${childBox.status} and cannot be packed. Only FREE or GENERATED boxes can be packed.`
       );
     }
 
@@ -264,6 +276,18 @@ export async function packChildBox(
     if (carton.child_count >= carton.max_capacity) {
       throw new BadRequestError(
         `Master carton is full (${carton.child_count}/${carton.max_capacity})`
+      );
+    }
+
+    // If the box is GENERATED, emit an implicit activation transaction first
+    if (childBox.status === CHILD_BOX_STATUS.GENERATED) {
+      await client.query(
+        `INSERT INTO inventory_transactions (transaction_type, child_box_id, performed_by, notes)
+         VALUES ($1, $2, $3, $4)`,
+        [
+          TRANSACTION_TYPES.CHILD_ACTIVATED, childBoxId, packedBy,
+          `Child box ${childBox.barcode} auto-activated (implicit activation during pack into carton ${carton.carton_barcode})`,
+        ]
       );
     }
 

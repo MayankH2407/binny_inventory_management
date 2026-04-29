@@ -1,12 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import Link from 'next/link';
-import { Plus, Search, Package } from 'lucide-react';
+import { Plus, Search, Package, Upload, Download, FileSpreadsheet, AlertCircle, CheckCircle } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import Select from '@/components/ui/Select';
 import { Card } from '@/components/ui/Card';
+import Modal from '@/components/ui/Modal';
 import {
   Table,
   TableHead,
@@ -19,12 +20,14 @@ import StatusBadge from '@/components/ui/StatusBadge';
 import { PageSpinner } from '@/components/ui/Spinner';
 import PageHeader from '@/components/layout/PageHeader';
 import { ROUTES, PAGE_SIZE } from '@/constants';
-import { childBoxService } from '@/services/childBox.service';
+import { childBoxService, BulkUploadResult, BulkRowError } from '@/services/childBox.service';
 import { productService } from '@/services/product.service';
 import { useApiQuery } from '@/hooks/useApi';
+import { useAuth } from '@/hooks/useAuth';
 import { keepPreviousData } from '@tanstack/react-query';
 import { formatDateTime, formatCurrency } from '@/lib/utils';
 import type { ChildBoxWithProduct } from '@/types';
+import toast from 'react-hot-toast';
 
 type AgingState = 'yellow' | 'red' | null;
 
@@ -42,13 +45,21 @@ function getAgeDays(createdAt: string): number {
 }
 
 export default function ChildBoxesPage() {
+  const { isManager } = useAuth();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [productFilter, setProductFilter] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  const { data, isLoading } = useApiQuery(
+  // Bulk upload state
+  const [showBulkModal, setShowBulkModal] = useState(false);
+  const [bulkFile, setBulkFile] = useState<File | null>(null);
+  const [bulkUploading, setBulkUploading] = useState(false);
+  const [bulkResult, setBulkResult] = useState<BulkUploadResult | null>(null);
+  const bulkFileRef = useRef<HTMLInputElement>(null);
+
+  const { data, isLoading, refetch } = useApiQuery(
     ['child-boxes', String(page), search, statusFilter, productFilter],
     () =>
       childBoxService.getAll({
@@ -72,21 +83,84 @@ export default function ChildBoxesPage() {
     setExpandedId((prev) => (prev === id ? null : id));
   };
 
+  const handleBulkUpload = async () => {
+    if (!bulkFile) return;
+    setBulkUploading(true);
+    try {
+      const result = await childBoxService.bulkUpload(bulkFile);
+      setBulkResult(result);
+      if (result.created > 0) {
+        toast.success(`${result.created} child boxes created`);
+        refetch();
+      }
+      if (result.errors.length > 0) {
+        toast.error(`${result.errors.length} rows had errors — see details below`);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Upload failed';
+      toast.error(message);
+    } finally {
+      setBulkUploading(false);
+    }
+  };
+
+  const handleDownloadSample = () => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('binny_token') : null;
+    const url = childBoxService.getSampleCsvUrl();
+    const a = document.createElement('a');
+    fetch(url, { headers: { Authorization: `Bearer ${token || ''}` } })
+      .then((r) => r.blob())
+      .then((blob) => {
+        a.href = URL.createObjectURL(blob);
+        a.download = 'child-boxes-bulk-upload-sample.csv';
+        a.click();
+        URL.revokeObjectURL(a.href);
+      })
+      .catch(() => toast.error('Failed to download sample file'));
+  };
+
+  const handleDownloadCreatedBarcodes = () => {
+    if (!bulkResult || bulkResult.createdBarcodes.length === 0) return;
+    const csv = ['barcode', ...bulkResult.createdBarcodes].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const dateStr = new Date().toISOString().slice(0, 10);
+    a.href = url;
+    a.download = `child-boxes-created-${dateStr}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const closeBulkModal = () => {
+    setShowBulkModal(false);
+    setBulkFile(null);
+    setBulkResult(null);
+    if (bulkFileRef.current) bulkFileRef.current.value = '';
+  };
+
   return (
     <div>
       <PageHeader
         title="Child Boxes"
         description="Manage and track all child boxes in the system"
         action={
-          <Link href={ROUTES.CHILD_BOXES_GENERATE}>
-            <Button leftIcon={<Plus className="h-4 w-4" />}>Generate Labels</Button>
-          </Link>
+          <div className="flex gap-2">
+            {isManager && (
+              <Button variant="outline" leftIcon={<Upload className="h-4 w-4" />} onClick={() => setShowBulkModal(true)}>
+                Bulk Import
+              </Button>
+            )}
+            <Link href={ROUTES.CHILD_BOXES_GENERATE}>
+              <Button leftIcon={<Plus className="h-4 w-4" />}>Generate Labels</Button>
+            </Link>
+          </div>
         }
       />
 
       <Card padding={false}>
         <div className="px-4 pt-3 pb-0 flex items-center gap-3 text-xs text-brand-text-muted">
-          <span className="font-medium">FREE box aging:</span>
+          <span className="font-medium">FREE box aging (Generated boxes excluded):</span>
           <span className="inline-flex items-center gap-1.5">
             <span className="inline-block w-2.5 h-2.5 rounded-sm bg-yellow-200 border border-yellow-400" />
             90–179 days
@@ -113,6 +187,7 @@ export default function ChildBoxesPage() {
             <Select
               options={[
                 { value: '', label: 'All Statuses' },
+                { value: 'GENERATED', label: 'Generated' },
                 { value: 'FREE', label: 'Free' },
                 { value: 'PACKED', label: 'Packed' },
                 { value: 'DISPATCHED', label: 'Dispatched' },
@@ -302,6 +377,122 @@ export default function ChildBoxesPage() {
           </>
         )}
       </Card>
+
+      {/* Bulk Upload Modal */}
+      <Modal isOpen={showBulkModal} onClose={closeBulkModal} title="Bulk Import Child Boxes">
+        <div className="space-y-4">
+          <p className="text-sm text-brand-text-muted">
+            Upload a CSV file listing existing stock — each row creates N child boxes for the given SKU, all in FREE status. Use this for one-time go-live stock import or large stock additions.
+          </p>
+
+          {/* Sample download */}
+          <div className="flex items-center gap-3 p-3 bg-blue-50 border border-blue-100 rounded-lg">
+            <FileSpreadsheet className="h-5 w-5 text-blue-600 flex-shrink-0" />
+            <div className="flex-1">
+              <p className="text-sm font-medium text-blue-900">Download sample CSV</p>
+              <p className="text-xs text-blue-700">Use this template — list one row per SKU with the count of boxes to generate.</p>
+            </div>
+            <button
+              onClick={handleDownloadSample}
+              className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-blue-700 bg-white border border-blue-200 rounded-md hover:bg-blue-50"
+            >
+              <Download className="h-3 w-3" /> Download
+            </button>
+          </div>
+
+          {/* Required columns info */}
+          <div className="text-xs text-brand-text-muted">
+            <p className="font-medium mb-1">Required columns: sku, count</p>
+            <p>Optional column: quantity (pairs per box, default 1)</p>
+            <p className="mt-1">Maximum 1000 rows and 5000 total boxes per upload. Boxes are created in FREE status.</p>
+          </div>
+
+          {/* File input */}
+          {!bulkResult && (
+            <>
+              <div className="border-2 border-dashed border-brand-border rounded-lg p-6 text-center">
+                <Upload className="h-8 w-8 text-brand-text-muted mx-auto mb-2" />
+                <input
+                  ref={bulkFileRef}
+                  type="file"
+                  accept=".csv"
+                  onChange={(e) => setBulkFile(e.target.files?.[0] || null)}
+                  className="block w-full text-sm text-brand-text-muted file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-binny-navy file:text-white hover:file:bg-binny-navy/90 mx-auto"
+                />
+                {bulkFile && (
+                  <p className="mt-2 text-sm text-brand-text-dark font-medium">{bulkFile.name}</p>
+                )}
+              </div>
+
+              <div className="flex justify-end gap-3">
+                <Button variant="secondary" onClick={closeBulkModal}>Cancel</Button>
+                <Button
+                  onClick={handleBulkUpload}
+                  isLoading={bulkUploading}
+                  disabled={!bulkFile || bulkUploading}
+                  leftIcon={<Upload className="h-4 w-4" />}
+                >
+                  Upload &amp; Create Boxes
+                </Button>
+              </div>
+            </>
+          )}
+
+          {/* Results */}
+          {bulkResult && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+                <CheckCircle className="h-5 w-5 text-green-600 flex-shrink-0" />
+                <p className="text-sm font-medium text-green-900">
+                  {bulkResult.created} child boxes created from {bulkResult.totalRows} rows
+                </p>
+              </div>
+
+              {bulkResult.errors.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-red-700">
+                    <AlertCircle className="h-4 w-4" />
+                    <p className="text-sm font-medium">{bulkResult.errors.length} rows failed</p>
+                  </div>
+                  <div className="max-h-48 overflow-y-auto border border-red-200 rounded-lg divide-y divide-red-100">
+                    {bulkResult.errors.map((err: BulkRowError, i: number) => (
+                      <div key={i} className="px-3 py-2 text-xs">
+                        <span className="font-medium text-red-800">Row {err.row}</span>
+                        {err.sku && <span className="text-red-600"> ({err.sku})</span>}
+                        <span className="text-red-600">: {err.error}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3">
+                <Button variant="secondary" onClick={closeBulkModal}>Close</Button>
+                {bulkResult.createdBarcodes.length > 0 && (
+                  <Button
+                    variant="outline"
+                    onClick={handleDownloadCreatedBarcodes}
+                    leftIcon={<Download className="h-4 w-4" />}
+                  >
+                    Download Created Barcodes
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setBulkResult(null);
+                    setBulkFile(null);
+                    if (bulkFileRef.current) bulkFileRef.current.value = '';
+                  }}
+                  leftIcon={<Upload className="h-4 w-4" />}
+                >
+                  Upload Another File
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      </Modal>
     </div>
   );
 }

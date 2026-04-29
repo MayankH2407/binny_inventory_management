@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, Text, TextInput, ScrollView, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, TextInput, ScrollView, StyleSheet, KeyboardAvoidingView, Platform, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../../constants';
 import Button from '../../components/ui/Button';
@@ -9,6 +9,7 @@ import Spinner from '../../components/ui/Spinner';
 import EmptyState from '../../components/ui/EmptyState';
 import BarcodeScanner from '../../components/BarcodeScanner';
 import { traceService } from '../../services/trace.service';
+import { childBoxService } from '../../services/childBox.service';
 import type { TraceabilityResult } from '../../types';
 
 export default function ScanScreen() {
@@ -26,6 +27,16 @@ export default function ScanScreen() {
     setResult(null);
     try {
       const data = await traceService.traceByBarcode(trimmed);
+      // Auto-activate GENERATED boxes: transition GENERATED → FREE
+      if (data.childBox && data.childBox.status === 'GENERATED') {
+        try {
+          const activated = await childBoxService.activate(data.childBox.id);
+          data.childBox = activated;
+          Alert.alert('Box activated', 'Box activated — now part of available stock');
+        } catch {
+          // Activation failed silently — still show trace result
+        }
+      }
       setResult(data);
     } catch (err: any) {
       setError(err?.response?.data?.message || err?.message || 'Item not found');

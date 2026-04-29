@@ -111,7 +111,9 @@ export interface InventoryTransaction {
 
 export interface DispatchRecord {
   id: string;
-  master_carton_id: string;
+  master_carton_id: string | null;
+  sample_record_id: string | null;
+  ecommerce_record_id: string | null;
   dispatched_by: string;
   customer_id: string | null;
   destination: string | null;
@@ -122,6 +124,8 @@ export interface DispatchRecord {
   notes: string | null;
   metadata: Record<string, unknown> | null;
   customer_firm_name?: string;
+  source_type?: 'master_carton' | 'sample' | 'ecommerce';
+  source_label?: string;
   created_at: Date;
   updated_at: Date;
 }

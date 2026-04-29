@@ -1,9 +1,11 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { Search, ClipboardList, ChevronDown, ChevronUp, Truck, User, Package } from 'lucide-react';
+import { Search, ClipboardList, ChevronDown, ChevronUp, Truck, User, Package, FlaskConical, ShoppingCart } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
+import Select from '@/components/ui/Select';
+import Badge from '@/components/ui/Badge';
 import { Card } from '@/components/ui/Card';
 import { SkeletonTable } from '@/components/ui/Spinner';
 import PageHeader from '@/components/layout/PageHeader';
@@ -14,7 +16,7 @@ import { formatCurrency } from '@/lib/utils';
 import { useApiQuery } from '@/hooks/useApi';
 import { keepPreviousData } from '@tanstack/react-query';
 import { formatDateTime } from '@/lib/utils';
-import type { DispatchRecord } from '@/types';
+import type { DispatchRecord, DispatchSourceType } from '@/types';
 
 interface CustomerGroup {
   customerName: string;
@@ -26,11 +28,43 @@ interface CustomerGroup {
   destinations: string[];
 }
 
+function SourceTypeBadge({ sourceType, sourceLabel }: { sourceType?: DispatchSourceType; sourceLabel?: string | null }) {
+  if (!sourceType || sourceType === 'master_carton') {
+    return (
+      <div>
+        <Badge variant="gray" size="sm">Master Carton</Badge>
+        {sourceLabel && <p className="text-xs font-mono text-brand-text-muted mt-0.5">{sourceLabel}</p>}
+      </div>
+    );
+  }
+  if (sourceType === 'sample') {
+    return (
+      <div>
+        <Badge variant="red" size="sm">Sample</Badge>
+        {sourceLabel && <p className="text-xs font-mono text-brand-text-muted mt-0.5">{sourceLabel}</p>}
+      </div>
+    );
+  }
+  return (
+    <div>
+      <Badge variant="purple" size="sm">E-commerce</Badge>
+      {sourceLabel && <p className="text-xs font-mono text-brand-text-muted mt-0.5">{sourceLabel}</p>}
+    </div>
+  );
+}
+
+function sourceIcon(sourceType?: DispatchSourceType) {
+  if (sourceType === 'sample') return <FlaskConical className="h-4 w-4 text-brand-text-muted shrink-0" />;
+  if (sourceType === 'ecommerce') return <ShoppingCart className="h-4 w-4 text-brand-text-muted shrink-0" />;
+  return <Package className="h-4 w-4 text-brand-text-muted shrink-0" />;
+}
+
 export default function DispatchesPage() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
+  const [sourceTypeFilter, setSourceTypeFilter] = useState<string>('');
   const [expandedCustomer, setExpandedCustomer] = useState<string | null>(null);
 
   const { data, isLoading } = useApiQuery(
@@ -46,12 +80,17 @@ export default function DispatchesPage() {
     { placeholderData: keepPreviousData }
   );
 
-  // Group dispatch records by customer
+  // Group dispatch records by customer, after client-side source_type filter
   const customerGroups = useMemo(() => {
     if (!data?.data?.length) return [];
-    const groupMap = new Map<string, CustomerGroup>();
+    const records = (data.data as DispatchRecord[]).filter((r) => {
+      if (!sourceTypeFilter) return true;
+      const st = r.source_type ?? 'master_carton';
+      return st === sourceTypeFilter;
+    });
 
-    for (const record of data.data as DispatchRecord[]) {
+    const groupMap = new Map<string, CustomerGroup>();
+    for (const record of records) {
       const key = record.customer_id || 'no-customer';
       const existing = groupMap.get(key);
       if (existing) {
@@ -77,11 +116,10 @@ export default function DispatchesPage() {
       }
     }
 
-    // Sort by latest dispatch date (most recent first)
     return Array.from(groupMap.values()).sort(
       (a, b) => new Date(b.latestDate).getTime() - new Date(a.latestDate).getTime()
     );
-  }, [data]);
+  }, [data, sourceTypeFilter]);
 
   const toggleCustomer = (key: string) => {
     setExpandedCustomer((prev) => (prev === key ? null : key));
@@ -113,7 +151,7 @@ export default function DispatchesPage() {
                 leftIcon={<Search className="h-4 w-4" />}
               />
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
               <Input
                 type="date"
                 placeholder="From"
@@ -134,6 +172,22 @@ export default function DispatchesPage() {
                 }}
                 className="w-36"
               />
+              <div className="w-44">
+                <Select
+                  placeholder="All source types"
+                  options={[
+                    { value: '', label: 'All Source Types' },
+                    { value: 'master_carton', label: 'Master Carton' },
+                    { value: 'sample', label: 'Sample' },
+                    { value: 'ecommerce', label: 'E-commerce' },
+                  ]}
+                  value={sourceTypeFilter}
+                  onChange={(e) => {
+                    setSourceTypeFilter(e.target.value);
+                    setPage(1);
+                  }}
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -174,7 +228,7 @@ export default function DispatchesPage() {
                           </p>
                           <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-0.5">
                             <span className="text-xs text-brand-text-muted">
-                              {group.totalCartons} carton{group.totalCartons !== 1 ? 's' : ''}
+                              {group.totalCartons} dispatch{group.totalCartons !== 1 ? 'es' : ''}
                             </span>
                             <span className="text-xs text-brand-text-muted">
                               {group.totalChildBoxes} boxes
@@ -197,7 +251,7 @@ export default function DispatchesPage() {
                       )}
                     </div>
 
-                    {/* Expanded: show individual carton dispatch records */}
+                    {/* Expanded: individual dispatch records */}
                     {isExpanded && (
                       <div className="bg-gray-50 px-4 pb-4">
                         <div className="space-y-3">
@@ -208,12 +262,13 @@ export default function DispatchesPage() {
                             >
                               <div className="flex items-start justify-between gap-3">
                                 <div className="min-w-0 flex-1">
-                                  {/* Carton info */}
+                                  {/* Source info */}
                                   <div className="flex items-center gap-2 mb-1.5">
-                                    <Package className="h-4 w-4 text-brand-text-muted shrink-0" />
-                                    <span className="font-mono text-xs text-brand-text-dark">
-                                      {record.carton_barcode || record.master_carton_id.slice(0, 8) + '...'}
-                                    </span>
+                                    {sourceIcon(record.source_type)}
+                                    <SourceTypeBadge
+                                      sourceType={record.source_type}
+                                      sourceLabel={record.source_label ?? record.carton_barcode ?? (record.master_carton_id ? record.master_carton_id.slice(0, 8) + '...' : undefined)}
+                                    />
                                     {record.child_count != null && (
                                       <span className="text-xs text-brand-text-muted">
                                         ({record.child_count} boxes)

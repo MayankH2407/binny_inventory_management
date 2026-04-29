@@ -1,10 +1,22 @@
 import { z } from 'zod';
 
 export const createDispatchSchema = z.object({
+  // Master-carton dispatch (original flow): provide an array of carton IDs
   master_carton_ids: z
     .array(z.string().uuid('Invalid master carton ID format'))
     .min(1, 'At least one master carton must be selected for dispatch')
-    .max(200, 'Cannot dispatch more than 200 cartons at once'),
+    .max(200, 'Cannot dispatch more than 200 cartons at once')
+    .optional(),
+  // Sample dispatch: provide a single sample record ID
+  sample_record_id: z
+    .string()
+    .uuid('Invalid sample record ID format')
+    .optional(),
+  // E-commerce dispatch: provide a single ecommerce record ID
+  ecommerce_record_id: z
+    .string()
+    .uuid('Invalid ecommerce record ID format')
+    .optional(),
   customer_id: z
     .string()
     .uuid('Invalid customer ID format')
@@ -37,7 +49,20 @@ export const createDispatchSchema = z.object({
     .string()
     .max(1000, 'Notes must not exceed 1000 characters')
     .optional(),
-});
+}).refine(
+  (data) => {
+    const sources = [
+      data.master_carton_ids !== undefined && data.master_carton_ids.length > 0,
+      data.sample_record_id !== undefined,
+      data.ecommerce_record_id !== undefined,
+    ].filter(Boolean).length;
+    return sources === 1;
+  },
+  {
+    message:
+      'Exactly one dispatch source must be provided: master_carton_ids, sample_record_id, or ecommerce_record_id',
+  }
+);
 
 export const dispatchIdParamSchema = z.object({
   id: z.string().uuid('Invalid dispatch ID format'),

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Search, Package, Boxes, Truck, Clock, Archive, CheckCircle, CloudOff } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import Input from '@/components/ui/Input';
@@ -22,6 +22,7 @@ import toast from 'react-hot-toast';
 // Result from the trace API — childBox optional (absent for master carton scans)
 interface TraceResult {
   childBox?: {
+    id: string;
     barcode: string;
     article_name: string;
     sku: string;
@@ -116,6 +117,21 @@ export default function ScanTracePage() {
     },
     [lookup]
   );
+
+  // Auto-activate GENERATED boxes on scan
+  useEffect(() => {
+    if (traceResult?.childBox?.status === 'GENERATED' && traceResult.childBox.id) {
+      const boxId = traceResult.childBox.id as string;
+      childBoxService.activate(boxId).then((updated) => {
+        setTraceResult((prev) =>
+          prev ? { ...prev, childBox: { ...prev.childBox!, ...updated } } : prev
+        );
+        toast.success('Box activated — now part of available stock');
+      }).catch(() => {
+        // Activation failed silently — status stays GENERATED in UI
+      });
+    }
+  }, [traceResult?.childBox?.id, traceResult?.childBox?.status]);
 
   const { mutate: closeCarton, isPending: isClosing } = useApiMutation(
     () => masterCartonService.close(cartonDetail!.carton.id),

@@ -10,9 +10,11 @@ import StatusBadge from '@/components/ui/StatusBadge';
 import QRScanner from '@/components/scanning/QRScanner';
 import PageHeader from '@/components/layout/PageHeader';
 import { inventoryService } from '@/services/inventory.service';
+import { childBoxService } from '@/services/childBox.service';
 // Trace result from API — childBox is optional (absent for master carton traces)
 interface TraceResult {
   childBox?: {
+    id: string;
     barcode: string;
     article_name: string;
     sku: string;
@@ -78,6 +80,21 @@ export default function TraceabilityPage() {
       trace(qr);
     }
   }, [searchParams, trace]);
+
+  // Auto-activate GENERATED boxes on trace
+  useEffect(() => {
+    if (result?.childBox?.status === 'GENERATED' && result.childBox.id) {
+      const boxId = result.childBox.id as string;
+      childBoxService.activate(boxId).then((updated) => {
+        setResult((prev) =>
+          prev ? { ...prev, childBox: { ...prev.childBox!, ...updated } } : prev
+        );
+        toast.success('Box activated — now part of available stock');
+      }).catch(() => {
+        // Activation failed silently — status stays GENERATED in UI
+      });
+    }
+  }, [result?.childBox?.id, result?.childBox?.status]);
 
   const handleScan = useCallback(
     (decodedText: string) => {

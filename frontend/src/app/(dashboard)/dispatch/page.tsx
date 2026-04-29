@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, type FormEvent } from 'react';
-import { Truck, ScanLine, X, Search, Plus, Package } from 'lucide-react';
+import { Truck, ScanLine, X, Search, Plus, Package, FlaskConical, ShoppingCart } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import Select from '@/components/ui/Select';
@@ -10,20 +10,45 @@ import QRScanner from '@/components/scanning/QRScanner';
 import PageHeader from '@/components/layout/PageHeader';
 import { dispatchService } from '@/services/dispatch.service';
 import { masterCartonService } from '@/services/masterCarton.service';
+import { sampleService } from '@/services/sample.service';
+import { ecommerceService } from '@/services/ecommerce.service';
 import { customerService } from '@/services/customer.service';
 import { useApiQuery, useApiMutation } from '@/hooks/useApi';
-import type { MasterCarton, ChildBoxWithProduct } from '@/types';
+import type { MasterCarton, ChildBoxWithProduct, SampleRecord, EcommerceRecord } from '@/types';
 import toast from 'react-hot-toast';
 import { ROUTES } from '@/constants';
 import { useRouter } from 'next/navigation';
 import { formatCurrency } from '@/lib/utils';
 
+type SourceType = 'master_carton' | 'sample' | 'ecommerce';
+
+const SOURCE_TABS: Array<{ id: SourceType; label: string; icon: React.ReactNode }> = [
+  { id: 'master_carton', label: 'Master Carton', icon: <Package className="h-4 w-4" /> },
+  { id: 'sample', label: 'Sample', icon: <FlaskConical className="h-4 w-4" /> },
+  { id: 'ecommerce', label: 'E-commerce', icon: <ShoppingCart className="h-4 w-4" /> },
+];
+
 export default function DispatchPage() {
   const router = useRouter();
+  const [sourceType, setSourceType] = useState<SourceType>('master_carton');
+
+  // Master carton state (multi)
   const [showScanner, setShowScanner] = useState(false);
   const [fullScreenScan, setFullScreenScan] = useState(false);
   const [manualBarcode, setManualBarcode] = useState('');
   const [scannedCartons, setScannedCartons] = useState<MasterCarton[]>([]);
+
+  // Sample state (single)
+  const [sampleBarcode, setSampleBarcode] = useState('');
+  const [selectedSample, setSelectedSample] = useState<SampleRecord | null>(null);
+  const [showSampleScanner, setShowSampleScanner] = useState(false);
+
+  // Ecommerce state (single)
+  const [ecBarcode, setEcBarcode] = useState('');
+  const [selectedEc, setSelectedEc] = useState<EcommerceRecord | null>(null);
+  const [showEcScanner, setShowEcScanner] = useState(false);
+
+  // Shared form
   const [customerId, setCustomerId] = useState('');
   const [formData, setFormData] = useState({
     destination: '',
@@ -39,6 +64,7 @@ export default function DispatchPage() {
   );
   const customers = customersData?.data ?? [];
 
+  // ── Master Carton helpers ──
   const addCarton = useCallback(
     async (code: string) => {
       const trimmed = code.trim();
@@ -57,7 +83,6 @@ export default function DispatchPage() {
           toast.error('This carton is empty (CREATED status). Pack boxes first.');
           return;
         }
-        // Accept ACTIVE and CLOSED cartons
         setScannedCartons((prev) => [...prev, carton]);
         toast.success(`Added carton: ${carton.carton_barcode}`);
       } catch {
@@ -65,13 +90,6 @@ export default function DispatchPage() {
       }
     },
     [scannedCartons]
-  );
-
-  const handleScanCarton = useCallback(
-    (code: string) => {
-      addCarton(code);
-    },
-    [addCarton]
   );
 
   const handleAddManual = () => {
@@ -83,22 +101,83 @@ export default function DispatchPage() {
     setScannedCartons((prev) => prev.filter((c) => c.id !== id));
   };
 
+  // ── Sample helpers ──
+  const lookupSample = useCallback(async (code: string) => {
+    const trimmed = code.trim();
+    if (!trimmed) return;
+    try {
+      const record = await sampleService.getByBarcode(trimmed);
+      if (record.status === 'DISPATCHED') {
+        toast.error('This sample has already been dispatched');
+        return;
+      }
+      if (record.status === 'CREATED') {
+        toast.error('Sample has no boxes (CREATED status)');
+        return;
+      }
+      setSelectedSample(record);
+      toast.success(`Sample found: ${record.name}`);
+    } catch {
+      toast.error('Sample not found');
+    }
+  }, []);
+
+  // ── Ecommerce helpers ──
+  const lookupEc = useCallback(async (code: string) => {
+    const trimmed = code.trim();
+    if (!trimmed) return;
+    try {
+      const record = await ecommerceService.getByBarcode(trimmed);
+      if (record.status === 'DISPATCHED') {
+        toast.error('This e-commerce record has already been dispatched');
+        return;
+      }
+      if (record.status === 'CREATED') {
+        toast.error('E-commerce record has no boxes (CREATED status)');
+        return;
+      }
+      setSelectedEc(record);
+      toast.success(`E-commerce record found: ${record.name}`);
+    } catch {
+      toast.error('E-commerce record not found');
+    }
+  }, []);
+
+  // ── Submit ──
+  const canSubmit =
+    sourceType === 'master_carton'
+      ? scannedCartons.length > 0
+      : sourceType === 'sample'
+      ? selectedSample !== null
+      : selectedEc !== null;
+
+  const buildPayload = () => {
+    const base = {
+      customer_id: customerId || undefined,
+      destination: formData.destination || undefined,
+      vehicle_number: formData.vehicle_number || undefined,
+      transport_details: formData.transport_details || undefined,
+      lr_number: formData.lr_number || undefined,
+      notes: formData.notes || undefined,
+    };
+    if (sourceType === 'master_carton') {
+      return { ...base, master_carton_ids: scannedCartons.map((c) => c.id) };
+    }
+    if (sourceType === 'sample') {
+      return { ...base, sample_record_id: selectedSample!.id };
+    }
+    return { ...base, ecommerce_record_id: selectedEc!.id };
+  };
+
   const { mutate: createDispatch, isPending } = useApiMutation(
-    () =>
-      dispatchService.create({
-        customer_id: customerId || undefined,
-        destination: formData.destination || undefined,
-        vehicle_number: formData.vehicle_number || undefined,
-        transport_details: formData.transport_details || undefined,
-        lr_number: formData.lr_number || undefined,
-        notes: formData.notes || undefined,
-        master_carton_ids: scannedCartons.map((c) => c.id),
-      }),
+    () => dispatchService.create(buildPayload()),
     {
       successMessage: 'Dispatch created successfully',
-      invalidateKeys: [['master-cartons'], ['dashboard-stats'], ['dispatches']],
+      invalidateKeys: [['master-cartons'], ['samples'], ['ecommerce'], ['dashboard-stats'], ['dispatches']],
       onSuccess: () => {
         setScannedCartons([]);
+        setSelectedSample(null);
+        setSelectedEc(null);
         setCustomerId('');
         setFormData({ destination: '', vehicle_number: '', transport_details: '', lr_number: '', notes: '' });
         router.push(ROUTES.DISPATCHES);
@@ -108,8 +187,14 @@ export default function DispatchPage() {
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (scannedCartons.length === 0) {
-      toast.error('Add at least one master carton');
+    if (!canSubmit) {
+      toast.error(
+        sourceType === 'master_carton'
+          ? 'Add at least one master carton'
+          : sourceType === 'sample'
+          ? 'Scan or enter a sample barcode'
+          : 'Scan or enter an e-commerce barcode'
+      );
       return;
     }
     createDispatch(undefined as void);
@@ -119,14 +204,38 @@ export default function DispatchPage() {
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
+  const submitLabel =
+    sourceType === 'master_carton'
+      ? `Create Dispatch (${scannedCartons.length} carton${scannedCartons.length !== 1 ? 's' : ''})`
+      : sourceType === 'sample'
+      ? `Create Dispatch${selectedSample ? ` — ${selectedSample.name}` : ''}`
+      : `Create Dispatch${selectedEc ? ` — ${selectedEc.name}` : ''}`;
+
   return (
     <div>
-      <PageHeader
-        title="Dispatch"
-        description="Create a new dispatch with master cartons"
-      />
+      <PageHeader title="Dispatch" description="Create a new dispatch" />
+
+      {/* Source-type tabs */}
+      <div className="flex border-b border-brand-border mb-6 overflow-x-auto">
+        {SOURCE_TABS.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => setSourceType(tab.id)}
+            className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 whitespace-nowrap ${
+              sourceType === tab.id
+                ? 'border-binny-navy text-binny-navy'
+                : 'border-transparent text-brand-text-muted hover:text-brand-text-dark'
+            }`}
+          >
+            {tab.icon}
+            {tab.label}
+          </button>
+        ))}
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Left: dispatch details form */}
         <div className="space-y-6">
           <Card className="p-6">
             <div className="flex items-center gap-2 mb-4">
@@ -195,130 +304,322 @@ export default function DispatchPage() {
                   fullWidth
                   size="lg"
                   isLoading={isPending}
-                  disabled={scannedCartons.length === 0}
+                  disabled={!canSubmit}
                   leftIcon={<Truck className="h-4 w-4" />}
                 >
-                  Create Dispatch ({scannedCartons.length} carton{scannedCartons.length !== 1 ? 's' : ''})
+                  {submitLabel}
                 </Button>
               </div>
             </form>
           </Card>
         </div>
 
+        {/* Right: source picker */}
         <div className="space-y-6">
-          <Card className="p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <div className="p-2 rounded-lg" style={{ backgroundColor: '#F5F4FF' }}>
-                  <ScanLine className="h-4 w-4" style={{ color: '#2D2A6E' }} />
+          {/* ── Master Carton panel ── */}
+          {sourceType === 'master_carton' && (
+            <>
+              <Card className="p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <div className="p-2 rounded-lg" style={{ backgroundColor: '#F5F4FF' }}>
+                      <ScanLine className="h-4 w-4" style={{ color: '#2D2A6E' }} />
+                    </div>
+                    <h3 className="font-semibold text-brand-text-dark">Scan Master Cartons</h3>
+                  </div>
+                  <Button
+                    variant={showScanner ? 'secondary' : 'primary'}
+                    size="sm"
+                    onClick={() => setShowScanner(!showScanner)}
+                    leftIcon={<ScanLine className="h-4 w-4" />}
+                  >
+                    {showScanner ? 'Hide Scanner' : 'Open Scanner'}
+                  </Button>
                 </div>
-                <h3 className="font-semibold text-brand-text-dark">Scan Master Cartons</h3>
-              </div>
-              <Button
-                variant={showScanner ? 'secondary' : 'primary'}
-                size="sm"
-                onClick={() => setShowScanner(!showScanner)}
-                leftIcon={<ScanLine className="h-4 w-4" />}
-              >
-                {showScanner ? 'Hide Scanner' : 'Open Scanner'}
-              </Button>
-            </div>
-            {showScanner && (
-              <QRScanner
-                onScanSuccess={handleScanCarton}
-                autoStart
-                fullScreen={fullScreenScan}
-                onToggleFullScreen={() => setFullScreenScan(!fullScreenScan)}
-              />
-            )}
-
-            {/* Manual barcode input */}
-            <div className="mt-4">
-              <label className="text-sm font-medium text-brand-text-dark mb-1.5 block">
-                Or enter barcode manually
-              </label>
-              <div className="flex gap-2">
-                <div className="flex-1">
-                  <Input
-                    placeholder="Enter carton barcode..."
-                    value={manualBarcode}
-                    onChange={(e) => setManualBarcode(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        handleAddManual();
-                      }
-                    }}
-                    leftIcon={<Search className="h-4 w-4" />}
+                {showScanner && (
+                  <QRScanner
+                    onScanSuccess={(code) => addCarton(code)}
+                    autoStart
+                    fullScreen={fullScreenScan}
+                    onToggleFullScreen={() => setFullScreenScan(!fullScreenScan)}
                   />
+                )}
+                <div className="mt-4">
+                  <label className="text-sm font-medium text-brand-text-dark mb-1.5 block">
+                    Or enter barcode manually
+                  </label>
+                  <div className="flex gap-2">
+                    <div className="flex-1">
+                      <Input
+                        placeholder="Enter carton barcode..."
+                        value={manualBarcode}
+                        onChange={(e) => setManualBarcode(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleAddManual();
+                          }
+                        }}
+                        leftIcon={<Search className="h-4 w-4" />}
+                      />
+                    </div>
+                    <Button onClick={handleAddManual} leftIcon={<Plus className="h-4 w-4" />}>
+                      Add
+                    </Button>
+                  </div>
                 </div>
-                <Button onClick={handleAddManual} leftIcon={<Plus className="h-4 w-4" />}>
-                  Add
+              </Card>
+
+              <Card className="p-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <div className="p-2 rounded-lg" style={{ backgroundColor: '#F5F4FF' }}>
+                    <Package className="h-4 w-4" style={{ color: '#2D2A6E' }} />
+                  </div>
+                  <h3 className="font-semibold text-brand-text-dark">
+                    Cartons to Dispatch ({scannedCartons.length})
+                  </h3>
+                </div>
+                {scannedCartons.length === 0 ? (
+                  <div className="text-center py-8">
+                    <Truck className="h-12 w-12 mx-auto mb-3 text-brand-text-muted/30" />
+                    <p className="text-sm text-brand-text-muted">
+                      Scan or enter master carton barcodes to add them to this dispatch
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-[400px] overflow-y-auto scrollbar-hide">
+                    {scannedCartons.map((carton) => {
+                      const boxes = carton.child_boxes ?? [];
+                      const articles = Array.from(new Set(boxes.map((b: ChildBoxWithProduct) => b.article_name))).join(', ');
+                      const colours = Array.from(new Set(boxes.map((b: ChildBoxWithProduct) => b.colour))).join(', ');
+                      const sizes = Array.from(new Set(boxes.map((b: ChildBoxWithProduct) => b.size))).sort().join(', ');
+                      const mrps = Array.from(new Set(boxes.map((b: ChildBoxWithProduct) => b.mrp)));
+                      return (
+                        <div
+                          key={carton.id}
+                          className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+                        >
+                          <div className="min-w-0">
+                            {articles && (
+                              <p className="text-sm font-medium text-brand-text-dark">{articles}</p>
+                            )}
+                            {(colours || sizes) && (
+                              <p className="text-xs text-brand-text-muted">
+                                {[colours, sizes].filter(Boolean).join(' | ')}
+                                {mrps.length > 0 ? ` | ${formatCurrency(mrps[0])}` : ''}
+                              </p>
+                            )}
+                            <p className="text-xs font-mono text-brand-text-muted mt-0.5">
+                              {carton.carton_barcode}
+                            </p>
+                            <p className="text-xs text-brand-text-muted">
+                              {carton.child_count} boxes &middot; {carton.status}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => removeCarton(carton.id)}
+                            className="p-1 rounded text-brand-text-muted hover:text-brand-error hover:bg-red-50 transition-colors shrink-0"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </Card>
+            </>
+          )}
+
+          {/* ── Sample panel ── */}
+          {sourceType === 'sample' && (
+            <Card className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 rounded-lg" style={{ backgroundColor: '#FFF1F1' }}>
+                    <FlaskConical className="h-4 w-4 text-red-600" />
+                  </div>
+                  <h3 className="font-semibold text-brand-text-dark">Scan Sample</h3>
+                </div>
+                <Button
+                  variant={showSampleScanner ? 'secondary' : 'primary'}
+                  size="sm"
+                  onClick={() => setShowSampleScanner(!showSampleScanner)}
+                  leftIcon={<ScanLine className="h-4 w-4" />}
+                >
+                  {showSampleScanner ? 'Hide Scanner' : 'Open Scanner'}
                 </Button>
               </div>
-            </div>
-          </Card>
 
-          <Card className="p-6">
-            <div className="flex items-center gap-2 mb-4">
-              <div className="p-2 rounded-lg" style={{ backgroundColor: '#F5F4FF' }}>
-                <Package className="h-4 w-4" style={{ color: '#2D2A6E' }} />
-              </div>
-              <h3 className="font-semibold text-brand-text-dark">
-                Cartons to Dispatch ({scannedCartons.length})
-              </h3>
-            </div>
+              {showSampleScanner && (
+                <QRScanner
+                  onScanSuccess={(code) => { lookupSample(code); setShowSampleScanner(false); }}
+                  autoStart
+                />
+              )}
 
-            {scannedCartons.length === 0 ? (
-              <div className="text-center py-8">
-                <Truck className="h-12 w-12 mx-auto mb-3 text-brand-text-muted/30" />
-                <p className="text-sm text-brand-text-muted">
-                  Scan or enter master carton barcodes to add them to this dispatch
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-2 max-h-[400px] overflow-y-auto scrollbar-hide">
-                {scannedCartons.map((carton) => {
-                  // Extract product summary from child_boxes if available
-                  const boxes = carton.child_boxes ?? [];
-                  const articles = Array.from(new Set(boxes.map((b: ChildBoxWithProduct) => b.article_name))).join(', ');
-                  const colours = Array.from(new Set(boxes.map((b: ChildBoxWithProduct) => b.colour))).join(', ');
-                  const sizes = Array.from(new Set(boxes.map((b: ChildBoxWithProduct) => b.size))).sort().join(', ');
-                  const mrps = Array.from(new Set(boxes.map((b: ChildBoxWithProduct) => b.mrp)));
-                  return (
-                  <div
-                    key={carton.id}
-                    className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+              <div className="mt-4">
+                <label className="text-sm font-medium text-brand-text-dark mb-1.5 block">
+                  Or enter sample barcode manually
+                </label>
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <Input
+                      placeholder="BINNY-SR-..."
+                      value={sampleBarcode}
+                      onChange={(e) => setSampleBarcode(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          lookupSample(sampleBarcode);
+                          setSampleBarcode('');
+                        }
+                      }}
+                      leftIcon={<Search className="h-4 w-4" />}
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    onClick={() => { lookupSample(sampleBarcode); setSampleBarcode(''); }}
+                    leftIcon={<Search className="h-4 w-4" />}
                   >
+                    Find
+                  </Button>
+                </div>
+              </div>
+
+              {selectedSample ? (
+                <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+                  <div className="flex items-start justify-between">
                     <div className="min-w-0">
-                      {articles && (
-                        <p className="text-sm font-medium text-brand-text-dark">{articles}</p>
-                      )}
-                      {(colours || sizes) && (
-                        <p className="text-xs text-brand-text-muted">
-                          {[colours, sizes].filter(Boolean).join(' | ')}
-                          {mrps.length > 0 ? ` | ${formatCurrency(mrps[0])}` : ''}
+                      <p className="text-sm font-semibold text-brand-text-dark">{selectedSample.name}</p>
+                      <p className="text-xs font-mono text-brand-text-muted">{selectedSample.sample_barcode}</p>
+                      {(selectedSample.customer_firm_name || selectedSample.recipient_name) && (
+                        <p className="text-xs text-brand-text-muted mt-0.5">
+                          Recipient: {selectedSample.customer_firm_name ?? selectedSample.recipient_name}
                         </p>
                       )}
-                      <p className="text-xs font-mono text-brand-text-muted mt-0.5">
-                        {carton.carton_barcode}
-                      </p>
+                      {selectedSample.purpose && (
+                        <p className="text-xs text-brand-text-muted">Purpose: {selectedSample.purpose}</p>
+                      )}
                       <p className="text-xs text-brand-text-muted">
-                        {carton.child_count} boxes &middot; {carton.status}
+                        {selectedSample.child_count} boxes &middot; {selectedSample.status}
                       </p>
                     </div>
                     <button
-                      onClick={() => removeCarton(carton.id)}
-                      className="p-1 rounded text-brand-text-muted hover:text-brand-error hover:bg-red-50 transition-colors shrink-0"
+                      type="button"
+                      onClick={() => setSelectedSample(null)}
+                      className="p-1 rounded text-brand-text-muted hover:text-brand-error hover:bg-red-100 transition-colors shrink-0"
                     >
                       <X className="h-4 w-4" />
                     </button>
                   </div>
-                  );
-                })}
+                </div>
+              ) : (
+                <div className="mt-4 text-center py-6">
+                  <FlaskConical className="h-10 w-10 mx-auto mb-2 text-brand-text-muted/30" />
+                  <p className="text-sm text-brand-text-muted">Scan or enter a sample barcode</p>
+                </div>
+              )}
+            </Card>
+          )}
+
+          {/* ── E-commerce panel ── */}
+          {sourceType === 'ecommerce' && (
+            <Card className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 rounded-lg" style={{ backgroundColor: '#F3F0FF' }}>
+                    <ShoppingCart className="h-4 w-4 text-purple-600" />
+                  </div>
+                  <h3 className="font-semibold text-brand-text-dark">Scan E-commerce Record</h3>
+                </div>
+                <Button
+                  variant={showEcScanner ? 'secondary' : 'primary'}
+                  size="sm"
+                  onClick={() => setShowEcScanner(!showEcScanner)}
+                  leftIcon={<ScanLine className="h-4 w-4" />}
+                >
+                  {showEcScanner ? 'Hide Scanner' : 'Open Scanner'}
+                </Button>
               </div>
-            )}
-          </Card>
+
+              {showEcScanner && (
+                <QRScanner
+                  onScanSuccess={(code) => { lookupEc(code); setShowEcScanner(false); }}
+                  autoStart
+                />
+              )}
+
+              <div className="mt-4">
+                <label className="text-sm font-medium text-brand-text-dark mb-1.5 block">
+                  Or enter e-commerce barcode manually
+                </label>
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <Input
+                      placeholder="BINNY-EC-..."
+                      value={ecBarcode}
+                      onChange={(e) => setEcBarcode(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          lookupEc(ecBarcode);
+                          setEcBarcode('');
+                        }
+                      }}
+                      leftIcon={<Search className="h-4 w-4" />}
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    onClick={() => { lookupEc(ecBarcode); setEcBarcode(''); }}
+                    leftIcon={<Search className="h-4 w-4" />}
+                  >
+                    Find
+                  </Button>
+                </div>
+              </div>
+
+              {selectedEc ? (
+                <div className="mt-4 p-3 bg-purple-50 border border-purple-200 rounded-lg">
+                  <div className="flex items-start justify-between">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-brand-text-dark">{selectedEc.name}</p>
+                      <p className="text-xs font-mono text-brand-text-muted">{selectedEc.ecommerce_barcode}</p>
+                      {selectedEc.marketplace && (
+                        <p className="text-xs text-brand-text-muted mt-0.5">
+                          Marketplace: {selectedEc.marketplace}
+                        </p>
+                      )}
+                      {selectedEc.order_reference && (
+                        <p className="text-xs text-brand-text-muted">Order: {selectedEc.order_reference}</p>
+                      )}
+                      {selectedEc.listing_sku && (
+                        <p className="text-xs text-brand-text-muted">SKU: {selectedEc.listing_sku}</p>
+                      )}
+                      <p className="text-xs text-brand-text-muted">
+                        {selectedEc.child_count} boxes &middot; {selectedEc.status}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedEc(null)}
+                      className="p-1 rounded text-brand-text-muted hover:text-brand-error hover:bg-purple-100 transition-colors shrink-0"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-4 text-center py-6">
+                  <ShoppingCart className="h-10 w-10 mx-auto mb-2 text-brand-text-muted/30" />
+                  <p className="text-sm text-brand-text-muted">Scan or enter an e-commerce barcode</p>
+                </div>
+              )}
+            </Card>
+          )}
         </div>
       </div>
     </div>

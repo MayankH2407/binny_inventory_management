@@ -5,8 +5,11 @@ import { NotFoundError } from '../utils/errors';
 
 export interface InventoryDashboard {
   totalChildBoxes: number;
+  generatedBoxes: number;
   freeChildBoxes: number;
   packedChildBoxes: number;
+  sampleBoxes: number;
+  ecommerceBoxes: number;
   dispatchedChildBoxes: number;
   totalMasterCartons: number;
   createdCartons: number;
@@ -36,11 +39,14 @@ export async function getDashboard(): Promise<InventoryDashboard> {
     query(`
       SELECT
         COUNT(*) as total,
-        COUNT(*) FILTER (WHERE status = $1) as free,
-        COUNT(*) FILTER (WHERE status = $2) as packed,
-        COUNT(*) FILTER (WHERE status = $3) as dispatched
+        COUNT(*) FILTER (WHERE status = $1) as generated,
+        COUNT(*) FILTER (WHERE status = $2) as free,
+        COUNT(*) FILTER (WHERE status = $3) as packed,
+        COUNT(*) FILTER (WHERE status = $4) as sample,
+        COUNT(*) FILTER (WHERE status = $5) as ecommerce,
+        COUNT(*) FILTER (WHERE status = $6) as dispatched
       FROM child_boxes
-    `, [CHILD_BOX_STATUS.FREE, CHILD_BOX_STATUS.PACKED, CHILD_BOX_STATUS.DISPATCHED]),
+    `, [CHILD_BOX_STATUS.GENERATED, CHILD_BOX_STATUS.FREE, CHILD_BOX_STATUS.PACKED, CHILD_BOX_STATUS.SAMPLE, CHILD_BOX_STATUS.ECOMMERCE, CHILD_BOX_STATUS.DISPATCHED]),
 
     query(`
       SELECT
@@ -90,8 +96,11 @@ export async function getDashboard(): Promise<InventoryDashboard> {
 
   return {
     totalChildBoxes: parseInt(cb.total, 10),
+    generatedBoxes: parseInt(cb.generated, 10),
     freeChildBoxes: parseInt(cb.free, 10),
     packedChildBoxes: parseInt(cb.packed, 10),
+    sampleBoxes: parseInt(cb.sample, 10),
+    ecommerceBoxes: parseInt(cb.ecommerce, 10),
     dispatchedChildBoxes: parseInt(cb.dispatched, 10),
     totalMasterCartons: parseInt(mc.total, 10),
     createdCartons: parseInt(mc.created, 10),
@@ -266,6 +275,8 @@ export interface StockNode {
   childBoxCount: number;
   cartonCount: number;
   children?: number;
+  /** Distinct MRP count within this row's group — frontend uses this at the article_name level to decide whether to show an MRP bucket level or skip directly to colour. */
+  distinctMrpCount: number;
 }
 
 export interface StockDetail {
@@ -288,12 +299,13 @@ export interface StockDetail {
 }
 
 export async function getStockByLevel(
-  level: 'section' | 'article_name' | 'colour' | 'product',
-  filters: { section?: string; article_name?: string; colour?: string }
+  level: 'section' | 'article_name' | 'mrp' | 'colour' | 'product',
+  filters: { section?: string; article_name?: string; mrp?: string; colour?: string }
 ): Promise<StockNode[]> {
   const conditions: string[] = ['p.is_active = true'];
-  const values: unknown[] = [CHILD_BOX_STATUS.FREE, CHILD_BOX_STATUS.PACKED, CHILD_BOX_STATUS.DISPATCHED];
-  let paramIndex = 4;
+  // $1=FREE, $2=PACKED, $3=SAMPLE, $4=ECOMMERCE, $5=DISPATCHED — GENERATED excluded (pre-inventory)
+  const values: unknown[] = [CHILD_BOX_STATUS.FREE, CHILD_BOX_STATUS.PACKED, CHILD_BOX_STATUS.SAMPLE, CHILD_BOX_STATUS.ECOMMERCE, CHILD_BOX_STATUS.DISPATCHED];
+  let paramIndex = 6;
 
   if (filters.section) {
     conditions.push(`p.section = $${paramIndex++}`);
@@ -302,6 +314,10 @@ export async function getStockByLevel(
   if (filters.article_name) {
     conditions.push(`p.article_name = $${paramIndex++}`);
     values.push(filters.article_name);
+  }
+  if (filters.mrp) {
+    conditions.push(`p.mrp = $${paramIndex++}::numeric`);
+    values.push(filters.mrp);
   }
   if (filters.colour) {
     conditions.push(`p.colour = $${paramIndex++}`);
@@ -328,6 +344,13 @@ export async function getStockByLevel(
       keyExpr = 'p.article_name';
       childCountExpr = 'COUNT(DISTINCT p.colour)';
       break;
+    case 'mrp':
+      groupCol = 'p.mrp';
+      // Pretty-format: ₹299 if integral, ₹299.50 if fractional. NUMERIC(10,2) so always 2 decimals.
+      nameExpr = "CASE WHEN p.mrp = FLOOR(p.mrp) THEN '₹' || FLOOR(p.mrp)::text ELSE '₹' || p.mrp::text END";
+      keyExpr = 'p.mrp::text';
+      childCountExpr = 'COUNT(DISTINCT p.colour)';
+      break;
     case 'colour':
       groupCol = 'p.colour';
       nameExpr = 'p.colour';
@@ -346,19 +369,24 @@ export async function getStockByLevel(
     SELECT
       ${nameExpr} as name,
       ${keyExpr} as key,
-      COALESCE(SUM(cb.quantity), 0) as total_pairs,
+      COALESCE(SUM(cb.quantity) FILTER (WHERE cb.status IN ($1, $2, $3, $4, $5)), 0) as total_pairs,
       COALESCE(SUM(cb.quantity) FILTER (WHERE cb.status = $1), 0) as in_stock,
       COALESCE(SUM(cb.quantity) FILTER (WHERE cb.status = $2), 0) as packed,
-      COALESCE(SUM(cb.quantity) FILTER (WHERE cb.status = $3), 0) as dispatched,
-      COUNT(cb.id) as child_box_count,
+      COALESCE(SUM(cb.quantity) FILTER (WHERE cb.status = $5), 0) as dispatched,
+      COUNT(cb.id) FILTER (WHERE cb.status IN ($1, $2, $3, $4, $5)) as child_box_count,
       COUNT(DISTINCT ccm.master_carton_id) FILTER (WHERE ccm.is_active = true) as carton_count,
-      ${childCountExpr} as children
+      ${childCountExpr} as children,
+      COUNT(DISTINCT p.mrp) as distinct_mrp_count
     FROM products p
     LEFT JOIN child_boxes cb ON cb.product_id = p.id
     LEFT JOIN carton_child_mapping ccm ON ccm.child_box_id = cb.id
     WHERE ${whereClause}
     GROUP BY ${groupCol}${level === 'product' ? ', p.size, p.mrp' : ''}
-    ORDER BY ${level === 'product' ? 'p.size::int' : 'total_pairs DESC NULLS LAST'}
+    ORDER BY ${
+      level === 'product' ? 'p.size::int'
+      : level === 'mrp' ? 'p.mrp ASC'
+      : 'total_pairs DESC NULLS LAST'
+    }
   `, values);
 
   return result.rows.map(row => ({
@@ -371,6 +399,7 @@ export async function getStockByLevel(
     childBoxCount: parseInt(row.child_box_count, 10),
     cartonCount: parseInt(row.carton_count, 10),
     children: parseInt(row.children, 10),
+    distinctMrpCount: parseInt(row.distinct_mrp_count, 10),
   }));
 }
 

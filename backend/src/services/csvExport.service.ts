@@ -1,5 +1,6 @@
 import { query } from '../config/database';
-import { getProductWiseReport, getDailyActivity } from './report.service';
+import { getProductWiseReport, getDailyActivity, getSampleReport, getEcommerceReport } from './report.service';
+import { SampleStatus, EcommerceStatus } from '../config/constants';
 
 function toCSV(headers: string[], rows: string[][]): string {
   const escape = (val: string) => `"${String(val ?? '').replace(/"/g, '""')}"`;
@@ -124,6 +125,65 @@ export async function exportDailyActivityCSV(fromDate: string, toDate: string): 
     String(a.cartons_created),
     String(a.cartons_closed),
     String(a.cartons_dispatched),
+  ]);
+
+  return toCSV(headers, rows);
+}
+
+export async function exportSampleReportCSV(filters: {
+  from?: Date;
+  to?: Date;
+  status?: SampleStatus;
+  customer_id?: string;
+}): Promise<string> {
+  const report = await getSampleReport(filters);
+
+  const headers = [
+    'Sample Barcode', 'Name', 'Customer', 'Recipient', 'Status',
+    'Box Count', 'Sample Date', 'Created At', 'Dispatched At', 'Created By',
+  ];
+
+  const rows = report.rows.map((r) => [
+    String(r.sample_barcode ?? ''),
+    String(r.name ?? ''),
+    String(r.customer_name ?? ''),
+    String(r.recipient_name ?? ''),
+    String(r.status ?? ''),
+    String(r.child_count ?? ''),
+    String(r.sample_date ?? ''),
+    String(r.created_at ?? ''),
+    String(r.dispatched_at ?? ''),
+    String(r.creator_name ?? ''),
+  ]);
+
+  return toCSV(headers, rows);
+}
+
+export async function exportEcommerceReportCSV(filters: {
+  from?: Date;
+  to?: Date;
+  status?: EcommerceStatus;
+  marketplace?: string;
+}): Promise<string> {
+  const report = await getEcommerceReport(filters);
+
+  const headers = [
+    'E-commerce Barcode', 'Name', 'Marketplace', 'Order Reference', 'Listing SKU',
+    'Status', 'Box Count', 'Mapped Date', 'Created At', 'Dispatched At', 'Created By',
+  ];
+
+  const rows = report.rows.map((r) => [
+    String(r.ecommerce_barcode ?? ''),
+    String(r.name ?? ''),
+    String(r.marketplace ?? ''),
+    String(r.order_reference ?? ''),
+    String(r.listing_sku ?? ''),
+    String(r.status ?? ''),
+    String(r.child_count ?? ''),
+    String(r.mapped_date ?? ''),
+    String(r.created_at ?? ''),
+    String(r.dispatched_at ?? ''),
+    String(r.creator_name ?? ''),
   ]);
 
   return toCSV(headers, rows);

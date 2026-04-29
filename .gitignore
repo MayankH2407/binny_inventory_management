@@ -108,3 +108,4 @@ Basiq360 Logo.png
 # Root-level PNG scan debug images
 /child qr*.png
 /qr child*.png
+/phase-*.png

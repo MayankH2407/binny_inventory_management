@@ -115,10 +115,10 @@ function PackCartonScreen() {
     setValidating(true);
     try {
       const box = await childBoxService.getByBarcode(code);
-      if (box.status !== 'FREE') {
+      if (box.status !== 'FREE' && box.status !== 'GENERATED') {
         Alert.alert(
           'Box not available',
-          `This box is ${box.status}. Only FREE boxes can be packed.`
+          `This box is ${box.status}. Only FREE or GENERATED boxes can be packed.`
         );
         return;
       }

@@ -13,6 +13,341 @@
 
 ## Phase 6 — Post-QA Modifications (batched; testing deferred to after all mods)
 
+### April 27, 2026 — Inventory hierarchy: MRP grouping level
+
+**Problem:** When a single article has stock at multiple price points (e.g., CITY 02 with both old ₹299 and new ₹399 inventory), the operator couldn't see the price-wise split in the `/inventory` Stock Levels drill-down. The hierarchy went `section → article → colour → size+MRP`, so MRP only surfaced at the leaf level — making it impossible to ask "how many ₹299 CITY 02 boxes do I have?" without manually grouping.
+
+**Fix:** Insert a new MRP grouping level between `article_name` and `colour`. Each MRP shows as its own card with full pair/box/colour breakdown.
+
+**Conditional split (UX):** if an article has only one distinct MRP, the MRP step is skipped — clicking the article jumps straight to the colour list, exactly like before. Only multi-MRP articles get the new bucket level. No old/new labeling — the operator just sees each MRP as its own bucket. Buckets sort by MRP ascending.
+
+**Backend changes** (single file: `backend/src/services/inventory.service.ts` + small controller change):
+- `getStockByLevel` signature: added `'mrp'` to the level union and `mrp?: string` to filters.
+- New switch case for `'mrp'` level: groups by `p.mrp`, renders name as `'₹' || p.mrp::text` (or `FLOOR(p.mrp)::text` when integral, so ₹299 not ₹299.00), key as raw `p.mrp::text`. Children are colours within that MRP.
+- New `mrp` filter clause: `p.mrp = $X::numeric` (numeric cast for exact comparison; URL passes as string).
+- New column on every result row: `distinct_mrp_count` (`COUNT(DISTINCT p.mrp)` per group). Frontend uses it at the article level to decide whether to insert the MRP step.
+- Result mapping: `StockNode` interface gains `distinctMrpCount: number`.
+- `inventory.controller.ts`: extended `validLevels` and pulls `mrp` from query params.
+
+**Frontend changes** (single file: `frontend/src/app/(dashboard)/inventory/page.tsx`):
+- `StockNode` and `BreadcrumbItem` types extended with `distinctMrpCount`.
+- New `LEVEL_CONFIG.mrp` entry: rose-pink gradient, `IndianRupee` icon, childLabel "Colours".
+- `NEXT_LEVEL` updated: `article_name → mrp` and `mrp → colour` (was `article_name → colour`).
+- New `getChildLevel(crumb)` helper replaces direct `NEXT_LEVEL` lookup. It returns `'colour'` when at an article breadcrumb with `distinctMrpCount === 1` (skipping the MRP step), otherwise normal next-level.
+- `handleDrillDown` carries `distinctMrpCount` onto the new breadcrumb when the user just landed on an article — so subsequent renders know whether to skip.
+- `NodeCard` subtitle: at the article level, shows `"N MRPs"` instead of `"N Colours"` when `distinctMrpCount > 1`. Tells users what the click will reveal.
+- The `mrp` filter threads automatically via `currentBreadcrumb.filters` into both the colour and product fetches; deep links work.
+
+**Files changed:**
+
+| File | Lines |
+|------|-------|
+| `backend/src/services/inventory.service.ts` | StockNode interface; getStockByLevel signature, filters, switch, ORDER BY, query select, result map |
+| `backend/src/controllers/inventory.controller.ts` | validLevels + query param destructure |
+| `frontend/src/app/(dashboard)/inventory/page.tsx` | Imports (IndianRupee), StockNode, BreadcrumbItem, LEVEL_CONFIG, NEXT_LEVEL, getChildLevel, handleDrillDown, NodeCard |
+
+**Verification:**
+- `backend/`: `npx tsc --noEmit` clean.
+- `frontend/`: `npx tsc --noEmit` clean except the 3 pre-existing e2e errors.
+
+**No DB migration needed.** The MRP grouping is a query-time aggregation; no schema change.
+
+**Stock semantics preserved:** the new level uses the same status filter as the rest of the hierarchy (FREE + PACKED + SAMPLE + ECOMMERCE + DISPATCHED, GENERATED excluded). Each bucket's totalPairs / inStock / packed / dispatched columns mirror the article level's semantics.
+
+**Mobile:** deferred per the prevailing decision (web-first; mobile catches up after web stabilizes). Mobile inventory hierarchy remains on the old shape.
+
+**Testing plan (deferred — bundled with rest of Phase 6 batch):**
+1. Find an article with one MRP (most articles) → confirm clicking goes straight to colours, breadcrumb shows `... > Article > Colour > Size`.
+2. Find or seed an article with two MRPs at the same article_name → confirm clicking shows two MRP bucket cards, each with correct pair count.
+3. Drill into an MRP bucket → confirm only colours that have stock at that MRP appear; back-button returns to MRP level.
+4. Deep-link `?level=colour&section=Hawaii&article_name=CITY%2002&mrp=299.00` → confirm filtered colour view loads.
+5. Confirm dashboard "pairs in stock" totals haven't moved — query semantics unchanged.
+
+**Not yet deployed.** Stacks with the prior three Phase 6 mods awaiting deploy: CSV uploader, GENERATED lifecycle, Sample + E-commerce, MRP hierarchy. Single rsync + `docker compose build` + `docker exec binny-backend npx node-pg-migrate up` covers all four.
+
+---
+
+### April 27, 2026 — Sample + E-commerce modules (web only; mobile deferred)
+
+**Problem:** Until now, a child box could only be `FREE → PACKED (in master carton) → DISPATCHED`. Client wants two additional containers — a **Sample** record (boxes set aside for trade shows / dealer demos / internal QC) and an **E-commerce** record (boxes mapped to a marketplace listing or order, e.g. Amazon / Flipkart / Meesho). Each is a peer of the master-carton container; a FREE child box can be assigned to exactly one of master-carton, sample, or e-commerce.
+
+**Lifecycle change (child box):**
+```
+GENERATED → FREE → ( PACKED | SAMPLE | ECOMMERCE ) → DISPATCHED
+                       ↑          ↑          ↑
+                    master      sample    ecommerce
+                    carton      record     record
+```
+Each container record has its own lifecycle: `CREATED → ACTIVE → CLOSED → DISPATCHED`, identical to master cartons.
+
+**Stock semantics (decided):**
+- `pairsInStock` (= "available for sale") includes only `FREE + PACKED`. SAMPLE and ECOMMERCE boxes are **allocated, not available for sale** — excluded from this figure across dashboard, stock summary, and reports.
+- `getStockByLevel` aggregations (representing "real physical inventory regardless of allocation") now include `FREE + PACKED + SAMPLE + ECOMMERCE + DISPATCHED` — only `GENERATED` excluded (those are pre-inventory).
+- Dashboard gains `sampleBoxes` and `ecommerceBoxes` KPI counts alongside the existing `generatedBoxes`/`freeChildBoxes`/etc. counts.
+
+**Container parity with master cartons:** both modules mirror the master-carton structure exactly — same `CREATED→ACTIVE→CLOSED→DISPATCHED` lifecycle, same `child_count` aggregation, same partial-unique-index pattern on the mapping table (`is_active=true` ensures one active mapping per child box per container type), same role gates, same audit-log + inventory-transaction conventions. **No `repack` equivalent** — operators do remove + add separately if they need to move boxes between sample/ecommerce records.
+
+---
+
+#### Backend changes
+
+**Constants** (`backend/src/config/constants.ts`):
+- `CHILD_BOX_STATUS` gains `SAMPLE` and `ECOMMERCE`.
+- New `SAMPLE_STATUS` and `ECOMMERCE_STATUS` constants (each: CREATED/ACTIVE/CLOSED/DISPATCHED).
+- New transaction types: `CHILD_SAMPLED`, `CHILD_UNSAMPLED`, `CHILD_ECOMMERCED`, `CHILD_UNECOMMERCED`, `SAMPLE_CREATED`, `SAMPLE_CLOSED`, `SAMPLE_REOPENED`, `SAMPLE_DISPATCHED`, `ECOMMERCE_CREATED`, `ECOMMERCE_CLOSED`, `ECOMMERCE_REOPENED`, `ECOMMERCE_DISPATCHED`.
+- New TypeScript types: `SampleStatus`, `EcommerceStatus`.
+
+**New migrations** (5):
+| File | What |
+|------|------|
+| `20260427100002_add-sample-status-to-child-boxes.js` | `pgm.addTypeValue('child_box_status', 'SAMPLE')` |
+| `20260427100003_create-sample-records-tables.js` | Extends `transaction_type` enum with all sample/activation values; creates `sample_status` enum, `sample_records` table, `sample_box_mapping` table with partial unique index `idx_unique_active_sample_mapping` |
+| `20260427100004_add-ecommerce-status-to-child-boxes.js` | `pgm.addTypeValue('child_box_status', 'ECOMMERCE')` |
+| `20260427100005_create-ecommerce-records-tables.js` | Extends `transaction_type` enum with ecommerce values; creates `ecommerce_status` enum, `ecommerce_records` table, `ecommerce_box_mapping` table with partial unique index |
+| `20260427100006_extend-dispatch-records-for-sample-ecommerce.js` | Adds nullable `sample_record_id` and `ecommerce_record_id` FKs to `dispatch_records`; relaxes `master_carton_id` to nullable; adds CHECK constraint `chk_dispatch_source_exactly_one` (exactly one of the three FKs must be set per dispatch row) |
+
+**New service / controller / route files** (10 new files):
+- `backend/src/models/schemas/sample.schema.ts` (46 lines) — Zod schemas: create / addBox / removeBox / list / id / barcode params
+- `backend/src/services/sample.service.ts` (695 lines) — 10 service functions mirroring masterCarton.service.ts: `createSample`, `getSampleById`, `getSamples`, `getSampleChildren`, `addBoxToSample`, `removeBoxFromSample`, `closeSample`, `getSampleByBarcode`, `fullUnpackSample`, `getSampleAssortment`. Same transaction/audit/locking patterns. Auto-activates `GENERATED` boxes when added.
+- `backend/src/controllers/sample.controller.ts` (116 lines)
+- `backend/src/routes/sample.routes.ts` (73 lines) — mounted at `/api/v1/samples`
+- `backend/src/models/schemas/ecommerce.schema.ts` (37 lines)
+- `backend/src/services/ecommerce.service.ts` (659 lines)
+- `backend/src/controllers/ecommerce.controller.ts` (143 lines)
+- `backend/src/routes/ecommerce.routes.ts` (85 lines) — mounted at `/api/v1/ecommerce`
+- Both reports: `backend/src/services/csvExport.service.ts` extended with `exportSampleReportCSV` + `exportEcommerceReportCSV`. `backend/src/services/report.service.ts` adds `getSampleReport` + `getEcommerceReport`.
+
+**Modified backend files:**
+- `backend/src/services/dispatch.service.ts` — `createDispatch` routes on which of `master_carton_id` / `sample_record_id` / `ecommerce_record_id` is present. Three new private branches: `_dispatchMasterCartons` (existing), `_dispatchSample`, `_dispatchEcommerce`. Sample/ecommerce dispatch flips the source's `status='DISPATCHED'`, sets `dispatched_at=NOW()`, bulk-flips all linked active child boxes `'SAMPLE'/'ECOMMERCE' → 'DISPATCHED'`, logs `SAMPLE_DISPATCHED`/`ECOMMERCE_DISPATCHED` plus per-box `CHILD_DISPATCHED`. List/get queries LEFT JOIN all three source tables with virtual columns `source_type` and `source_label`.
+- `backend/src/services/inventory.service.ts` — `getDashboard` adds `sampleBoxes` + `ecommerceBoxes` counts. `getStockByLevel` filter expanded to include SAMPLE/ECOMMERCE in `total_pairs` and `child_box_count` aggregations (only GENERATED excluded). `pairsInStock` (FREE+PACKED) intentionally unchanged.
+- `backend/src/services/report.service.ts` — `getProductWiseReport` adds `sample_boxes` + `ecommerce_boxes` filter aggregations. `getInventorySummary` `childBoxesByStatus` GROUP BY surfaces SAMPLE/ECOMMERCE buckets naturally.
+- `backend/src/routes/index.ts` — mounts `/samples` and `/ecommerce` (lines added near the master-cartons mount).
+- Dispatch Zod schema gets a `.refine()` enforcing exactly-one-of-three source FKs.
+- Reports controller + routes gain `GET /api/v1/reports/samples`, `/api/v1/reports/samples/export`, `/api/v1/reports/ecommerce`, `/api/v1/reports/ecommerce/export` (Admin + Supervisor).
+
+**Auth / role gates** (mirror master cartons exactly):
+
+| Operation | Roles |
+|---|---|
+| Create / add-box / remove-box / full-unpack | Admin, Supervisor, Warehouse Operator |
+| Close | Admin, Supervisor |
+| List, detail, assortment, scan-by-barcode | All authenticated |
+| Reports endpoints | Admin, Supervisor |
+
+---
+
+#### Frontend (web) changes
+
+**Pre-prepped shared files** (single Opus edits to avoid parallel-agent conflicts):
+- `frontend/src/types/index.ts` — `ChildBoxStatus` gains `'SAMPLE'`, `'ECOMMERCE'`. New interfaces: `SampleRecord`, `SampleStatus`, `EcommerceRecord`, `EcommerceStatus`. `DispatchRecord` extended with `source_type`, `source_label`, nullable source FKs. New report response types.
+- `frontend/src/components/ui/Badge.tsx` — new `purple` variant added.
+- `frontend/src/components/ui/StatusBadge.tsx` — `SAMPLE` (red), `ECOMMERCE` (purple) status variants.
+- `frontend/src/constants/index.ts` — new ROUTES (`SAMPLES`, `SAMPLES_CREATE`, `SAMPLE_DETAIL`, `ECOMMERCE`, `ECOMMERCE_CREATE`, `ECOMMERCE_DETAIL`). New NAV_ITEMS entries.
+- `frontend/src/components/layout/Sidebar.tsx` — `FlaskConical` and `ShoppingCart` icons imported and registered in `iconMap`.
+
+**New web pages** (8 new files, ~2,350 lines):
+
+| Module | Files |
+|---|---|
+| Sample | `services/sample.service.ts` (76), `app/(dashboard)/samples/page.tsx` (207), `app/(dashboard)/samples/create/page.tsx` (354), `app/(dashboard)/samples/[id]/page.tsx` (538) |
+| E-commerce | `services/ecommerce.service.ts` (76), `app/(dashboard)/ecommerce/page.tsx` (229), `app/(dashboard)/ecommerce/create/page.tsx` (334), `app/(dashboard)/ecommerce/[id]/page.tsx` (537) |
+
+Each module has a list page (paginated, filtered, mobile-card responsive), a create page (form fields + scan-to-add wizard with status-validated child boxes), and a detail page (header + info section + timeline + status-gated action bar + assortment table + child-boxes list). Mirrors master-carton pattern; **omits the print-label flow** for v1 (samples/ecommerce don't currently need a printed container label).
+
+**Sample-specific create form fields:** `name` (required), `customer_id` (optional dropdown from existing customers — empty option = "free-text recipient"), `recipient_name` (free-text fallback), `purpose`, `sample_date` (defaults to today), `notes`.
+
+**E-commerce-specific create form fields:** `name` (required), `marketplace` (free text), `order_reference`, `listing_sku`, `mapped_date`, `notes`. List page also gains a marketplace free-text filter.
+
+**Modified web pages:**
+- `frontend/src/app/(dashboard)/dispatch/page.tsx` — full rewrite. Added source-type tab switcher: `[Master Carton] [Sample] [E-commerce]`. Master-carton path keeps its existing multi-scan UX; sample and e-commerce paths are 1:1 (one record per dispatch, enforced by backend CHECK constraint). Submit body includes the appropriate FK key.
+- `frontend/src/app/(dashboard)/dispatches/page.tsx` — full rewrite. Added `SourceTypeBadge` component (Master Carton gray / Sample red / E-commerce purple). Source-type filter dropdown. Each row shows badge + `source_label` (the relevant barcode).
+- `frontend/src/app/(dashboard)/reports/page.tsx` — extended (~756 → ~1060 lines). New "Samples" and "E-commerce" tabs with status / date-range / customer or marketplace filters, summary cards, paginated table, CSV export button (auth-bearing axios fetch with `responseType: 'blob'` + browser download — same pattern as existing CSV exports).
+- `frontend/src/services/report.service.ts` — adds `getSampleReport`, `getEcommerceReport`, `exportSampleReportCsv`, `exportEcommerceReportCsv`.
+
+---
+
+#### Mobile
+
+**Deferred per user direction.** "Once all the modifications are done on the web portal, we'll replicate the same on the mobile app later." Forward-compatible prep already in place:
+- `mobile/types/index.ts` — `ChildBoxStatus` extended; `SampleRecord`, `EcommerceRecord` interfaces added.
+- `mobile/constants/index.ts` — `CHILD_BOX_STATUS_COLORS` gains SAMPLE (red) and ECOMMERCE (purple). New `SAMPLE_STATUS_COLORS` and `ECOMMERCE_STATUS_COLORS` maps.
+
+The mobile menu is **not yet** linked to `/samples` or `/ecommerce` — would 404 since no screens exist. When mobile work resumes, those nav entries get added back along with the actual screens.
+
+`npx tsc --noEmit` on mobile: clean. No regressions from the prep.
+
+---
+
+#### Verification
+
+- `backend/`: `npx tsc --noEmit` clean. All 5 migration files parse clean.
+- `frontend/`: `npx tsc --noEmit` clean except the 3 pre-existing e2e errors (unchanged).
+- `mobile/`: `npx tsc --noEmit` clean.
+
+#### Testing plan (deferred — bundled with rest of Phase 6 batch)
+
+1. Create a sample record with 3 child boxes from `/samples/create` → confirm boxes flip to `'SAMPLE'` status with red badge.
+2. Stock report should NOT count those 3 sample boxes in `pairs_in_stock`. Dashboard should show them in the new `Sample Boxes` KPI.
+3. Close the sample, then dispatch it via `/dispatch` (Sample tab) — sample should flip to DISPATCHED, all 3 child boxes to DISPATCHED.
+4. Same flow on `/ecommerce/create` → confirm purple badge, separate KPI, marketplace filter on list works.
+5. Reports → Samples tab → confirm summary numbers match. CSV export should download a file matching the visible rows.
+6. Dispatches list → confirm rows show correct `Source Type` badge and source-type filter dropdown works.
+7. Try to add a `'PACKED'` or `'SAMPLE'` (already in another sample) child box to a new sample → should be rejected with a clear error.
+
+#### Decisions baked in
+
+- A child box can be in at most one of (master_carton, sample, ecommerce) at a time — enforced by status field + three independent partial unique indexes on the mapping tables.
+- Mutual exclusivity at dispatch level: `dispatch_records` CHECK constraint enforces exactly one of the three FK columns is non-null per row.
+- No "repack between samples" flow — remove + add manually if needed.
+- No print labels for sample/ecommerce v1.
+- Sample/ecommerce dispatch is 1:1 (one source per dispatch row); only master cartons can dispatch multiple per row (existing pattern unchanged).
+
+#### Not yet deployed to testing portal
+
+Three Phase 6 mods now stacked awaiting deploy: CSV uploader (Apr 27), GENERATED lifecycle (Apr 27), Sample + E-commerce modules (Apr 27). Single rsync + `docker compose build` push + run all 6 migrations sequentially: `docker exec binny-backend npx node-pg-migrate up`. Mobile APK separately needs a rebuild for the GENERATED-status auto-activate flow (see prior entry).
+
+---
+
+### April 27, 2026 — Child Box lifecycle: new GENERATED status (label-printed-but-not-yet-scanned)
+
+**Problem:** Every newly-created child box was immediately counted as available stock (`status='FREE'`), but in reality, labels can get damaged in print or fail to be stuck on a physical box — meaning the system was over-reporting inventory. Client wants a "label printed but not yet validated" pre-inventory state, with the box becoming real stock only when scanned.
+
+**Lifecycle change:**
+```
+OLD:  (created) → FREE → PACKED → DISPATCHED
+NEW:  (created) → GENERATED → FREE → PACKED → DISPATCHED
+                              ↑ scan activates
+                  └────────────→ PACKED  (packing implicitly activates — label clearly survived)
+```
+
+**Edge cases locked in:**
+- Activate endpoint is **idempotent**: scanning an already-`FREE` box returns success silently with no audit-log noise. Scanning a `PACKED`/`DISPATCHED` box → 409.
+- **Existing data untouched** — no backfill. Boxes already in DB stay `FREE`. Only newly-created boxes from this commit forward go to `GENERATED`.
+- **Pack-on-scan** — packing a `GENERATED` box flips it directly to `PACKED` (skipping FREE), and writes BOTH a `CHILD_ACTIVATED` and a `CHILD_PACKED` inventory transaction so the trace timeline shows the activation moment.
+- **Stock figures exclude GENERATED** — dashboard "available stock", stock report `pairs_in_stock`, inventory hierarchy aggregations, and product-wise reports all filter to `status IN ('FREE','PACKED')` or just `FREE`. The new "Generated" KPI card surfaces it separately so admins see "labels printed awaiting scan" at a glance.
+
+**Backend changes:**
+
+| File | Change |
+|------|--------|
+| `backend/migrations/20260427100001_add-generated-status-to-child-boxes.js` | NEW. `pgm.addTypeValue('child_box_status', 'GENERATED', { ifNotExists: true, before: 'FREE' })`. Down migration is a no-op (PG enum DROP VALUE not supported; harmless). |
+| `backend/src/config/constants.ts` | Added `GENERATED: 'GENERATED'` (first) to `CHILD_BOX_STATUS`. Added `CHILD_ACTIVATED: 'CHILD_ACTIVATED'` to `TRANSACTION_TYPES`. |
+| `backend/src/services/childBox.service.ts` | All 4 creation paths (`createChildBox`, `createBulkChildBoxes`, `createBulkMultiSizeChildBoxes`, `bulkUploadChildBoxesFromCSV`) now insert with `status=GENERATED` instead of `FREE`. Audit-log text updated to "Child box generated (label printed)". NEW `activateChildBox(id, activatedBy)` function (~lines 484–536): idempotent, transactional, fetches via `getChildBoxById` to return canonical row. |
+| `backend/src/controllers/childBox.controller.ts` | NEW `activateChildBox` controller (~lines 131–141). |
+| `backend/src/routes/childBox.routes.ts` | NEW `POST /:id/activate` route. Auth: ALL authenticated roles (Admin + Supervisor + Warehouse Operator + Dispatch Operator) — anyone scanning on the warehouse floor can activate. |
+| `backend/src/services/masterCarton.service.ts` | `createMasterCarton` (~line 52) and `packChildBox` (~line 242) status guards extended from `!== FREE` to `!== FREE && !== GENERATED`. Both write an inline `CHILD_ACTIVATED` inventory transaction before the `CHILD_PACKED` one when source status was `GENERATED`. |
+| `backend/src/services/inventory.service.ts` | Dashboard query: added `generatedBoxes` count (4-way breakdown: generated/free/packed/dispatched). `getStockByLevel` query: `total_pairs` and `child_box_count` aggregations now `FILTER (WHERE status IN (FREE,PACKED,DISPATCHED))` so GENERATED doesn't inflate stock figures. `pairsInStock` was already explicit. |
+
+**Stock-query audit (full table in chunk-2 Sonnet report):** every WHERE/COUNT/aggregation against `child_boxes` was reviewed and either left as-is (already explicit) or fixed (only the two `getStockByLevel` aggregations needed actual edits). `getFreeChildBoxes` is unchanged — still `WHERE status='FREE'`, which is correct. Reports' `childBoxesByStatus` count gets a new GENERATED bucket naturally (it's a `GROUP BY status`).
+
+**Frontend (web) changes:**
+
+| File | Change |
+|------|--------|
+| `frontend/src/types/index.ts` | `ChildBoxStatus` union gains `'GENERATED'`. `DashboardStats` gains `generatedBoxes: number`. |
+| `frontend/src/services/childBox.service.ts` | NEW `activate(id)` method. |
+| `frontend/src/components/ui/StatusBadge.tsx` | NEW `GENERATED` variant: gray (`bg-gray-100 text-gray-700`), label `"Generated"`. |
+| `frontend/src/app/(dashboard)/scan/page.tsx`, `traceability/page.tsx` | Both fetch by barcode and now run a guarded `useEffect`: if returned box's status was `'GENERATED'`, call `activate(id)`, replace local state, toast `"Box activated — now part of available stock"`. Guard on `box.status === 'GENERATED'` prevents re-fire after the activate response (which has status `'FREE'`). |
+| `frontend/src/app/(dashboard)/child-boxes/page.tsx` | Status filter dropdown gained `'Generated'` option (second, after All). Aging legend caption updated to clarify GENERATED boxes are excluded from aging. |
+| `frontend/src/app/(dashboard)/page.tsx` | Dashboard grid expanded 4 → 5 columns. NEW first KPI card: `"Generated / Awaiting scan"` with `FileWarning` icon, gray accent. The existing "Total Child Boxes" card's breakdown chip row also gained a `Generated` chip so it sums correctly to the total (previous breakdown was Free+Packed+Dispatched, mathematically inconsistent post-change). |
+
+**Mobile changes:**
+
+| File | Change |
+|------|--------|
+| `mobile/types/index.ts` | `ChildBoxStatus` union gains `'GENERATED'`. |
+| `mobile/constants/index.ts` | `CHILD_BOX_STATUS_COLORS` gains `GENERATED: '#6B7280'` — Badge component reads from this map, so no Badge component edit needed. |
+| `mobile/services/childBox.service.ts` | NEW `activate(id)` method. |
+| `mobile/app/(tabs)/scan.tsx` | After `handleTrace` resolves, if `data.childBox.status === 'GENERATED'`: call `activate`, mutate the result, `Alert.alert` confirmation. |
+| `mobile/app/master-cartons/create.tsx` | Pre-existing client-side guard on line 118 extended from `box.status !== 'FREE'` to `!== 'FREE' && !== 'GENERATED'`. Alert message updated. |
+| `mobile/app/child-boxes/index.tsx` | Status filter chip row gains a `Generated` chip (between All and Free). |
+
+**Activate endpoint contract:**
+- `POST /api/v1/child-boxes/:id/activate` — auth required, any role.
+- `GENERATED → FREE`: 200, returns updated box. Writes `CHILD_ACTIVATED` inventory transaction + audit log entry.
+- `FREE → FREE`: 200, returns box unchanged, **no audit/transaction noise** (idempotent).
+- `PACKED` / `DISPATCHED`: 409 with message "Cannot activate child box in {status} status".
+
+**Verification:**
+- `backend/`: `npx tsc --noEmit` clean.
+- `frontend/`: `npx tsc --noEmit` clean except 3 pre-existing e2e errors (unchanged).
+- `mobile/`: `npx tsc --noEmit` clean.
+- No new npm dependencies. No DB migrations beyond the one enum-extend.
+
+**Testing plan (deferred — bundled with rest of Phase 6 batch):**
+1. Generate boxes via single create → confirm they show as `GENERATED` with gray badge.
+2. Scan a `GENERATED` box on /scan → activation toast → status flips to `FREE`.
+3. Scan the same box again → no toast (idempotent), status stays `FREE`.
+4. Pack a `GENERATED` box on /pack → goes directly to `PACKED`, trace timeline shows BOTH ACTIVATED and PACKED events.
+5. Dashboard: confirm `Generated` KPI card matches the count of GENERATED boxes; confirm "Total Child Boxes" breakdown chips sum to the total.
+6. Stock report: confirm GENERATED boxes are excluded from `pairs_in_stock` and per-product `total_pairs` figures.
+7. Bulk CSV upload (the feature shipped earlier today): newly created boxes from CSV land as GENERATED, requiring per-barcode scan to activate.
+8. Mobile: same scan + pack flows on Android device.
+
+**Not yet deployed to testing portal.** This commit + the earlier Phase 6 child-box CSV uploader commit both await the next manual rsync + `docker compose build` push to `srv1409601.hstgr.cloud/binny/`.
+
+---
+
+### April 27, 2026 — Child Box module: CSV bulk uploader (go-live initial stock import)
+
+**Problem:** When the system goes live the warehouse needs to upload the entire existing physical stock as child boxes in one shot. The existing creation paths (single create, `POST /child-boxes/bulk` for one product, `POST /child-boxes/bulk-multi-size` for one article × N sizes) all require interactive form input — none of them accept a flat list of "SKU + count" rows. No precedent on the child-box side; products already had a CSV bulk uploader (`POST /products/bulk-upload`), so we mirror that pattern.
+
+**Fix (scope-contained, pure addition — zero changes to existing endpoints / schema / migrations):**
+
+**Backend:**
+- New Zod row schema `bulkUploadChildBoxRowSchema` in `backend/src/models/schemas/childBox.schema.ts` (lines ~68–78): `{ sku: string, quantity: int 1–10000 default 1, count: int 1–500 }`. Uses `z.coerce.number()` since CSV cells arrive as strings.
+- New service `bulkUploadChildBoxesFromCSV(csvBuffer, createdBy)` in `backend/src/services/childBox.service.ts`. Parses with `csv-parse/sync` (same options as products: `{ columns: true, skip_empty_lines: true, trim: true, bom: true }`). Header check requires `sku` + `count` (`quantity` optional). Hard caps: **1000 rows per file** and **5000 total boxes per upload** (sum of all `count` values, computed before any inserts). Per-row processing: zod-validates the row, looks up product by SKU (rejects missing or `is_active=false`), then `BEGIN`/inserts `count` boxes/`COMMIT` per row — bad row rolls back its own transaction and processing continues. Each created box gets the standard `BINNY-CB-{uuid}` barcode, status `FREE`, and the same audit-log + inventory-transaction trail as `createBulkChildBoxes`.
+- Two new controllers in `backend/src/controllers/childBox.controller.ts` (lines ~113–153): `bulkUploadChildBoxes` (delegates to service, returns 201) and `getBulkUploadSample` (sends a 4-line CSV with headers + 3 sample rows).
+- Two new routes in `backend/src/routes/childBox.routes.ts`, both `authorize(ADMIN, SUPERVISOR)` (matching the products bulk-upload role gate, NOT Warehouse Operator — go-live initial-stock import is an admin task):
+  - `GET /child-boxes/bulk-upload/sample` — registered before any `/:id` route to avoid path collision
+  - `POST /child-boxes/bulk-upload` — wraps `csvUpload.single('file')` from existing multer middleware (10MB cap, .csv MIME filter)
+
+**Service response shape:**
+```ts
+{
+  totalRows: number;
+  created: number;            // boxes successfully inserted
+  errors: { row: number; sku?: string; error: string }[];  // 1-indexed (header excluded)
+  createdBarcodes: string[];  // every BINNY-CB-{uuid} that was inserted (for label printing)
+}
+```
+The `createdBarcodes` array is a deliberate addition vs. the products pattern — at go-live the warehouse will need every barcode to print labels, so we surface them directly instead of forcing a follow-up DB query.
+
+**Frontend:**
+- `frontend/src/services/childBox.service.ts`: added `BulkUploadResult` + `BulkRowError` interfaces and two methods (`bulkUpload(file)`, `getSampleCsvUrl()`) — mirrors `frontend/src/services/product.service.ts:91–103` exactly.
+- `frontend/src/app/(dashboard)/child-boxes/page.tsx`: added a manager-only **Bulk Import** outline button next to the existing **Generate Labels** button in the page header. Opens a modal that mirrors the products bulk-import modal: blue sample-download box, required-columns help text, drag-drop file input, results panel with green success banner + scrollable red per-row error list. **One addition vs. products:** a "Download Created Barcodes" button on success that builds an in-browser CSV (`barcode` header + one barcode per line) and downloads it as `child-boxes-created-{YYYY-MM-DD}.csv`. Refetch hooked on success so the new boxes appear in the list immediately. No mobile / generate-page changes.
+
+**Files changed:**
+| File | Lines | Change |
+|------|-------|--------|
+| `backend/src/models/schemas/childBox.schema.ts` | ~68–78 | New row schema + type |
+| `backend/src/services/childBox.service.ts` | header + before `getFreeChildBoxes` | New `bulkUploadChildBoxesFromCSV` |
+| `backend/src/controllers/childBox.controller.ts` | ~113–153 | `bulkUploadChildBoxes` + `getBulkUploadSample` |
+| `backend/src/routes/childBox.routes.ts` | imports + before existing routes | `csvUpload` import + 2 new routes |
+| `frontend/src/services/childBox.service.ts` | 1–20, 66–80 | Types + 2 methods |
+| `frontend/src/app/(dashboard)/child-boxes/page.tsx` | extended | Bulk Import button + modal + 4 handlers + `BulkUploadResult`/`BulkRowError` import |
+
+**Validation / verification:**
+- `backend/`: `npx tsc --noEmit` clean — zero errors.
+- `frontend/`: `npx tsc --noEmit` shows only 3 pre-existing errors in `e2e/03-child-boxes.spec.ts` and `e2e/27-edge-cases.spec.ts` (already on the books, unrelated). Zero new errors.
+- No new npm dependencies. `csv-parse` already in backend (used by products); no `xlsx` lib added — Excel users save-as-CSV. Documented this tradeoff with user; can swap in native `.xlsx` later if requested.
+- No DB migration. Boxes import as `FREE` per existing `child_boxes` schema; packing into master cartons happens via the normal pack workflow afterward.
+- No mobile app changes (per 2026-04-23 decision: bulk creates stay web-only).
+
+**Sample CSV (what `GET /child-boxes/bulk-upload/sample` returns):**
+```
+sku,quantity,count
+BFW-MEN-CASUAL-RED-7,1,50
+BFW-MEN-CASUAL-RED-8,1,40
+BFW-MEN-CASUAL-BLUE-9,1,30
+```
+
+**Testing status:** deferred — bundled with the rest of the Phase 6 batch awaiting consolidated test pass. Manual smoke-test plan when it lands: download sample → upload as-is → confirm 120 boxes (50+40+30) created → exercise the "Download Created Barcodes" flow → verify the barcodes match boxes visible at `/child-boxes` filtered by recent.
+
+**Not yet deployed to testing portal** (`srv1409601.hstgr.cloud/binny/`). Last deploy was Phase 6 batch #1 (commit `1b56928` on 2026-04-23). This commit needs a manual rsync + `docker compose build` push when the user is ready — see the Apr 23 portal deploy entry below for the procedure.
+
+---
+
 ### April 22, 2026 — Product module: size range bulk-create
 
 **Problem:** Add-Product form had a `Size` field plus orphan `Size From` / `Size To` fields. Range fields stored as metadata but didn't actually create N products — user still had to create one product per size manually (6, 7, 8, 9, 10 = 5 submissions).
@@ -138,9 +473,27 @@ Net effect: same 6-cell table structure, Colour and MRP cells now visibly domina
 
 ---
 
-## CURRENT EXECUTION (resumption marker — SESSION PAUSED 2026-04-23 END OF DAY; resume 2026-04-24)
+## CURRENT EXECUTION (resumption marker — last touched 2026-04-27; web Phase 6 active again)
 
-**Active workstream:** Mobile app feature parity with web portal — **Phase 5 parity 100% code-complete, Phase D partially done.** Web Phase 6 mod queue still paused; can resume anytime.
+**Active workstream:** Web Phase 6 — client feeding modifications one-at-a-time. **Four mods shipped 2026-04-27, all code-complete on backend + web, all tsc clean, none deployed yet:**
+1. Child-box CSV bulk uploader (go-live initial stock import).
+2. New `GENERATED` lifecycle status — labels start as GENERATED, scan activates to FREE.
+3. Sample + E-commerce modules — two new container types peer to master cartons. Touches DB schema (5 new migrations), child-box status enum, pack/dispatch/stock/reports.
+4. Inventory hierarchy MRP grouping — new `mrp` level inserted between article and colour; conditional skip for single-MRP articles. No DB migration.
+
+**Mobile deferred** per user direction 2026-04-27: "Once all the modifications are done on the web portal, we'll replicate the same on the mobile app later." Forward-compat prep in mobile types + status colors is in place; mobile screens for sample/ecommerce + GENERATED auto-activation pending. Current APK on device is from 2026-04-23 (commit `042b1e6`) — lacks all three of today's mods.
+
+**Where to pick up next:**
+
+1. **Deploy all three Phase 6 mods to the testing portal in one push.** Commit each as a separate commit (or batch — user's call), push, then rsync + `docker compose build` on `srv1409601.hstgr.cloud` per the Apr 23 deploy entry. After deploy, **run all pending migrations** in order: `docker exec binny-backend npx node-pg-migrate up`. Verify:
+   - `OPTIONS /binny/api/v1/child-boxes/bulk-upload` → 204
+   - `OPTIONS /binny/api/v1/samples` → 204
+   - `OPTIONS /binny/api/v1/ecommerce` → 204
+   - Dashboard renders 5 KPI cards (Generated, Total, plus the existing three)
+   - Reports page has Samples + E-commerce tabs visible to Admin/Supervisor
+2. **Wait for next client mod** — pattern continues.
+3. **Mobile parity (deferred):** when client signals readiness, replicate the three Apr 27 mods on mobile in this order: GENERATED auto-activate (already partially shipped — Apr 27 entry below), then Sample module screens, then E-commerce module screens. APK rebuild after mobile work lands.
+4. **Optional:** native `.xlsx` parsing in CSV uploader.
 
 **Where to pick up tomorrow:**
 

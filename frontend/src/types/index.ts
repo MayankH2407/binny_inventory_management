@@ -60,7 +60,7 @@ export interface ProductSection {
 }
 
 // ---------- ChildBox ----------
-export type ChildBoxStatus = 'FREE' | 'PACKED' | 'DISPATCHED';
+export type ChildBoxStatus = 'GENERATED' | 'FREE' | 'PACKED' | 'SAMPLE' | 'ECOMMERCE' | 'DISPATCHED';
 
 export interface ChildBox {
   id: string;
@@ -105,6 +105,62 @@ export interface MasterCarton {
   mrp_summary?: number | null;
 }
 
+// ---------- SampleRecord ----------
+export type SampleStatus = 'CREATED' | 'ACTIVE' | 'CLOSED' | 'DISPATCHED';
+
+export interface SampleRecord {
+  id: string;
+  sample_barcode: string;
+  name: string;
+  customer_id: string | null;
+  recipient_name: string | null;
+  purpose: string | null;
+  sample_date: string | null;
+  notes: string | null;
+  status: SampleStatus;
+  child_count: number;
+  closed_at: string | null;
+  dispatched_at: string | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+  child_boxes?: ChildBoxWithProduct[];
+  creator?: User;
+  customer?: Customer | null;
+  customer_firm_name?: string | null;
+  article_summary?: string | null;
+  colour_summary?: string | null;
+  size_summary?: string | null;
+  mrp_summary?: number | null;
+}
+
+// ---------- EcommerceRecord ----------
+export type EcommerceStatus = 'CREATED' | 'ACTIVE' | 'CLOSED' | 'DISPATCHED';
+
+export interface EcommerceRecord {
+  id: string;
+  ecommerce_barcode: string;
+  name: string;
+  marketplace: string | null;
+  order_reference: string | null;
+  listing_sku: string | null;
+  mapped_date: string | null;
+  notes: string | null;
+  status: EcommerceStatus;
+  child_count: number;
+  closed_at: string | null;
+  dispatched_at: string | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+  child_boxes?: ChildBoxWithProduct[];
+  creator?: User;
+  article_summary?: string | null;
+  colour_summary?: string | null;
+  size_summary?: string | null;
+  mrp_summary?: number | null;
+}
+
 // ---------- Dispatch ----------
 export type DispatchStatus = 'CREATED' | 'IN_TRANSIT' | 'DELIVERED';
 
@@ -127,9 +183,13 @@ export interface Dispatch {
   updated_at: string;
 }
 
+export type DispatchSourceType = 'master_carton' | 'sample' | 'ecommerce';
+
 export interface DispatchRecord {
   id: string;
-  master_carton_id: string;
+  master_carton_id: string | null;
+  sample_record_id?: string | null;
+  ecommerce_record_id?: string | null;
   dispatched_by: string;
   customer_id: string | null;
   destination: string | null;
@@ -139,6 +199,10 @@ export interface DispatchRecord {
   dispatch_date: string;
   notes: string | null;
   metadata: Record<string, unknown> | null;
+  // Virtual columns from backend
+  source_type?: DispatchSourceType;
+  source_label?: string | null;
+  // Legacy / joined columns
   carton_barcode?: string;
   child_count?: number;
   customer_firm_name?: string;
@@ -148,6 +212,56 @@ export interface DispatchRecord {
   mrp_summary?: number | null;
   created_at: string;
   updated_at: string;
+}
+
+// ---------- Report types ----------
+export interface SampleReportRow {
+  id: string;
+  sample_barcode: string;
+  name: string;
+  recipient: string | null;
+  status: string;
+  child_count: number;
+  sample_date: string | null;
+  created_at: string;
+  dispatched_at: string | null;
+}
+
+export interface SampleReportSummary {
+  total: number;
+  by_status: Record<string, number>;
+  total_pairs: number;
+}
+
+export interface SampleReportResponse {
+  summary: SampleReportSummary;
+  rows: SampleReportRow[];
+}
+
+export interface EcommerceReportRow {
+  id: string;
+  ecommerce_barcode: string;
+  name: string;
+  marketplace: string | null;
+  order_reference: string | null;
+  listing_sku: string | null;
+  status: string;
+  child_count: number;
+  mapped_date: string | null;
+  created_at: string;
+  dispatched_at: string | null;
+}
+
+export interface EcommerceReportSummary {
+  total: number;
+  by_status: Record<string, number>;
+  total_pairs: number;
+  by_marketplace: Array<{ marketplace: string; count: number }>;
+}
+
+export interface EcommerceReportResponse {
+  summary: EcommerceReportSummary;
+  rows: EcommerceReportRow[];
 }
 
 // ---------- Customer ----------
@@ -206,6 +320,7 @@ export interface TimelineEvent {
 // ---------- Dashboard ----------
 export interface DashboardStats {
   totalChildBoxes: number;
+  generatedBoxes: number;
   freeChildBoxes: number;
   packedChildBoxes: number;
   dispatchedChildBoxes: number;
@@ -276,7 +391,10 @@ export interface CreateMasterCartonRequest {
 }
 
 export interface CreateDispatchRequest {
-  master_carton_ids: string[];
+  // Exactly one of these must be provided
+  master_carton_ids?: string[];
+  sample_record_id?: string;
+  ecommerce_record_id?: string;
   customer_id?: string;
   destination?: string;
   transport_details?: string;

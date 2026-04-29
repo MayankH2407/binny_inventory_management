@@ -1,5 +1,5 @@
 import { query } from '../config/database';
-import { CHILD_BOX_STATUS, TRANSACTION_TYPES } from '../config/constants';
+import { CHILD_BOX_STATUS, TRANSACTION_TYPES, SAMPLE_STATUS, ECOMMERCE_STATUS, SampleStatus, EcommerceStatus } from '../config/constants';
 
 export interface InventorySummaryReport {
   totalProducts: number;
@@ -20,6 +20,8 @@ export interface ProductWiseReport {
   total_child_boxes: number;
   free_boxes: number;
   packed_boxes: number;
+  sample_boxes: number;
+  ecommerce_boxes: number;
   dispatched_boxes: number;
   total_pairs: number;
   pairs_in_stock: number;
@@ -121,6 +123,8 @@ export async function getProductWiseReport(): Promise<ProductWiseReport[]> {
       COUNT(cb.id) as total_child_boxes,
       COUNT(cb.id) FILTER (WHERE cb.status = $1) as free_boxes,
       COUNT(cb.id) FILTER (WHERE cb.status = $2) as packed_boxes,
+      COUNT(cb.id) FILTER (WHERE cb.status = $4) as sample_boxes,
+      COUNT(cb.id) FILTER (WHERE cb.status = $5) as ecommerce_boxes,
       COUNT(cb.id) FILTER (WHERE cb.status = $3) as dispatched_boxes,
       COALESCE(SUM(cb.quantity), 0) as total_pairs,
       COALESCE(SUM(cb.quantity) FILTER (WHERE cb.status IN ($1, $2)), 0) as pairs_in_stock,
@@ -130,13 +134,15 @@ export async function getProductWiseReport(): Promise<ProductWiseReport[]> {
     WHERE p.is_active = true
     GROUP BY p.id, p.article_name, p.sku, p.size, p.colour
     ORDER BY p.article_name
-  `, [CHILD_BOX_STATUS.FREE, CHILD_BOX_STATUS.PACKED, CHILD_BOX_STATUS.DISPATCHED]);
+  `, [CHILD_BOX_STATUS.FREE, CHILD_BOX_STATUS.PACKED, CHILD_BOX_STATUS.DISPATCHED, CHILD_BOX_STATUS.SAMPLE, CHILD_BOX_STATUS.ECOMMERCE]);
 
   return result.rows.map((row) => ({
     ...row,
     total_child_boxes: parseInt(row.total_child_boxes, 10),
     free_boxes: parseInt(row.free_boxes, 10),
     packed_boxes: parseInt(row.packed_boxes, 10),
+    sample_boxes: parseInt(row.sample_boxes, 10),
+    ecommerce_boxes: parseInt(row.ecommerce_boxes, 10),
     dispatched_boxes: parseInt(row.dispatched_boxes, 10),
     total_pairs: parseInt(row.total_pairs, 10),
     pairs_in_stock: parseInt(row.pairs_in_stock, 10),
@@ -336,4 +342,231 @@ export async function getDailyActivity(
   `, [fromDate, toDate]);
 
   return result.rows;
+}
+
+// ─── Sample Report ─────────────────────────────────────────────────────────
+
+export interface SampleReportRow {
+  sample_barcode: string;
+  name: string;
+  customer_name: string | null;
+  recipient_name: string | null;
+  status: string;
+  child_count: number;
+  sample_date: string | null;
+  created_at: string;
+  dispatched_at: string | null;
+  creator_name: string | null;
+}
+
+export interface SampleReportSummary {
+  total: number;
+  created: number;
+  active: number;
+  closed: number;
+  dispatched: number;
+  pairs_total: number;
+}
+
+export interface SampleReport {
+  summary: SampleReportSummary;
+  rows: SampleReportRow[];
+}
+
+export async function getSampleReport(filters: {
+  from?: Date;
+  to?: Date;
+  status?: SampleStatus;
+  customer_id?: string;
+}): Promise<SampleReport> {
+  const conditions: string[] = [];
+  const values: unknown[] = [];
+  let paramIndex = 1;
+
+  if (filters.from) {
+    conditions.push(`sr.created_at >= $${paramIndex++}`);
+    values.push(filters.from);
+  }
+  if (filters.to) {
+    conditions.push(`sr.created_at <= $${paramIndex++}`);
+    values.push(filters.to);
+  }
+  if (filters.status) {
+    conditions.push(`sr.status = $${paramIndex++}`);
+    values.push(filters.status);
+  }
+  if (filters.customer_id) {
+    conditions.push(`sr.customer_id = $${paramIndex++}`);
+    values.push(filters.customer_id);
+  }
+
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  const statusParams = [...values, SAMPLE_STATUS.CREATED, SAMPLE_STATUS.ACTIVE, SAMPLE_STATUS.CLOSED, SAMPLE_STATUS.DISPATCHED];
+  const pi = paramIndex;
+
+  const [summaryResult, rowsResult] = await Promise.all([
+    query(`
+      SELECT
+        COUNT(*) as total,
+        COUNT(*) FILTER (WHERE sr.status = $${pi}) as created,
+        COUNT(*) FILTER (WHERE sr.status = $${pi + 1}) as active,
+        COUNT(*) FILTER (WHERE sr.status = $${pi + 2}) as closed,
+        COUNT(*) FILTER (WHERE sr.status = $${pi + 3}) as dispatched,
+        COALESCE(SUM(
+          (SELECT COALESCE(SUM(cb.quantity), 0)
+           FROM sample_box_mapping sbm
+           JOIN child_boxes cb ON cb.id = sbm.child_box_id
+           WHERE sbm.sample_record_id = sr.id AND sbm.is_active = true)
+        ), 0) as pairs_total
+      FROM sample_records sr
+      ${whereClause}
+    `, statusParams),
+
+    query(`
+      SELECT
+        sr.sample_barcode, sr.name, c.firm_name as customer_name,
+        sr.recipient_name, sr.status, sr.child_count,
+        sr.sample_date, sr.created_at, sr.dispatched_at,
+        u.name as creator_name
+      FROM sample_records sr
+      LEFT JOIN customers c ON c.id = sr.customer_id
+      LEFT JOIN users u ON u.id = sr.created_by
+      ${whereClause}
+      ORDER BY sr.created_at DESC
+    `, values),
+  ]);
+
+  const s = summaryResult.rows[0];
+  return {
+    summary: {
+      total: parseInt(s.total, 10),
+      created: parseInt(s.created, 10),
+      active: parseInt(s.active, 10),
+      closed: parseInt(s.closed, 10),
+      dispatched: parseInt(s.dispatched, 10),
+      pairs_total: parseInt(s.pairs_total, 10),
+    },
+    rows: rowsResult.rows,
+  };
+}
+
+// ─── Ecommerce Report ───────────────────────────────────────────────────────
+
+export interface EcommerceReportRow {
+  ecommerce_barcode: string;
+  name: string;
+  marketplace: string | null;
+  order_reference: string | null;
+  listing_sku: string | null;
+  status: string;
+  child_count: number;
+  mapped_date: string | null;
+  created_at: string;
+  dispatched_at: string | null;
+  creator_name: string | null;
+}
+
+export interface EcommerceReportSummary {
+  total: number;
+  created: number;
+  active: number;
+  closed: number;
+  dispatched: number;
+  pairs_total: number;
+  by_marketplace: Array<{ marketplace: string; count: number }>;
+}
+
+export interface EcommerceReport {
+  summary: EcommerceReportSummary;
+  rows: EcommerceReportRow[];
+}
+
+export async function getEcommerceReport(filters: {
+  from?: Date;
+  to?: Date;
+  status?: EcommerceStatus;
+  marketplace?: string;
+}): Promise<EcommerceReport> {
+  const conditions: string[] = [];
+  const values: unknown[] = [];
+  let paramIndex = 1;
+
+  if (filters.from) {
+    conditions.push(`er.created_at >= $${paramIndex++}`);
+    values.push(filters.from);
+  }
+  if (filters.to) {
+    conditions.push(`er.created_at <= $${paramIndex++}`);
+    values.push(filters.to);
+  }
+  if (filters.status) {
+    conditions.push(`er.status = $${paramIndex++}`);
+    values.push(filters.status);
+  }
+  if (filters.marketplace) {
+    conditions.push(`er.marketplace ILIKE $${paramIndex++}`);
+    values.push(`%${filters.marketplace}%`);
+  }
+
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  const statusParams = [...values, ECOMMERCE_STATUS.CREATED, ECOMMERCE_STATUS.ACTIVE, ECOMMERCE_STATUS.CLOSED, ECOMMERCE_STATUS.DISPATCHED];
+  const pi = paramIndex;
+
+  const [summaryResult, marketplaceResult, rowsResult] = await Promise.all([
+    query(`
+      SELECT
+        COUNT(*) as total,
+        COUNT(*) FILTER (WHERE er.status = $${pi}) as created,
+        COUNT(*) FILTER (WHERE er.status = $${pi + 1}) as active,
+        COUNT(*) FILTER (WHERE er.status = $${pi + 2}) as closed,
+        COUNT(*) FILTER (WHERE er.status = $${pi + 3}) as dispatched,
+        COALESCE(SUM(
+          (SELECT COALESCE(SUM(cb.quantity), 0)
+           FROM ecommerce_box_mapping ebm
+           JOIN child_boxes cb ON cb.id = ebm.child_box_id
+           WHERE ebm.ecommerce_record_id = er.id AND ebm.is_active = true)
+        ), 0) as pairs_total
+      FROM ecommerce_records er
+      ${whereClause}
+    `, statusParams),
+
+    query(`
+      SELECT
+        COALESCE(er.marketplace, 'Unknown') as marketplace,
+        COUNT(*) as count
+      FROM ecommerce_records er
+      ${whereClause}
+      GROUP BY er.marketplace
+      ORDER BY count DESC
+    `, values),
+
+    query(`
+      SELECT
+        er.ecommerce_barcode, er.name, er.marketplace,
+        er.order_reference, er.listing_sku, er.status, er.child_count,
+        er.mapped_date, er.created_at, er.dispatched_at,
+        u.name as creator_name
+      FROM ecommerce_records er
+      LEFT JOIN users u ON u.id = er.created_by
+      ${whereClause}
+      ORDER BY er.created_at DESC
+    `, values),
+  ]);
+
+  const s = summaryResult.rows[0];
+  return {
+    summary: {
+      total: parseInt(s.total, 10),
+      created: parseInt(s.created, 10),
+      active: parseInt(s.active, 10),
+      closed: parseInt(s.closed, 10),
+      dispatched: parseInt(s.dispatched, 10),
+      pairs_total: parseInt(s.pairs_total, 10),
+      by_marketplace: marketplaceResult.rows.map((r) => ({
+        marketplace: r.marketplace,
+        count: parseInt(r.count, 10),
+      })),
+    },
+    rows: rowsResult.rows,
+  };
 }

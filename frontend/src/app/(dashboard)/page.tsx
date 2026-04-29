@@ -13,6 +13,7 @@ import {
   PackagePlus,
   PackageOpen,
   Lock,
+  FileWarning,
   type LucideIcon,
 } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
@@ -69,8 +70,8 @@ export default function DashboardPage() {
     return (
       <div>
         <PageHeader title="Dashboard" description="Overview of your inventory operations" />
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-8">
-          {[1, 2, 3, 4].map((i) => <SkeletonCard key={i} />)}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 sm:gap-6 mb-8">
+          {[1, 2, 3, 4, 5].map((i) => <SkeletonCard key={i} />)}
         </div>
       </div>
     );
@@ -78,12 +79,21 @@ export default function DashboardPage() {
 
   const statCards = [
     {
+      title: 'Generated',
+      value: stats?.generatedBoxes ?? 0,
+      icon: FileWarning,
+      color: 'text-gray-600',
+      accent: '#6B7280',
+      subtitle: 'Awaiting scan',
+    },
+    {
       title: 'Total Child Boxes',
       value: stats?.totalChildBoxes ?? 0,
       icon: Package,
       color: 'text-binny-navy',
       accent: '#2D2A6E',
       breakdown: [
+        { label: 'Generated', value: stats?.generatedBoxes ?? 0, color: 'text-gray-600' },
         { label: 'Free', value: stats?.freeChildBoxes ?? 0, color: 'text-brand-success' },
         { label: 'Packed', value: stats?.packedChildBoxes ?? 0, color: 'text-blue-600' },
         { label: 'Dispatched', value: stats?.dispatchedChildBoxes ?? 0, color: 'text-gray-500' },
@@ -166,7 +176,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Stat Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 sm:gap-6 mb-8">
         {statCards.map((stat, index) => (
           <Card
             key={stat.title}
@@ -247,6 +257,12 @@ export default function DashboardPage() {
             </Link>
           </div>
           <div className="space-y-3">
+            <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border-l-[3px] border-gray-400">
+              <span className="text-sm font-medium text-gray-600">Generated (Awaiting Scan)</span>
+              <span className="text-sm font-bold text-gray-600" style={{ fontFeatureSettings: "'tnum'" }}>
+                {stats?.generatedBoxes ?? 0}
+              </span>
+            </div>
             <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg border-l-[3px] border-green-500">
               <span className="text-sm font-medium text-green-700">Free Boxes</span>
               <span className="text-sm font-bold text-green-700" style={{ fontFeatureSettings: "'tnum'" }}>

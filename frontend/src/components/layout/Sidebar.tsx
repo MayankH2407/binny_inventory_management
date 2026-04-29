@@ -21,6 +21,8 @@ import {
   Building2,
   Tag,
   Warehouse,
+  FlaskConical,
+  ShoppingCart,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { NAV_ITEMS } from '@/constants';
@@ -43,6 +45,8 @@ const iconMap: Record<string, React.ElementType> = {
   Building2,
   Tag,
   Warehouse,
+  FlaskConical,
+  ShoppingCart,
 };
 
 interface SidebarProps {
