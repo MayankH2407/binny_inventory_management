@@ -810,11 +810,16 @@ Net effect: same 6-cell table structure, Colour and MRP cells now visibly domina
 - All 6 Apr 27 migrations applied to local DB on Apr 30; portal already had them applied on Apr 29.
 
 **Local-only fixtures NOT shipped to portal** (intentional, to keep client environment clean):
-- `MRP TEST CITY 02` (BLUE@₹299, RED@₹399, sizes 6-8) — multi-MRP fixture
-- `MRP TEST CITY 03` (BLACK@₹599, sizes 6-8) — single-MRP control
+- `MRP TEST CITY 02` (BLUE@₹299, RED@₹399, sizes 6-8) — multi-MRP fixture for verifying the conditional MRP step in the Child Box hierarchy
+- `MRP TEST CITY 03` (BLACK@₹599, sizes 6-8) — single-MRP control (subtitle should read "N Colours", not "N MRPs")
 - 36 child boxes for above, all activated to FREE
+- 3 ACTIVE master cartons all holding `MRP TEST CITY 02` BLUE boxes (sizes 6/7/8, 4 boxes each, 4/24 utilization) — fixture for verifying the carton-view article-level showing `cartonCount: 3` and 3 leaf carton cards. Barcodes: `BINNY-MC-7b5135fe-...`, `BINNY-MC-c74b9e46-...`, `BINNY-MC-22def782-...`
 - Smoke-test sample/ecommerce/master-carton artefacts from earlier today
 - Many `wh-sm-{ts}@test.com` / `dp-sm-{ts}@test.com` / `dp-life-{ts}@test.com` test users from Playwright role tests
+
+**Demo paths for the local fixtures:**
+- **Multi-MRP grouping:** `/inventory` → Child Box tab → Hawaii → `MRP TEST CITY 02` (subtitle "2 MRPs") → click reveals ₹299 + ₹399 buckets → click ₹299 → only BLUE → click colour → product cards render `"6 - ₹299"` (FLOOR pattern). Compare with `MRP TEST CITY 03` which jumps article→colour directly (single MRP).
+- **Multiple cartons per article:** `/inventory` → Master Carton tab → ACTIVE → Hawaii → `MRP TEST CITY 02` (cartonCount: 3) → 3 leaf carton cards with utilization bars + primary_section/article + dates. Click any carton → `/master-cartons/[id]` detail.
 
 **Tests left running clean (124/126):** the 2 skips are intentional `test.skip` paths (warehouse user not seeded gating + multer cap optional). 1 known flake on `TC-EC-UI-001` that passes solo but occasionally races during full-file runs — not blocking.
 
