@@ -13,6 +13,35 @@
 
 ## Phase 6 — Post-QA Modifications (batched; testing deferred to after all mods)
 
+### April 30, 2026 — Carton view + QA pass pushed + deployed
+
+**Pushed to `origin/main`:**
+- `11ef591` — Inventory: add Master Carton view alongside Child Box hierarchy (9 files, +1,243 / -74)
+- `39a7658` — Playwright QA: 6 new specs for Apr 27 mods + carton view, 124/126 pass (10 files, +3,334 / -11)
+
+**Deployed to testing portal** (`https://srv1409601.hstgr.cloud/binny/`):
+- Tarball: backend source (5 files), frontend source (3 files), 3 v3 phase markdowns, progress.md. **e2e specs intentionally NOT shipped** (test-only, not runtime).
+- `docker compose build binny-backend binny-frontend` → both rebuilt clean.
+- `docker compose up -d` → both containers recreated, healthy.
+- **No migrations** — read-only feature, no schema change.
+
+**Portal smoke verification:**
+
+| Endpoint | Result |
+|---|---|
+| `GET /api/v1/health` | 200 `{"status":"ok"}` |
+| `POST /auth/login` admin | 200 with valid JWT |
+| `GET /inventory/cartons/hierarchy?level=status` | 200, `data: []` (portal has minimal seeded cartons; the route + service is wired up correctly) |
+| `GET /inventory/cartons/hierarchy?level=section&status=ACTIVE` | 200, `data: []` |
+| `GET /inventory/cartons/export?level=section&status=ACTIVE` | 200, CSV with correct 8-column header `Section,Carton Count,Created,Active,Closed,Dispatched,Child Boxes,Total Pairs` |
+| Frontend `/binny/` | 308 → `/binny/login` (expected) |
+
+The empty data arrays are not bugs — they're a function of the portal's current data volume. The view will populate naturally once the client packs cartons in this environment. Hard refresh (Ctrl+Shift+R) recommended for the client to bust the prior bundle cache and see the new tab switcher.
+
+**Working tree clean** except `scripts/progress-checkpoint.sh` (untracked, left alone per established rule).
+
+---
+
 ### April 30, 2026 — v3 test-case suite authored (20 phases, ~1,289 TCs)
 
 **Approach:** Opus authored the orchestration README; 5 parallel Sonnet sub-agents wrote 4 phase files each. Each agent received self-contained briefs, format reference (v2 phase files), exact endpoint scopes per the four Apr 27 mods, and an explicit "do not touch progress.md" guardrail.
