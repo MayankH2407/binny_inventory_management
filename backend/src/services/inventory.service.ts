@@ -359,7 +359,7 @@ export async function getStockByLevel(
       break;
     case 'product':
       groupCol = 'p.id';
-      nameExpr = "p.size || ' - ₹' || p.mrp";
+      nameExpr = "p.size || ' - ' || CASE WHEN p.mrp = FLOOR(p.mrp) THEN '₹' || FLOOR(p.mrp)::text ELSE '₹' || p.mrp::text END";
       keyExpr = 'p.id::text';
       childCountExpr = '0';
       break;
@@ -417,13 +417,13 @@ export async function getStockSummary(): Promise<{
       COUNT(DISTINCT p.id) as total_products,
       COALESCE(SUM(cb.quantity) FILTER (WHERE cb.status IN ($1, $2)), 0) as pairs_in_stock,
       COALESCE(SUM(cb.quantity) FILTER (WHERE cb.status = $3), 0) as pairs_dispatched,
-      COUNT(cb.id) as total_boxes,
+      COUNT(cb.id) FILTER (WHERE cb.status IN ($1, $2, $3, $4, $5)) as total_boxes,
       COUNT(DISTINCT p.section) as sections,
       COUNT(DISTINCT p.article_name) as articles
     FROM products p
     LEFT JOIN child_boxes cb ON cb.product_id = p.id
     WHERE p.is_active = true
-  `, [CHILD_BOX_STATUS.FREE, CHILD_BOX_STATUS.PACKED, CHILD_BOX_STATUS.DISPATCHED]);
+  `, [CHILD_BOX_STATUS.FREE, CHILD_BOX_STATUS.PACKED, CHILD_BOX_STATUS.DISPATCHED, CHILD_BOX_STATUS.SAMPLE, CHILD_BOX_STATUS.ECOMMERCE]);
 
   const cartonResult = await query(`
     SELECT COUNT(*) as total FROM master_cartons WHERE status IN ($1, $2)

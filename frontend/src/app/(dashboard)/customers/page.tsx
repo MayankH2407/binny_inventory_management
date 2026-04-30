@@ -194,7 +194,7 @@ export default function CustomersPage() {
         title="Customers"
         description="Manage customer master records"
         action={
-          isAdmin ? (
+          isManager ? (
             <Button leftIcon={<Plus className="h-4 w-4" />} onClick={() => setShowCreateModal(true)}>
               Add Customer
             </Button>

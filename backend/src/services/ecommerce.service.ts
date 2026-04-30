@@ -34,13 +34,6 @@ export async function createEcommerce(
         ]
       );
 
-      // Log ecommerce created transaction
-      await client.query(
-        `INSERT INTO inventory_transactions (transaction_type, performed_by, notes)
-         VALUES ($1, $2, $3)`,
-        [TRANSACTION_TYPES.ECOMMERCE_CREATED, createdBy, `E-commerce record created with barcode ${ecommerceBarcode}`]
-      );
-
       let mappedCount = 0;
       for (const barcode of barcodes) {
         const cbResult = await client.query(

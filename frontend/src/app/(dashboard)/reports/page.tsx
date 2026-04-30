@@ -38,6 +38,8 @@ interface ProductWiseRow {
   total_boxes: number;
   free_boxes: number;
   packed_boxes: number;
+  sample_boxes: number;
+  ecommerce_boxes: number;
   dispatched_boxes: number;
   pairs_in_stock: number;
   pairs_dispatched: number;
@@ -207,11 +209,13 @@ export default function ReportsPage() {
         total_boxes: acc.total_boxes + row.total_boxes,
         free_boxes: acc.free_boxes + row.free_boxes,
         packed_boxes: acc.packed_boxes + row.packed_boxes,
+        sample_boxes: acc.sample_boxes + row.sample_boxes,
+        ecommerce_boxes: acc.ecommerce_boxes + row.ecommerce_boxes,
         dispatched_boxes: acc.dispatched_boxes + row.dispatched_boxes,
         pairs_in_stock: acc.pairs_in_stock + row.pairs_in_stock,
         pairs_dispatched: acc.pairs_dispatched + row.pairs_dispatched,
       }),
-      { total_boxes: 0, free_boxes: 0, packed_boxes: 0, dispatched_boxes: 0, pairs_in_stock: 0, pairs_dispatched: 0 }
+      { total_boxes: 0, free_boxes: 0, packed_boxes: 0, sample_boxes: 0, ecommerce_boxes: 0, dispatched_boxes: 0, pairs_in_stock: 0, pairs_dispatched: 0 }
     );
   }, [stockData]);
 
@@ -439,7 +443,7 @@ function StockTab({
 }: {
   data: ProductWiseRow[];
   isLoading: boolean;
-  totals: { total_boxes: number; free_boxes: number; packed_boxes: number; dispatched_boxes: number; pairs_in_stock: number; pairs_dispatched: number } | null;
+  totals: { total_boxes: number; free_boxes: number; packed_boxes: number; sample_boxes: number; ecommerce_boxes: number; dispatched_boxes: number; pairs_in_stock: number; pairs_dispatched: number } | null;
 }) {
   if (isLoading) return <PageSpinner />;
 
@@ -482,6 +486,8 @@ function StockTab({
               <TableHeader className="text-right">Total Boxes</TableHeader>
               <TableHeader className="text-right">Free</TableHeader>
               <TableHeader className="text-right">Packed</TableHeader>
+              <TableHeader className="text-right">Sample</TableHeader>
+              <TableHeader className="text-right">E-commerce</TableHeader>
               <TableHeader className="text-right">Dispatched</TableHeader>
               <TableHeader className="text-right">Pairs in Stock</TableHeader>
               <TableHeader className="text-right">Pairs Dispatched</TableHeader>
@@ -497,6 +503,8 @@ function StockTab({
                 <TableCell className="text-right">{row.total_boxes}</TableCell>
                 <TableCell className="text-right text-green-600 font-medium">{row.free_boxes}</TableCell>
                 <TableCell className="text-right text-blue-600 font-medium">{row.packed_boxes}</TableCell>
+                <TableCell className="text-right text-orange-600 font-medium">{row.sample_boxes}</TableCell>
+                <TableCell className="text-right text-violet-600 font-medium">{row.ecommerce_boxes}</TableCell>
                 <TableCell className="text-right">{row.dispatched_boxes}</TableCell>
                 <TableCell className="text-right text-purple-600 font-medium">{row.pairs_in_stock}</TableCell>
                 <TableCell className="text-right">{row.pairs_dispatched}</TableCell>
@@ -508,6 +516,8 @@ function StockTab({
                 <TableCell className="text-right font-bold">{totals.total_boxes}</TableCell>
                 <TableCell className="text-right font-bold text-green-600">{totals.free_boxes}</TableCell>
                 <TableCell className="text-right font-bold text-blue-600">{totals.packed_boxes}</TableCell>
+                <TableCell className="text-right font-bold text-orange-600">{totals.sample_boxes}</TableCell>
+                <TableCell className="text-right font-bold text-violet-600">{totals.ecommerce_boxes}</TableCell>
                 <TableCell className="text-right font-bold">{totals.dispatched_boxes}</TableCell>
                 <TableCell className="text-right font-bold text-purple-600">{totals.pairs_in_stock}</TableCell>
                 <TableCell className="text-right font-bold">{totals.pairs_dispatched}</TableCell>
@@ -515,7 +525,7 @@ function StockTab({
             )}
             {data.length === 0 && (
               <TableRow>
-                <TableCell colSpan={10} className="text-center text-brand-text-muted py-8">
+                <TableCell colSpan={12} className="text-center text-brand-text-muted py-8">
                   No stock data available
                 </TableCell>
               </TableRow>

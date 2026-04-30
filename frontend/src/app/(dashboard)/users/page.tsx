@@ -57,7 +57,7 @@ export default function UsersPage() {
 
   const toggleUserStatus = async (userId: string, isActive: boolean) => {
     try {
-      await api.patch(`/users/${userId}`, { is_active: !isActive });
+      await api.put(`/users/${userId}`, { is_active: !isActive });
       toast.success(`User ${isActive ? 'deactivated' : 'activated'} successfully`);
       refetch();
     } catch {
