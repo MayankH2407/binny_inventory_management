@@ -1,6 +1,7 @@
 import { Response, NextFunction } from 'express';
 import { AuthenticatedRequest } from '../types/auth.types';
 import * as inventoryService from '../services/inventory.service';
+import * as csvExportService from '../services/csvExport.service';
 import { sendSuccess, sendPaginated } from '../utils/response';
 
 export async function traceByBarcode(
@@ -55,6 +56,55 @@ export async function getStockSummary(
   try {
     const summary = await inventoryService.getStockSummary();
     sendSuccess(res, summary, 'Stock summary retrieved successfully');
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getCartonHierarchy(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const { level, status, section, article_name, search, page, limit } = req.query as {
+      level?: string;
+      status?: string;
+      section?: string;
+      article_name?: string;
+      search?: string;
+      page?: number;
+      limit?: number;
+    };
+    const validLevels = ['status', 'section', 'article_name', 'carton'];
+    const cartonLevel = (validLevels.includes(level || '') ? level : 'status') as 'status' | 'section' | 'article_name' | 'carton';
+    const result = await inventoryService.getCartonHierarchy(cartonLevel, { status, section, article_name, search, page, limit });
+    res.json({ success: true, message: 'Carton hierarchy retrieved successfully', ...result });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function exportCartonHierarchyCsv(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const { level, status, section, article_name, search } = req.query as {
+      level?: string;
+      status?: string;
+      section?: string;
+      article_name?: string;
+      search?: string;
+    };
+    const validLevels = ['status', 'section', 'article_name', 'carton'];
+    const cartonLevel = (validLevels.includes(level || '') ? level : 'status') as 'status' | 'section' | 'article_name' | 'carton';
+    const csv = await csvExportService.exportCartonHierarchyCSV(cartonLevel, { status, section, article_name, search });
+    const today = new Date().toISOString().slice(0, 10);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="carton-hierarchy-${cartonLevel}-${today}.csv"`);
+    res.send(csv);
   } catch (error) {
     next(error);
   }

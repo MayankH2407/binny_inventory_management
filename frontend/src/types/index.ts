@@ -424,6 +424,33 @@ export interface ReportFilters {
   sku?: string;
 }
 
+// ---------- Carton Hierarchy (Master Carton view) ----------
+export type CartonHierarchyLevel = 'status' | 'section' | 'article_name' | 'carton';
+
+export interface CartonStockNode {
+  name: string;
+  key: string;
+  cartonCount: number;
+  createdCount?: number;
+  activeCount?: number;
+  closedCount?: number;
+  dispatchedCount?: number;
+  childBoxCount: number;
+  totalPairs: number;
+  avgUtilization?: number;
+  // For carton leaf only:
+  id?: string;
+  carton_barcode?: string;
+  status?: 'CREATED' | 'ACTIVE' | 'CLOSED' | 'DISPATCHED';
+  child_count?: number;
+  max_capacity?: number;
+  primary_section?: string;
+  primary_article?: string;
+  created_at?: string;
+  closed_at?: string | null;
+  dispatched_at?: string | null;
+}
+
 // ---------- Assortment ----------
 export interface AssortmentItem {
   article_name: string;

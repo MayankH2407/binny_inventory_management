@@ -1,6 +1,7 @@
 import { query } from '../config/database';
 import { getProductWiseReport, getDailyActivity, getSampleReport, getEcommerceReport } from './report.service';
 import { SampleStatus, EcommerceStatus } from '../config/constants';
+import { getCartonHierarchy } from './inventory.service';
 
 function toCSV(headers: string[], rows: string[][]): string {
   const escape = (val: string) => `"${String(val ?? '').replace(/"/g, '""')}"`;
@@ -156,6 +157,87 @@ export async function exportSampleReportCSV(filters: {
     String(r.creator_name ?? ''),
   ]);
 
+  return toCSV(headers, rows);
+}
+
+export async function exportCartonHierarchyCSV(
+  level: 'status' | 'section' | 'article_name' | 'carton',
+  filters: {
+    status?: string;
+    section?: string;
+    article_name?: string;
+    search?: string;
+  }
+): Promise<string> {
+  if (level === 'status') {
+    const result = await getCartonHierarchy('status', { ...filters, page: 1, limit: 10000 });
+    const headers = ['Status', 'Carton Count', 'Child Boxes', 'Total Pairs', 'Avg Utilization %'];
+    const rows = result.data.map(row => [
+      String(row.name ?? ''),
+      String(row.cartonCount ?? 0),
+      String(row.childBoxCount ?? 0),
+      String(row.totalPairs ?? 0),
+      String(row.avgUtilization ?? 0),
+    ]);
+    return toCSV(headers, rows);
+  }
+
+  if (level === 'section') {
+    const result = await getCartonHierarchy('section', { ...filters, page: 1, limit: 10000 });
+    const headers = ['Section', 'Carton Count', 'Created', 'Active', 'Closed', 'Dispatched', 'Child Boxes', 'Total Pairs'];
+    const rows = result.data.map(row => [
+      String(row.name ?? ''),
+      String(row.cartonCount ?? 0),
+      String(row.createdCount ?? 0),
+      String(row.activeCount ?? 0),
+      String(row.closedCount ?? 0),
+      String(row.dispatchedCount ?? 0),
+      String(row.childBoxCount ?? 0),
+      String(row.totalPairs ?? 0),
+    ]);
+    return toCSV(headers, rows);
+  }
+
+  if (level === 'article_name') {
+    const result = await getCartonHierarchy('article_name', { ...filters, page: 1, limit: 10000 });
+    const headers = ['Section', 'Article', 'Carton Count', 'Created', 'Active', 'Closed', 'Dispatched', 'Child Boxes', 'Total Pairs'];
+    const rows = result.data.map(row => [
+      String(row.primary_section ?? ''),
+      String(row.name ?? ''),
+      String(row.cartonCount ?? 0),
+      String(row.createdCount ?? 0),
+      String(row.activeCount ?? 0),
+      String(row.closedCount ?? 0),
+      String(row.dispatchedCount ?? 0),
+      String(row.childBoxCount ?? 0),
+      String(row.totalPairs ?? 0),
+    ]);
+    return toCSV(headers, rows);
+  }
+
+  // Carton leaf level — fetch all pages
+  const result = await getCartonHierarchy('carton', { ...filters, page: 1, limit: 10000 });
+  const headers = [
+    'Carton Barcode', 'Status', 'Section (Primary)', 'Article (Primary)',
+    'Child Count', 'Max Capacity', 'Utilization %', 'Created At', 'Closed At', 'Dispatched At',
+  ];
+  const rows = result.data.map(row => {
+    const utilization = row.max_capacity && row.max_capacity > 0
+      ? Math.round(((row.child_count ?? 0) / row.max_capacity) * 100)
+      : 0;
+    return [
+      String(row.carton_barcode ?? ''),
+      String(row.status ?? ''),
+      String(row.primary_section ?? ''),
+      String(row.primary_article ?? ''),
+      String(row.child_count ?? 0),
+      String(row.max_capacity ?? 0),
+      String(utilization),
+      row.created_at ? new Date(row.created_at).toISOString() : '',
+      row.closed_at ? new Date(row.closed_at).toISOString() : '',
+      row.dispatched_at ? new Date(row.dispatched_at).toISOString() : '',
+    ];
+  });
   return toCSV(headers, rows);
 }
 

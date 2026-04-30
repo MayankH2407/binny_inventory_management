@@ -403,6 +403,335 @@ export async function getStockByLevel(
   }));
 }
 
+// ─── Carton Hierarchy (By Master Carton view) ─────────────────────────────
+
+export interface CartonStockNode {
+  name: string;
+  key: string;
+  cartonCount: number;
+  createdCount?: number;
+  activeCount?: number;
+  closedCount?: number;
+  dispatchedCount?: number;
+  childBoxCount: number;
+  totalPairs: number;
+  avgUtilization?: number;
+  // For carton leaf only:
+  id?: string;
+  carton_barcode?: string;
+  status?: 'CREATED' | 'ACTIVE' | 'CLOSED' | 'DISPATCHED';
+  child_count?: number;
+  max_capacity?: number;
+  primary_section?: string;
+  primary_article?: string;
+  created_at?: string;
+  closed_at?: string | null;
+  dispatched_at?: string | null;
+}
+
+export async function getCartonHierarchy(
+  level: 'status' | 'section' | 'article_name' | 'carton',
+  filters: {
+    status?: string;
+    section?: string;
+    article_name?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+  }
+): Promise<{ data: CartonStockNode[]; meta?: { page: number; limit: number; total: number; totalPages: number } }> {
+  const page = filters.page || 1;
+  const limit = filters.limit || 50;
+  const offset = (page - 1) * limit;
+
+  if (level === 'status') {
+    // Status level — may need joins if section/article filters are present
+    const needsJoin = !!(filters.section || filters.article_name);
+    const conditions: string[] = [];
+    const values: unknown[] = [];
+    let paramIndex = 1;
+
+    if (filters.status) {
+      conditions.push(`mc.status = $${paramIndex++}`);
+      values.push(filters.status);
+    }
+    if (filters.section && needsJoin) {
+      conditions.push(`p.section = $${paramIndex++}`);
+      values.push(filters.section);
+    }
+    if (filters.article_name && needsJoin) {
+      conditions.push(`p.article_name = $${paramIndex++}`);
+      values.push(filters.article_name);
+    }
+    if (filters.search) {
+      conditions.push(`(mc.carton_barcode ILIKE $${paramIndex} OR p.article_name ILIKE $${paramIndex})`);
+      values.push(`%${filters.search}%`);
+      paramIndex++;
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const joinClause = needsJoin
+      ? `JOIN carton_child_mapping ccm ON ccm.master_carton_id = mc.id AND ccm.is_active = true
+         JOIN child_boxes cb ON cb.id = ccm.child_box_id
+         JOIN products p ON p.id = cb.product_id`
+      : '';
+
+    const result = await query(`
+      SELECT
+        mc.status as name,
+        mc.status as key,
+        COUNT(DISTINCT mc.id)::int as "cartonCount",
+        SUM(mc.child_count)::int as "childBoxCount",
+        COALESCE(AVG(NULLIF(mc.child_count::numeric / NULLIF(mc.max_capacity, 0) * 100, 0)), 0)::int as "avgUtilization"
+      FROM master_cartons mc
+      ${joinClause}
+      ${whereClause}
+      GROUP BY mc.status
+      ORDER BY CASE mc.status
+        WHEN 'CREATED' THEN 1
+        WHEN 'ACTIVE' THEN 2
+        WHEN 'CLOSED' THEN 3
+        WHEN 'DISPATCHED' THEN 4
+      END
+    `, values);
+
+    return {
+      data: result.rows.map(row => ({
+        name: String(row.name),
+        key: String(row.key),
+        cartonCount: parseInt(row.cartonCount, 10) || 0,
+        childBoxCount: parseInt(row.childBoxCount, 10) || 0,
+        totalPairs: 0,
+        avgUtilization: parseInt(row.avgUtilization, 10) || 0,
+      })),
+    };
+  }
+
+  if (level === 'section') {
+    const conditions: string[] = ['ccm.is_active = true'];
+    const values: unknown[] = [];
+    let paramIndex = 1;
+
+    if (filters.status) {
+      conditions.push(`mc.status = $${paramIndex++}`);
+      values.push(filters.status);
+    }
+    if (filters.section) {
+      conditions.push(`p.section = $${paramIndex++}`);
+      values.push(filters.section);
+    }
+    if (filters.article_name) {
+      conditions.push(`p.article_name = $${paramIndex++}`);
+      values.push(filters.article_name);
+    }
+    if (filters.search) {
+      conditions.push(`(mc.carton_barcode ILIKE $${paramIndex} OR p.article_name ILIKE $${paramIndex})`);
+      values.push(`%${filters.search}%`);
+      paramIndex++;
+    }
+
+    const whereClause = `WHERE ${conditions.join(' AND ')}`;
+
+    const result = await query(`
+      SELECT
+        p.section as name,
+        p.section as key,
+        COUNT(DISTINCT mc.id)::int as "cartonCount",
+        COUNT(DISTINCT mc.id) FILTER (WHERE mc.status = 'CREATED')::int as "createdCount",
+        COUNT(DISTINCT mc.id) FILTER (WHERE mc.status = 'ACTIVE')::int as "activeCount",
+        COUNT(DISTINCT mc.id) FILTER (WHERE mc.status = 'CLOSED')::int as "closedCount",
+        COUNT(DISTINCT mc.id) FILTER (WHERE mc.status = 'DISPATCHED')::int as "dispatchedCount",
+        COUNT(DISTINCT cb.id)::int as "childBoxCount",
+        COALESCE(SUM(cb.quantity), 0)::int as "totalPairs"
+      FROM master_cartons mc
+      JOIN carton_child_mapping ccm ON ccm.master_carton_id = mc.id AND ccm.is_active = true
+      JOIN child_boxes cb ON cb.id = ccm.child_box_id
+      JOIN products p ON p.id = cb.product_id
+      ${whereClause}
+      GROUP BY p.section
+      ORDER BY p.section
+    `, values);
+
+    return {
+      data: result.rows.map(row => ({
+        name: String(row.name || 'Uncategorized'),
+        key: String(row.key || 'Uncategorized'),
+        cartonCount: parseInt(row.cartonCount, 10) || 0,
+        createdCount: parseInt(row.createdCount, 10) || 0,
+        activeCount: parseInt(row.activeCount, 10) || 0,
+        closedCount: parseInt(row.closedCount, 10) || 0,
+        dispatchedCount: parseInt(row.dispatchedCount, 10) || 0,
+        childBoxCount: parseInt(row.childBoxCount, 10) || 0,
+        totalPairs: parseInt(row.totalPairs, 10) || 0,
+      })),
+    };
+  }
+
+  if (level === 'article_name') {
+    const conditions: string[] = ['ccm.is_active = true'];
+    const values: unknown[] = [];
+    let paramIndex = 1;
+
+    if (filters.status) {
+      conditions.push(`mc.status = $${paramIndex++}`);
+      values.push(filters.status);
+    }
+    if (filters.section) {
+      conditions.push(`p.section = $${paramIndex++}`);
+      values.push(filters.section);
+    }
+    if (filters.article_name) {
+      conditions.push(`p.article_name = $${paramIndex++}`);
+      values.push(filters.article_name);
+    }
+    if (filters.search) {
+      conditions.push(`(mc.carton_barcode ILIKE $${paramIndex} OR p.article_name ILIKE $${paramIndex})`);
+      values.push(`%${filters.search}%`);
+      paramIndex++;
+    }
+
+    const whereClause = `WHERE ${conditions.join(' AND ')}`;
+
+    const result = await query(`
+      SELECT
+        p.article_name as name,
+        p.article_name as key,
+        p.section as section,
+        COUNT(DISTINCT mc.id)::int as "cartonCount",
+        COUNT(DISTINCT mc.id) FILTER (WHERE mc.status = 'CREATED')::int as "createdCount",
+        COUNT(DISTINCT mc.id) FILTER (WHERE mc.status = 'ACTIVE')::int as "activeCount",
+        COUNT(DISTINCT mc.id) FILTER (WHERE mc.status = 'CLOSED')::int as "closedCount",
+        COUNT(DISTINCT mc.id) FILTER (WHERE mc.status = 'DISPATCHED')::int as "dispatchedCount",
+        COUNT(DISTINCT cb.id)::int as "childBoxCount",
+        COALESCE(SUM(cb.quantity), 0)::int as "totalPairs"
+      FROM master_cartons mc
+      JOIN carton_child_mapping ccm ON ccm.master_carton_id = mc.id AND ccm.is_active = true
+      JOIN child_boxes cb ON cb.id = ccm.child_box_id
+      JOIN products p ON p.id = cb.product_id
+      ${whereClause}
+      GROUP BY p.section, p.article_name
+      ORDER BY p.article_name
+    `, values);
+
+    return {
+      data: result.rows.map(row => ({
+        name: String(row.name),
+        key: String(row.key),
+        cartonCount: parseInt(row.cartonCount, 10) || 0,
+        createdCount: parseInt(row.createdCount, 10) || 0,
+        activeCount: parseInt(row.activeCount, 10) || 0,
+        closedCount: parseInt(row.closedCount, 10) || 0,
+        dispatchedCount: parseInt(row.dispatchedCount, 10) || 0,
+        childBoxCount: parseInt(row.childBoxCount, 10) || 0,
+        totalPairs: parseInt(row.totalPairs, 10) || 0,
+        primary_section: String(row.section || ''),
+      })),
+    };
+  }
+
+  // Carton leaf level
+  const conditions: string[] = ['ccm.is_active = true'];
+  const values: unknown[] = [];
+  let paramIndex = 1;
+
+  if (filters.status) {
+    conditions.push(`mc.status = $${paramIndex++}`);
+    values.push(filters.status);
+  }
+  if (filters.section) {
+    conditions.push(`p.section = $${paramIndex++}`);
+    values.push(filters.section);
+  }
+  if (filters.article_name) {
+    conditions.push(`p.article_name = $${paramIndex++}`);
+    values.push(filters.article_name);
+  }
+  if (filters.search) {
+    conditions.push(`(mc.carton_barcode ILIKE $${paramIndex} OR p.article_name ILIKE $${paramIndex})`);
+    values.push(`%${filters.search}%`);
+    paramIndex++;
+  }
+
+  const whereClause = `WHERE ${conditions.join(' AND ')}`;
+
+  // Count query for pagination
+  const countResult = await query(`
+    SELECT COUNT(DISTINCT mc.id) as total
+    FROM master_cartons mc
+    JOIN carton_child_mapping ccm ON ccm.master_carton_id = mc.id AND ccm.is_active = true
+    JOIN child_boxes cb ON cb.id = ccm.child_box_id
+    JOIN products p ON p.id = cb.product_id
+    ${whereClause}
+  `, values);
+
+  const total = parseInt(countResult.rows[0].total, 10) || 0;
+
+  values.push(limit, offset);
+  const limitParam = paramIndex++;
+  const offsetParam = paramIndex;
+
+  const result = await query(`
+    SELECT
+      mc.id,
+      mc.carton_barcode,
+      mc.status,
+      mc.child_count,
+      mc.max_capacity,
+      mc.created_at,
+      mc.closed_at,
+      mc.dispatched_at,
+      prim.section as primary_section,
+      prim.article_name as primary_article
+    FROM (
+      SELECT DISTINCT mc.id
+      FROM master_cartons mc
+      JOIN carton_child_mapping ccm ON ccm.master_carton_id = mc.id AND ccm.is_active = true
+      JOIN child_boxes cb ON cb.id = ccm.child_box_id
+      JOIN products p ON p.id = cb.product_id
+      ${whereClause}
+    ) ids
+    JOIN master_cartons mc ON mc.id = ids.id
+    LEFT JOIN LATERAL (
+      SELECT p2.section, p2.article_name, COUNT(*) as cnt
+      FROM carton_child_mapping ccm2
+      JOIN child_boxes cb2 ON cb2.id = ccm2.child_box_id
+      JOIN products p2 ON p2.id = cb2.product_id
+      WHERE ccm2.master_carton_id = mc.id AND ccm2.is_active = true
+      GROUP BY p2.section, p2.article_name
+      ORDER BY cnt DESC
+      LIMIT 1
+    ) prim ON true
+    ORDER BY mc.created_at DESC
+    LIMIT $${limitParam} OFFSET $${offsetParam}
+  `, values);
+
+  return {
+    data: result.rows.map(row => ({
+      name: String(row.carton_barcode),
+      key: String(row.id),
+      cartonCount: 1,
+      childBoxCount: parseInt(row.child_count, 10) || 0,
+      totalPairs: 0,
+      id: String(row.id),
+      carton_barcode: String(row.carton_barcode),
+      status: row.status as 'CREATED' | 'ACTIVE' | 'CLOSED' | 'DISPATCHED',
+      child_count: parseInt(row.child_count, 10) || 0,
+      max_capacity: parseInt(row.max_capacity, 10) || 0,
+      primary_section: row.primary_section ? String(row.primary_section) : undefined,
+      primary_article: row.primary_article ? String(row.primary_article) : undefined,
+      created_at: row.created_at ? String(row.created_at) : undefined,
+      closed_at: row.closed_at ? String(row.closed_at) : null,
+      dispatched_at: row.dispatched_at ? String(row.dispatched_at) : null,
+    })),
+    meta: {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+    },
+  };
+}
+
 export async function getStockSummary(): Promise<{
   totalProducts: number;
   totalPairsInStock: number;
