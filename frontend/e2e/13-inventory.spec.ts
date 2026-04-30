@@ -37,7 +37,9 @@ test.describe('TC-INV: Inventory Module — Hierarchical Stock Drill-Down', () =
 
     await expect(page.getByText('Free (in stock)')).toBeVisible();
     await expect(page.getByText('Packed (in carton)')).toBeVisible();
-    await expect(page.getByText('Dispatched')).toBeVisible();
+    // Multiple "Dispatched" labels exist on the page (KPI <p>, per-card status <p>, legend <span>).
+    // The legend uses <span> with exact text — match that specifically.
+    await expect(page.locator('span').filter({ hasText: /^Dispatched$/ })).toBeVisible();
   });
 
   test('TC-INV-004: Drill down from Section to Article', async ({ page }) => {

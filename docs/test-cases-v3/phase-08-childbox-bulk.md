@@ -141,9 +141,9 @@ HAWAII-BUSKER-GENTS-01-WHITE-SIZE8,1,1
 
 | TC ID | Role | Title | Priority | Steps | Expected Result | Type | Notes |
 |---|---|---|---|---|---|---|---|
-| TC-CB-245 | Admin | 1001-row CSV rejected before any processing | P0 | 1. Login as Admin. 2. Generate a CSV with 1001 data rows (all valid SKUs). 3. `POST /api/v1/child-boxes/bulk-upload`. | HTTP 400 or 409. Error: `"Maximum 1000 rows per upload"`. `created = 0`. No child boxes created. | API | Cap enforced at line 361 of `childBox.service.ts` |
+| TC-CB-245 | Admin | 1001-row CSV rejected before any processing | P0 | 1. Login as Admin. 2. Generate a CSV with 1001 data rows (all valid SKUs). 3. `POST /api/v1/child-boxes/bulk-upload`. | HTTP 409. Error: `"Maximum 1000 rows per upload"`. `created = 0`. No child boxes created. | API | Cap enforced at line 361 of `childBox.service.ts` |
 | TC-CB-246 | Admin | 1000-row CSV (boundary) accepted | P1 | 1. Login as Admin. 2. Generate a CSV with exactly 1000 rows, each `count=1`. All valid SKUs. 3. Upload. | HTTP 200. `totalRows = 1000`. `created = 1000` (assuming no row errors). No error about row limit. | API | Boundary: 1000 rows is allowed |
-| TC-CB-247 | Admin | Total boxes > 5000 rejected before inserts | P0 | 1. Login as Admin. 2. CSV: 2 rows — row 1: `<SKU_A>,1,3000`; row 2: `<SKU_B>,1,3000` (total = 6000). 3. Upload. | HTTP 400 or 409. Error: `"Total boxes across all rows must not exceed 5000"`. `created = 0`. No boxes created. | API | Pre-validation loop at line 372–384 of service |
+| TC-CB-247 | Admin | Total boxes > 5000 rejected before inserts | P0 | 1. Login as Admin. 2. CSV: 2 rows — row 1: `<SKU_A>,1,3000`; row 2: `<SKU_B>,1,3000` (total = 6000). 3. Upload. | HTTP 409. Error: `"Total boxes across all rows must not exceed 5000"`. `created = 0`. No boxes created. | API | Pre-validation loop at line 372–384 of service |
 | TC-CB-248 | Admin | Total boxes = 5000 (boundary) accepted | P1 | 1. Login as Admin. 2. CSV: 1 row `<SKU_A>,1,5000`. 3. Upload. | HTTP 200. `created = 5000`. No cap error. | API | Boundary: 5000 boxes is allowed |
 | TC-CB-249 | Admin | count per row > 500 is rejected in per-row validation | P0 | 1. Login as Admin. 2. CSV: row 1: `<SKU_A>,1,501`. 3. Upload. | HTTP 200. `created = 0`. `errors` has 1 entry for row 1 referencing count max 500. | API | Zod `max(500)` on count field |
 
@@ -166,10 +166,10 @@ HAWAII-BUSKER-GENTS-01-WHITE-SIZE8,1,1
 
 | TC ID | Role | Title | Priority | Steps | Expected Result | Type | Notes |
 |---|---|---|---|---|---|---|---|
-| TC-CB-256 | Admin | Missing required column `sku` returns 400 | P0 | 1. Login as Admin. 2. CSV with header `count,quantity` (no `sku`). 3. Upload. | HTTP 400 or 409. Error: `"Missing required columns: sku"`. `created=0`. | API | Header check requires `sku` + `count` |
-| TC-CB-257 | Admin | Missing required column `count` returns 400 | P0 | 1. Login as Admin. 2. CSV with header `sku,quantity` (no `count`). 3. Upload. | HTTP 400 or 409. Error: `"Missing required columns: count"`. | API | |
-| TC-CB-258 | Admin | Both `sku` and `count` missing returns 400 | P0 | 1. Login as Admin. 2. CSV with header `quantity` only. 3. Upload. | HTTP 400 or 409. Error: `"Missing required columns: sku, count"`. | API | |
-| TC-CB-259 | Admin | Empty CSV (header only) returns 400 | P0 | 1. Login as Admin. 2. CSV with only `sku,count` header and no data rows. 3. Upload. | HTTP 400 or 409. Error: `"CSV file is empty"` or similar. | API | |
+| TC-CB-256 | Admin | Missing required column `sku` returns 409 | P0 | 1. Login as Admin. 2. CSV with header `count,quantity` (no `sku`). 3. Upload. | HTTP 409. Error: `"Missing required columns: sku"`. `created=0`. | API | Header check requires `sku` + `count` |
+| TC-CB-257 | Admin | Missing required column `count` returns 409 | P0 | 1. Login as Admin. 2. CSV with header `sku,quantity` (no `count`). 3. Upload. | HTTP 409. Error: `"Missing required columns: count"`. | API | |
+| TC-CB-258 | Admin | Both `sku` and `count` missing returns 409 | P0 | 1. Login as Admin. 2. CSV with header `quantity` only. 3. Upload. | HTTP 409. Error: `"Missing required columns: sku, count"`. | API | |
+| TC-CB-259 | Admin | Empty CSV (header only) returns 409 | P0 | 1. Login as Admin. 2. CSV with only `sku,count` header and no data rows. 3. Upload. | HTTP 409. Error: `"CSV file is empty"` or similar. | API | |
 | TC-CB-260 | Admin | Invalid CSV format (not parseable) returns 409 | P1 | 1. Login as Admin. 2. Upload a binary `.xlsx` file via the `file` field. | HTTP 409 or 400. Error: `"Invalid CSV format"`. | API | `csv-parse/sync` throws; caught as ConflictError |
 | TC-CB-261 | Admin | Upload without file field returns 400 | P0 | 1. Login as Admin. 2. `POST /api/v1/child-boxes/bulk-upload` with empty multipart body. | HTTP 400. Error indicating file is required. | API | |
 
