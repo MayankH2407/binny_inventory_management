@@ -13,6 +13,41 @@
 
 ## Phase 6 — Post-QA Modifications (batched; testing deferred to after all mods)
 
+### May 1, 2026 — Mobile parity M2: Sample module screens
+
+**Built on the M1 foundation.** Three new screens + menu tile. No service changes (M1 already shipped `samplesService`). Lifecycle constraints from web mirrored exactly.
+
+**Files created (3):**
+- `mobile/app/samples/index.tsx` (410 lines) — list with search, status chips (`ALL/CREATED/ACTIVE/CLOSED/DISPATCHED`), infinite scroll, FAB → `/samples/create` (Admin+Supervisor). Card shows: barcode (mono) + status badge using `SAMPLE_STATUS_COLORS` (passed via `color` prop since `Badge` only knows `childBox`/`carton`), sample name, customer firm or "To: {recipient}", `child_count` boxes + `mrp_summary`, dates line.
+- `mobile/app/samples/create.tsx` (856 lines) — manager-gated. Form: name (required), customer (inline `CustomerPicker` modal copied from `dispatch/create.tsx` per the brief — not extracted, M3 will copy again for ecommerce), recipient_name, purpose (multiline), sample_date (plain `TextInput` `YYYY-MM-DD`, defaults to today — no date-picker library), notes. Scan section: `BarcodeScanner` (`expectedType="child"`) + manual entry. Optimistic add, then background `childBoxService.getByBarcode` — if not FREE/GENERATED, removed from list with Alert. Submit calls `samplesService.create` with `child_box_barcodes`; success → invalidates samples/childBoxes/inventory/dashboard, `router.replace('/samples/{id}')`.
+- `mobile/app/samples/[id].tsx` (751 lines) — detail. Header (name, barcode, status badge, child count + recipient), timeline (Created · Sample Date · Closed · Dispatched · Creator), action bar gated per state:
+  - **Add Box** (CREATED|ACTIVE, manager) — toggles inline scan card
+  - **Close Sample** (ACTIVE, manager) — `samplesService.close` with confirm Alert
+  - **Full Unpack** (CREATED|ACTIVE|CLOSED, manager) — destructive Alert → `fullUnpack`
+  - **Dispatch** (CLOSED, Admin+Supervisor+Dispatch Operator) — `router.push('/dispatch/create')` placeholder; M4 will wire source-type picker
+  - **DISPATCHED** → "no actions available" note
+  - Per-row trash icon on child boxes only for CREATED|ACTIVE+manager → `removeBox` with confirm.
+
+**Files modified (1):**
+- `mobile/app/(tabs)/menu.tsx` — inserted Samples tile (`flask-outline`, `#DC2626`) between Customers and Reports under `RoleGate allow={['Admin','Supervisor']}`. Renumbered remaining indexes (Reports→11, Users→12, Logout→13).
+
+**Verification:**
+- `npx tsc --noEmit` from `mobile/` → exit 0 (clean).
+- `progress.md` not in agent's diff (verified — only menu.tsx + new samples files).
+
+**Naming follow-through:** mobile imports as `samplesService` (matches M1 file name).
+
+**Web parity notes:**
+- Lifecycle rules match web exactly (FREE/GENERATED only for add-box, Close ACTIVE-only manager, fullUnpack CREATED|ACTIVE|CLOSED manager, Dispatch CLOSED).
+- UX simplifications vs web: plain text date input (no date-picker library); Customer picker inline (not shared component) since M3 will need an identical pattern.
+- Customer/recipient fallback chain matches web (`customer_firm_name` → `recipient_name` → null).
+
+**Commit:** TBD by orchestrator after this entry lands.
+
+**Next:** M3 — E-commerce module screens (mirror M2 with marketplace/listing_sku fields).
+
+---
+
 ### May 1, 2026 — Mobile parity M1: data layer + barcode parsing
 
 **Context:** Mobile APK on device is `042b1e6` (Apr 23) — missing the four Apr 27 web mods + Apr 30 carton view. Plan approved: 7 phases (M1 → M7) bringing mobile to feature parity. Opus plans, Sonnet executes per phase. M1 is the foundation — types + services + barcode parser; **no UI changes** in this phase (M2+ build screens on top).
@@ -807,9 +842,9 @@ Net effect: same 6-cell table structure, Colour and MRP cells now visibly domina
 **Active workstream:** Mobile parity (M1 → M7). 7-phase plan to bring the mobile app up to feature parity with the web portal (Apr 27 mods + Apr 30 carton view). Opus plans each phase, Sonnet executes, orchestrator (Opus) verifies + updates this doc + commits per phase.
 
 **Phase status:**
-- **M1 — Data layer + barcode parsing** ✅ COMPLETE (2026-05-01). Types extended, samples + ecommerce services added, parseQRCode + BarcodeScanner accept SR/EC. `tsc --noEmit` clean.
-- **M2 — Sample module screens** — NEXT.
-- M3 — E-commerce module screens — pending.
+- **M1 — Data layer + barcode parsing** ✅ COMPLETE (2026-05-01, commit `2d77d19`). Types extended, samples + ecommerce services added, parseQRCode + BarcodeScanner accept SR/EC. `tsc --noEmit` clean.
+- **M2 — Sample module screens** ✅ COMPLETE (2026-05-01). 3 screens (list / create / detail) + Samples menu tile. Lifecycle constraints match web. `tsc --noEmit` clean.
+- **M3 — E-commerce module screens** — NEXT.
 - M4 — Dispatch multi-source — pending.
 - M5 — Inventory: MRP grouping + Master Carton view tab — pending.
 - M6 — Reports stock-tab columns — pending.
