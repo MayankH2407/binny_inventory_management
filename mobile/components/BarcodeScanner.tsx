@@ -22,7 +22,7 @@ interface BarcodeScannerProps {
   onClose: () => void;
   onScan: (data: string) => void;
   title?: string;
-  expectedType?: 'child' | 'master' | 'any';
+  expectedType?: 'child' | 'master' | 'sample' | 'ecommerce' | 'any';
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -70,7 +70,13 @@ export default function BarcodeScanner({
     const parsed = parseQRCode(data);
 
     if (expectedType !== 'any' && parsed.type !== expectedType) {
-      const expected = expectedType === 'child' ? 'child box' : 'master carton';
+      const typeLabels: Record<string, string> = {
+        child: 'child box',
+        master: 'master carton',
+        sample: 'sample',
+        ecommerce: 'e-commerce package',
+      };
+      const expected = typeLabels[expectedType] ?? expectedType;
       showToast(`Expected a ${expected} QR`);
       // Allow next scan after cooldown
       setTimeout(() => {

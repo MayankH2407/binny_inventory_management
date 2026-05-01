@@ -13,6 +13,41 @@
 
 ## Phase 6 — Post-QA Modifications (batched; testing deferred to after all mods)
 
+### May 1, 2026 — Mobile parity M1: data layer + barcode parsing
+
+**Context:** Mobile APK on device is `042b1e6` (Apr 23) — missing the four Apr 27 web mods + Apr 30 carton view. Plan approved: 7 phases (M1 → M7) bringing mobile to feature parity. Opus plans, Sonnet executes per phase. M1 is the foundation — types + services + barcode parser; **no UI changes** in this phase (M2+ build screens on top).
+
+**Files created (2):**
+- `mobile/services/samples.service.ts` — 10 methods mirroring web `sampleService` (getAll/getById/getByBarcode/create/addBox/removeBox/close/fullUnpack/getAssortment/getChildren). Endpoints `/samples/...`. Body field for add-box/remove-box: `sample_record_id`.
+- `mobile/services/ecommerce.service.ts` — identical structure to samples; endpoints `/ecommerce/...`; filter param `marketplace?: string`; body field `ecommerce_record_id`.
+
+**Files modified (4):**
+- `mobile/types/index.ts`:
+  - Added `DispatchSourceType = 'master_carton' | 'sample' | 'ecommerce'`.
+  - `DispatchRecord` — relaxed `master_carton_id` to nullable, added `sample_record_id?` / `ecommerce_record_id?` / `source_type?` / `source_label?`.
+  - `CreateDispatchRequest` — `master_carton_ids` made optional, added `sample_record_id?` / `ecommerce_record_id?` (exactly-one-of constraint enforced server-side).
+  - `InventoryHierarchyItem` — added `key?`, `totalPairs?`, `inStock?`, `sample?`, `ecommerce?`, `generated?`, `childBoxCount?`, `cartonCount?`, `children?`, `distinctMrpCount?` (last one drives the conditional MRP step in M5).
+  - `ProductWiseRow` — added `sample_boxes` + `ecommerce_boxes` for M6 reports parity.
+  - Appended `CartonHierarchyLevel` (`'status' | 'section' | 'article_name' | 'carton'`) + `CartonStockNode` interface for M5 carton view.
+- `mobile/services/inventory.service.ts`:
+  - `getStockHierarchy` level union extended with `'mrp'`; added `mrp?` filter.
+  - New `getCartonHierarchy(level, filters)` mirroring the web client; normalizes both array and `{data, page, limit, total, totalPages}` response shapes. CSV export deliberately not added (web-only flow).
+- `mobile/utils/index.ts` `parseQRCode` — regex extended to `BINNY-(CB|MC|SR|EC)-...`; return type widened to include `'sample' | 'ecommerce'`.
+- `mobile/components/BarcodeScanner.tsx` — `expectedType` union extended with `'sample' | 'ecommerce'`. Replaced binary ternary in rejection-toast logic with a lookup map producing labels: child→"child box", master→"master carton", sample→"sample", ecommerce→"e-commerce package".
+
+**Verification:**
+- `npx tsc --noEmit` from `mobile/` → exit 0 (clean, no errors).
+- `npm test` → 93/114 pass; the 21 failures are in `api.test.ts`, `useApi.test.ts`, `ui.test.tsx` and are **pre-existing** — none reference parseQRCode / BarcodeScanner / samplesService / ecommerceService / getCartonHierarchy. The services suite (`__tests__/services/services.test.ts`) passed clean.
+- `dispatch.service.ts` not modified — already imports `CreateDispatchRequest` which now allows the new optional fields, so it continues to compile and accept the new payload shapes without a code change.
+
+**Naming note:** the export from `samples.service.ts` is `samplesService` (plural, matching the file name). Web uses `sampleService` (singular). M2 should import as `samplesService` from the mobile file. Same convention for `ecommerceService`.
+
+**No UI work, no commits to git, no progress.md edit by Sonnet.** This entry is the orchestrator update.
+
+**Next:** M2 — Sample module screens (list / create / detail with scan-add-box) + Samples menu tile.
+
+---
+
 ### April 30, 2026 — Carton view + QA pass pushed + deployed
 
 **Pushed to `origin/main`:**
@@ -767,9 +802,20 @@ Net effect: same 6-cell table structure, Colour and MRP cells now visibly domina
 
 ---
 
-## CURRENT EXECUTION (resumption marker — SESSION PAUSED 2026-04-30 END OF DAY)
+## CURRENT EXECUTION (resumption marker — SESSION ACTIVE 2026-05-01)
 
-**What landed today (2026-04-30):**
+**Active workstream:** Mobile parity (M1 → M7). 7-phase plan to bring the mobile app up to feature parity with the web portal (Apr 27 mods + Apr 30 carton view). Opus plans each phase, Sonnet executes, orchestrator (Opus) verifies + updates this doc + commits per phase.
+
+**Phase status:**
+- **M1 — Data layer + barcode parsing** ✅ COMPLETE (2026-05-01). Types extended, samples + ecommerce services added, parseQRCode + BarcodeScanner accept SR/EC. `tsc --noEmit` clean.
+- **M2 — Sample module screens** — NEXT.
+- M3 — E-commerce module screens — pending.
+- M4 — Dispatch multi-source — pending.
+- M5 — Inventory: MRP grouping + Master Carton view tab — pending.
+- M6 — Reports stock-tab columns — pending.
+- M7 — TS check + jest + EAS preview build — pending.
+
+**What landed earlier (2026-04-30):**
 1. **v3 test-case suite written** — `docs/test-cases-v3/README.md` + 20 phase files, ~1,289 TCs covering the full system including the four Apr 27 mods.
 2. **7 confirmed defects fixed** during the v3 authoring code-read pass (users page PATCH→PUT, customers Add gate, /transactions authorize, reports table sample/ecommerce columns, MRP rendering FLOOR consistency, getStockSummary GENERATED filter, ecommerce duplicate INSERT).
 3. **Master Carton view shipped** — new tab on `/inventory` with Status → Section → Article → Carton hierarchy, mixed-article dedup via COUNT DISTINCT, CSV export at every level (Admin+Supervisor). 30 TCs added in phase-15 Section 11.

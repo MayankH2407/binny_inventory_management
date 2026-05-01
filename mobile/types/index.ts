@@ -168,11 +168,15 @@ export interface EcommerceRecord {
   mrp_summary?: number | null;
 }
 
+export type DispatchSourceType = 'master_carton' | 'sample' | 'ecommerce';
+
 export type DispatchStatus = 'CREATED' | 'IN_TRANSIT' | 'DELIVERED';
 
 export interface DispatchRecord {
   id: string;
-  master_carton_id: string;
+  master_carton_id: string | null;
+  sample_record_id?: string | null;
+  ecommerce_record_id?: string | null;
   dispatched_by: string;
   customer_id: string | null;
   destination: string | null;
@@ -182,6 +186,8 @@ export interface DispatchRecord {
   dispatch_date: string;
   notes: string | null;
   metadata: Record<string, unknown> | null;
+  source_type?: DispatchSourceType;
+  source_label?: string | null;
   carton_barcode?: string;
   child_count?: number;
   customer_firm_name?: string;
@@ -286,7 +292,10 @@ export interface CreateMasterCartonRequest {
 }
 
 export interface CreateDispatchRequest {
-  master_carton_ids: string[];
+  // Exactly one of these three must be provided
+  master_carton_ids?: string[];
+  sample_record_id?: string;
+  ecommerce_record_id?: string;
   customer_id?: string;
   destination?: string;
   transport_details?: string;
@@ -316,10 +325,22 @@ export interface InventoryStockSummary {
 
 export interface InventoryHierarchyItem {
   name: string;
+  key?: string;
+  totalPairs?: number;
+  inStock?: number;
   free: number;
   packed: number;
+  sample?: number;
+  ecommerce?: number;
   dispatched: number;
+  generated?: number;
   total: number;
+  childBoxCount?: number;
+  cartonCount?: number;
+  /** Number of children if drilled down. For 'article_name' level, equals distinctMrpCount when shown as MRP buckets. */
+  children?: number;
+  /** Set on 'article_name' level. If 1, MRP step is skipped (drill jumps article→colour). */
+  distinctMrpCount?: number;
 }
 
 // ─── Report types ─────────────────────────────────────────────────────────────
@@ -342,6 +363,8 @@ export interface ProductWiseRow {
   total_boxes: number;
   free_boxes: number;
   packed_boxes: number;
+  sample_boxes: number;
+  ecommerce_boxes: number;
   dispatched_boxes: number;
   pairs_in_stock: number;
   pairs_dispatched: number;
@@ -391,4 +414,32 @@ export interface DailyActivityRow {
   cartons_created: number;
   cartons_closed: number;
   cartons_dispatched: number;
+}
+
+// ─── Carton Hierarchy (Master Carton view) ─────────────────────────────────
+
+export type CartonHierarchyLevel = 'status' | 'section' | 'article_name' | 'carton';
+
+export interface CartonStockNode {
+  name: string;
+  key: string;
+  cartonCount: number;
+  createdCount?: number;
+  activeCount?: number;
+  closedCount?: number;
+  dispatchedCount?: number;
+  childBoxCount: number;
+  totalPairs: number;
+  avgUtilization?: number;
+  // Carton-leaf-only fields:
+  id?: string;
+  carton_barcode?: string;
+  status?: 'CREATED' | 'ACTIVE' | 'CLOSED' | 'DISPATCHED';
+  child_count?: number;
+  max_capacity?: number;
+  primary_section?: string;
+  primary_article?: string;
+  created_at?: string;
+  closed_at?: string | null;
+  dispatched_at?: string | null;
 }
