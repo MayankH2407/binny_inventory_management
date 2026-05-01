@@ -89,16 +89,19 @@ export default function MenuScreen() {
           {renderItem({ icon: 'flask-outline', label: 'Samples', color: '#DC2626', route: '/samples' }, 10)}
         </RoleGate>
         <RoleGate allow={['Admin', 'Supervisor']}>
-          {renderItem({ icon: 'bar-chart-outline', label: 'Reports', color: COLORS.success, route: '/reports' }, 11)}
+          {renderItem({ icon: 'cart-outline', label: 'E-commerce', color: '#7C3AED', route: '/ecommerce' }, 11)}
+        </RoleGate>
+        <RoleGate allow={['Admin', 'Supervisor']}>
+          {renderItem({ icon: 'bar-chart-outline', label: 'Reports', color: COLORS.success, route: '/reports' }, 12)}
         </RoleGate>
 
         {/* Admin only */}
         <RoleGate allow={['Admin']}>
-          {renderItem({ icon: 'person-add-outline', label: 'Users', color: COLORS.accent, route: '/users' }, 12)}
+          {renderItem({ icon: 'person-add-outline', label: 'Users', color: COLORS.accent, route: '/users' }, 13)}
         </RoleGate>
 
         {/* Logout — always last */}
-        {renderItem(logoutItem, 13)}
+        {renderItem(logoutItem, 14)}
       </View>
     </ScrollView>
   );

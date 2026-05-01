@@ -13,6 +13,29 @@
 
 ## Phase 6 — Post-QA Modifications (batched; testing deferred to after all mods)
 
+### May 1, 2026 — Mobile parity M3: E-commerce module screens
+
+**Cloned M2's Sample screens with field substitutions.** No customer picker (e-commerce has marketplace/listing_sku/order_reference instead). Lifecycle constraints + role gates identical to Sample.
+
+**Files created (3):**
+- `mobile/app/ecommerce/index.tsx` (413 lines) — list with same chip/search/infinite-scroll layout. Card row shows ecommerce_barcode + status badge (`ECOMMERCE_STATUS_COLORS`), name, marketplace/listing_sku line (when set), child_count + mrp, dates. FAB → `/ecommerce/create` (Admin+Supervisor). Empty-state icon `cart-outline`.
+- `mobile/app/ecommerce/create.tsx` (537 lines) — manager-gated. Form fields: name (required), marketplace, order_reference, listing_sku (autoCapitalize chars), mapped_date (`YYYY-MM-DD`, default today), notes. CustomerPicker removed entirely. Scan section identical to samples/create — same FREE/GENERATED guard, same optimistic-add pattern. Submit invalidates `[['ecommerce'], ['childBoxes'], ['inventory-summary'], ['inventory-hierarchy'], ['dashboard-stats']]`.
+- `mobile/app/ecommerce/[id].tsx` (752 lines) — detail. Header card uses `ecommerce_barcode` + `name` + (marketplace if set). Timeline card adds `Mapped Date`, `Marketplace`, `Order Ref`, `Listing SKU` rows when set (Sonnet kept these in the Timeline card rather than splitting into a separate Details card — cleaner). Action bar identical lifecycle/role rules as Sample (Add Box / Close / Full Unpack / Dispatch). Per-row child-box trash for CREATED|ACTIVE+manager. AddBox calls `ecommerceService.addBox({ child_box_id, ecommerce_record_id: id })`.
+
+**Files modified (1):**
+- `mobile/app/(tabs)/menu.tsx` — E-commerce tile (`cart-outline`, `#7C3AED`) inserted after Samples and before Reports, under `RoleGate Admin+Supervisor`. Indexes: Samples 10, E-commerce 11, Reports 12, Users 13, Logout 14.
+
+**Verification:**
+- `npx tsc --noEmit` from `mobile/` → exit 0.
+- Sanity grep: `mobile/app/ecommerce/` contains zero references to `customer_id`, `recipient_name`, `purpose`, `sample_date`, `samplesService`, or `customer_firm_name` — clean field substitution.
+- `progress.md` not in agent's diff.
+
+**Sonnet observed cleanups:** unused `FlatList` import + `useCallback` wrapper from sample-template not carried over since the scan list renders inline via `.map()`. Acceptable simplification.
+
+**Next:** M4 — Dispatch multi-source (source-type segmented picker + per-source scan flow + payload routing).
+
+---
+
 ### May 1, 2026 — Mobile parity M2: Sample module screens
 
 **Built on the M1 foundation.** Three new screens + menu tile. No service changes (M1 already shipped `samplesService`). Lifecycle constraints from web mirrored exactly.
@@ -843,8 +866,9 @@ Net effect: same 6-cell table structure, Colour and MRP cells now visibly domina
 
 **Phase status:**
 - **M1 — Data layer + barcode parsing** ✅ COMPLETE (2026-05-01, commit `2d77d19`). Types extended, samples + ecommerce services added, parseQRCode + BarcodeScanner accept SR/EC. `tsc --noEmit` clean.
-- **M2 — Sample module screens** ✅ COMPLETE (2026-05-01). 3 screens (list / create / detail) + Samples menu tile. Lifecycle constraints match web. `tsc --noEmit` clean.
-- **M3 — E-commerce module screens** — NEXT.
+- **M2 — Sample module screens** ✅ COMPLETE (2026-05-01, commit `c5c92a4`). 3 screens (list / create / detail) + Samples menu tile. Lifecycle constraints match web. `tsc --noEmit` clean.
+- **M3 — E-commerce module screens** ✅ COMPLETE (2026-05-01). 3 screens cloned from Sample template with field substitutions + E-commerce menu tile. `tsc --noEmit` clean.
+- **M4 — Dispatch multi-source** — NEXT.
 - M4 — Dispatch multi-source — pending.
 - M5 — Inventory: MRP grouping + Master Carton view tab — pending.
 - M6 — Reports stock-tab columns — pending.
