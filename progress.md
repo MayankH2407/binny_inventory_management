@@ -860,19 +860,52 @@ Net effect: same 6-cell table structure, Colour and MRP cells now visibly domina
 
 ---
 
-## CURRENT EXECUTION (resumption marker — SESSION ACTIVE 2026-05-01)
+## CURRENT EXECUTION (resumption marker — SESSION PAUSED 2026-05-01 EOD, RESUMES NEXT SESSION FROM M4)
 
 **Active workstream:** Mobile parity (M1 → M7). 7-phase plan to bring the mobile app up to feature parity with the web portal (Apr 27 mods + Apr 30 carton view). Opus plans each phase, Sonnet executes, orchestrator (Opus) verifies + updates this doc + commits per phase.
 
 **Phase status:**
 - **M1 — Data layer + barcode parsing** ✅ COMPLETE (2026-05-01, commit `2d77d19`). Types extended, samples + ecommerce services added, parseQRCode + BarcodeScanner accept SR/EC. `tsc --noEmit` clean.
 - **M2 — Sample module screens** ✅ COMPLETE (2026-05-01, commit `c5c92a4`). 3 screens (list / create / detail) + Samples menu tile. Lifecycle constraints match web. `tsc --noEmit` clean.
-- **M3 — E-commerce module screens** ✅ COMPLETE (2026-05-01). 3 screens cloned from Sample template with field substitutions + E-commerce menu tile. `tsc --noEmit` clean.
-- **M4 — Dispatch multi-source** — NEXT.
-- M4 — Dispatch multi-source — pending.
+- **M3 — E-commerce module screens** ✅ COMPLETE (2026-05-01, commit `206c353`). 3 screens cloned from Sample template with field substitutions + E-commerce menu tile. `tsc --noEmit` clean.
+- **M4 — Dispatch multi-source** — RESUME HERE next session.
 - M5 — Inventory: MRP grouping + Master Carton view tab — pending.
 - M6 — Reports stock-tab columns — pending.
 - M7 — TS check + jest + EAS preview build — pending.
+
+**Where to pick up M4 next session:**
+
+Goal: rework the dispatch flow so it can dispatch one master-carton batch, OR one sample, OR one e-commerce record — not just master cartons. Web ships this already. M1 already extended `CreateDispatchRequest` with `sample_record_id` + `ecommerce_record_id` and made `master_carton_ids` optional, so the type layer is ready.
+
+Files to touch (all in `mobile/app/dispatch/`):
+- `create.tsx` — add a 3-way segmented picker at top: `Master Carton | Sample | E-commerce`. Per source:
+  - **Master Carton:** existing flow (multi-scan CLOSED cartons, payload `master_carton_ids`).
+  - **Sample:** scan one CLOSED sample (`BarcodeScanner` `expectedType="sample"`), validate via `samplesService.getByBarcode`, payload `sample_record_id` (single).
+  - **E-commerce:** same as Sample but `ecommerceService.getByBarcode`, payload `ecommerce_record_id` (single).
+  - Customer + transport + LR + vehicle + notes + dispatch-date fields are shared across all three sources.
+- `index.tsx` — show a source-type chip/badge in each row (read from `record.source_type`).
+- `[id].tsx` — render source-type label + jump-link to the source record (sample/ecommerce/master-carton detail).
+
+Rules:
+- Only `CLOSED` sources are dispatchable (existing master-carton screens already enforce this — same rule for sample/ecommerce).
+- Roles unchanged: `Admin + Supervisor + Dispatch Operator`.
+- BarcodeScanner now supports `expectedType="sample" | "ecommerce"` (M1 wired this).
+- `parseQRCode` returns `{ type: 'sample' | 'ecommerce' | 'master' | 'child' | 'unknown', id }` (M1 wired this).
+- Reference for UX: `frontend/src/app/(dashboard)/dispatch/create/page.tsx` (already has a `dispatchType` state machine).
+
+Implementation pattern: keep the existing `DispatchCreateScreen` mostly intact for the master-carton path; add `selectedSource: 'master_carton' | 'sample' | 'ecommerce'` state at top, render a segmented control, conditionally render the per-source scan section. Submit picks the right payload field. Customer/transport/etc are shared across all three.
+
+**Working tree:** clean except `scripts/progress-checkpoint.sh` (untracked, leave alone). Latest commits on `main`:
+- `206c353` — Mobile parity M3: E-commerce module screens
+- `c5c92a4` — Mobile parity M2: Sample module screens
+- `2d77d19` — Mobile parity M1: data layer + barcode parsing
+
+**Open questions (still deferred from initial plan, none blocking M4):**
+- CSV bulk uploader on mobile: confirmed skipped (web-only flow).
+- EAS preview build: wait for explicit OK before kicking off — runs against free queue.
+- Commit cadence: per-phase (working as expected).
+
+**Live URLs unchanged:** Portal `https://srv1409601.hstgr.cloud/binny/`, admin `admin@binny.com / Admin@123`, local backend `http://localhost:3001/api/v1`.
 
 **What landed earlier (2026-04-30):**
 1. **v3 test-case suite written** — `docs/test-cases-v3/README.md` + 20 phase files, ~1,289 TCs covering the full system including the four Apr 27 mods.
