@@ -860,7 +860,46 @@ Net effect: same 6-cell table structure, Colour and MRP cells now visibly domina
 
 ---
 
-## CURRENT EXECUTION (resumption marker — 2026-05-02, MOBILE PARITY M1-M7 ✅; TEST-CASE AUTHORING SESSIONS 1-3/13 ✅; CLIENT MOD #1 (2-up child-box labels) ✅ shipped)
+## CURRENT EXECUTION (resumption marker — 2026-05-02, MOBILE PARITY M1-M7 ✅; TEST-CASE AUTHORING SESSIONS 1-3/13 ✅; CLIENT MODS #1 (2-up labels) + #2 (HID scanner support) ✅ shipped)
+
+---
+
+## Workstream C — Client modification #2: BPS250BC HID scanner support (2026-05-02)
+
+Client uses a **BPS250BC 2D scanner (Bluetooth + cradle)** that operates as a HID keyboard, injecting barcodes + Enter into focused input fields. Reported "scanner not taking" while creating child-box / master-carton scans — the camera was opening instead. Root cause: the manual barcode input was visually demoted ("Or enter barcode manually" hint) and not auto-focused, so HID keystrokes had nowhere to land. The camera button was the prominent CTA, suggesting it was the only scanner option.
+
+**Changes:**
+- New reusable component `frontend/src/components/scanning/HIDScannerInput.tsx` (170 lines):
+  - Auto-focuses on mount (configurable per page)
+  - Re-focuses after every successful scan so rapid consecutive scans require zero user interaction
+  - Window-level `keydown` listener auto-focuses the input when a printable key arrives and no editable element is focused (recovers from focus drift)
+  - Visual cue: green "Scanner ready" badge with pulsing checkmark when focused; gray "Click to focus" with barcode icon when not. Input gets a green ring when focused.
+  - Same Enter-triggers-onScan contract as the prior manual inputs; same Add button for click-to-submit
+- Updated **all 9 scan-bearing pages** to use `<HIDScannerInput>` as the primary entry point and demote `<QRScanner>` (camera) behind a `Use Camera Instead` toggle button:
+  - `master-cartons/create`, `master-cartons/[id]`
+  - `samples/create`, `samples/[id]`
+  - `ecommerce/create`, `ecommerce/[id]`
+  - `dispatch` (all 3 source-type panels — only the currently-selected tab's HID input auto-focuses, avoiding focus battles)
+  - `scan`, `traceability`
+- Removed dead state vars (`manualBarcode`, `sampleBarcode`, `ecBarcode`, `handleManualAdd`) now owned internally by the new component
+- Camera scanner is preserved as a fallback for users without a hardware scanner — same `<QRScanner>` component, just demoted in visual hierarchy
+
+**Verification:**
+- `npx tsc --noEmit` from `frontend/`: clean for the modified files (3 pre-existing e2e spec errors unrelated)
+- `npm run lint`: exit 0; new warnings: zero
+- Net diff: +376 / -396 across 10 files (1 new component + 9 page consolidations)
+
+**Manual verification deferred:** Client to test BT scanner injection on actual hardware. Expected: open any scan-bearing page → the HID input is already focused with green "Scanner ready" badge → trigger BT scanner → barcode appears in input + Enter triggers handler + input clears + refocuses for next scan.
+
+**Commit:** `eba073d` — "Web scanners: support BPS250BC HID barcode scanner as primary input" (10 files, +376/-396)
+
+**Test-suite impact:** v3 web phase TCs that assert "Open Scanner" button as the primary scan CTA are now stale on UX-text assertions. Specifically affects:
+- phase-10 (Master Cartons), phase-11 (Samples), phase-12 (E-commerce), phase-13 (Dispatch), phase-18 (Scan & Traceability) — any TC that selects on the "Open Scanner" button label or asserts the camera as the default scan UI must be updated to:
+  - Primary scan UI: `<HIDScannerInput>` with "Scanner ready" badge, auto-focused on mount
+  - Camera fallback: behind "Use Camera Instead" button (collapsed by default)
+- Add the same note to AUTHORING_PROGRESS.md so the test-authoring resume pass refreshes these phases alongside the phase-09 label refresh from Mod #1.
+
+---
 
 ---
 

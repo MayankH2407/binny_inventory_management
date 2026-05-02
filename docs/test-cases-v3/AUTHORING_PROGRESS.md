@@ -7,13 +7,29 @@
 
 **Commit rule:** No per-session commits during this workstream. User will do one combined commit covering all 13 sessions when the full mobile coverage authoring is done. Working tree will grow uncommitted across sessions — that's expected.
 
-**Cross-workstream note (2026-05-02):** A separate code change shipped (commit `e6a3617`) — child-box label print is now **2-up on a 100mm-wide roll** (two 50×50mm labels per page-row). This means phase-09 of the v3 web suite (`phase-09-childbox-labels.md`, 56 TCs) is now stale on the page-layout assertions. When Workstream B resumes, before continuing with mobile sessions 4-13, add a phase-09 refresh task to update those TCs:
+**Cross-workstream note (2026-05-02) — TWO supplemental web refreshes queued:**
+
+**Supp #1 — phase-09 label refresh (from commit `e6a3617`):** Child-box label print is now **2-up on a 100mm-wide roll**. phase-09 (`phase-09-childbox-labels.md`, 56 TCs) needs:
 - New `@page` is `100mm 50mm`, not `50mm 50mm`
 - Labels are paired into rows; page-break happens on `.row`, not `.label`
 - Odd-count print runs get a hidden `.label-empty` placeholder in the last row
 - Each label is still 50×50mm with a 1.5px border; the inner table content is unchanged
 
-This refresh is a phase-09 update (web suite), NOT a new mobile phase. Track it as "Session B-supplemental" or similar; do not collide with the 13-session mobile numbering.
+**Supp #2 — HID scanner UX refresh (from commit `eba073d`):** Web scan UX rebuilt around the BPS250BC HID barcode scanner. The new `<HIDScannerInput>` component is the primary scan surface; camera is fallback only. Affects these phases:
+- phase-10 (Master Cartons) — TCs that assert "Open Scanner" button or camera-first UX
+- phase-11 (Samples) — same
+- phase-12 (E-commerce) — same
+- phase-13 (Dispatch) — same, plus the 3-source picker has 3 distinct HID inputs (only the active tab's is focused)
+- phase-18 (Scan & Traceability) — primary scan UI was the camera card; now it's HID input with camera behind "Use Camera Instead" toggle
+
+For each affected phase, new TCs to add:
+- HID input is auto-focused on page mount (green "Scanner ready" badge visible)
+- Pressing Enter (or HID scanner injection) with valid value triggers `onScan` and clears + refocuses input
+- Input refocuses globally on any printable keystroke when nothing else is focused (focus drift recovery)
+- "Use Camera Instead" toggle reveals `<QRScanner>` as the fallback path
+- Each role can use both HID and camera paths (no role gate on the component itself)
+
+Both supplemental refreshes are phase updates to the **web** suite, NOT new mobile phases. Track them as "Session B-supp-1" and "Session B-supp-2" or similar; do not collide with the 13-session mobile numbering.
 
 ---
 
