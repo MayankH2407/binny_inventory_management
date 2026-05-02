@@ -860,7 +860,34 @@ Net effect: same 6-cell table structure, Colour and MRP cells now visibly domina
 
 ---
 
-## CURRENT EXECUTION (resumption marker — 2026-05-02, MOBILE PARITY M1-M7 ✅; TEST-CASE AUTHORING SESSIONS 1-3/13 ✅; CLIENT MODS #1 (2-up labels) + #2 (HID scanner support) ✅ shipped)
+## CURRENT EXECUTION (resumption marker — 2026-05-02, MOBILE PARITY M1-M7 ✅; TEST-CASE AUTHORING SESSIONS 1-3/13 ✅; CLIENT MODS #1 (2-up labels) + #2 (HID scanner) ✅ shipped + DEPLOYED to testing portal)
+
+---
+
+## Deploy 2026-05-02 — Client mods #1 + #2 → testing portal
+
+Both client modifications shipped earlier today (commits `e6a3617` and `eba073d`) deployed to the Hostinger VPS testing portal in a single push. Backend untouched (no backend code changes); database untouched. Deploy procedure followed the saved recipe from memory `project_deployment.md`.
+
+**Procedure used:**
+1. Tar-stream `frontend/src` + `progress.md` over SSH (`ssh -i ~/.ssh/id_ed25519 root@srv1409601.hstgr.cloud`) into `/opt/binny/`
+2. `docker compose -f docker-compose.prod.yml build binny-frontend` on the server (~90s build)
+3. `docker compose -f docker-compose.prod.yml up -d binny-frontend` to recreate the container
+4. `binny-backend` and `binny-db` left running unchanged (skipped — no backend changes)
+
+**Post-deploy verification:**
+- `GET https://srv1409601.hstgr.cloud/binny/api/v1/health` → `{"status":"ok","timestamp":"2026-05-02T12:52:21.277Z"}`
+- HTTP 200 on all 6 affected pages: `/master-cartons/create`, `/samples/create`, `/ecommerce/create`, `/dispatch`, `/scan`, `/traceability`, `/child-boxes/generate`
+- All 3 binny containers (`binny-frontend`, `binny-backend`, `binny-db`) reported healthy after restart
+
+**What's now live for client testing:**
+- **Mod #1 (2-up child-box labels):** `/child-boxes/generate` → after generation, "Print Labels" button outputs two 50×50mm labels per 100×50mm page-row matching the physical roll. Odd counts pad with a hidden placeholder.
+- **Mod #2 (HID scanner support):** All 9 scan-bearing pages now show `<HIDScannerInput>` at the top with a green "Scanner ready" badge when focused (auto-focuses on mount). BPS250BC injects barcode + Enter → handler fires → input clears + refocuses for next scan. Camera fallback is behind a "Use Camera Instead" toggle button.
+
+**Client to verify on hardware:**
+- Print labels on the actual TSC printer with the 100mm-wide roll — confirm 2-up alignment + correct feed advance
+- Pair BPS250BC over Bluetooth (or place in cradle) and trigger scans on each affected page — confirm barcodes land in the green-badge input without manual click + that consecutive scans work
+
+Hard refresh (Ctrl+Shift+R) recommended to bust the prior bundle cache.
 
 ---
 
@@ -893,6 +920,8 @@ Client uses a **BPS250BC 2D scanner (Bluetooth + cradle)** that operates as a HI
 
 **Commit:** `eba073d` — "Web scanners: support BPS250BC HID barcode scanner as primary input" (10 files, +376/-396)
 
+**Deployed to testing portal 2026-05-02** (`https://srv1409601.hstgr.cloud/binny/`) — see "Deploy 2026-05-02" subsection below.
+
 **Test-suite impact:** v3 web phase TCs that assert "Open Scanner" button as the primary scan CTA are now stale on UX-text assertions. Specifically affects:
 - phase-10 (Master Cartons), phase-11 (Samples), phase-12 (E-commerce), phase-13 (Dispatch), phase-18 (Scan & Traceability) — any TC that selects on the "Open Scanner" button label or asserts the camera as the default scan UI must be updated to:
   - Primary scan UI: `<HIDScannerInput>` with "Scanner ready" badge, auto-focused on mount
@@ -921,6 +950,8 @@ Client clarified that the label roll being used is **100mm wide carrying two 50�
 - Visual print verification deferred to client's first run on the actual roll — flag in v3 phase-09 (web Child Box labels) and the upcoming mobile reports phase to update label TCs to assert 2-per-row layout
 
 **Commit:** `e6a3617` — "Child-box labels: print 2-up to match 100mm-wide roll" (1 file, +21/-4)
+
+**Deployed to testing portal 2026-05-02** (`https://srv1409601.hstgr.cloud/binny/`) along with Mod #2. Full deploy details under "Deploy 2026-05-02" subsection below.
 
 **Test-suite impact:** v3 phase-09 (`phase-09-childbox-labels.md`, 56 TCs) currently asserts `@page size 50mm 50mm` and 1-up layout. Those TCs need updating once Workstream B resumes — add a follow-up note to AUTHORING_PROGRESS.md so the next test-authoring pass refreshes phase-09 to match the new 2-up layout (assertions: 100×50mm @page, two 50×50mm labels per page, hidden placeholder on odd counts, page-break on `.row` not `.label`).
 
