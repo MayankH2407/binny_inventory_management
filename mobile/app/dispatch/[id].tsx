@@ -6,12 +6,14 @@ import {
   RefreshControl,
   StyleSheet,
   Platform,
+  TouchableOpacity,
 } from 'react-native';
-import { Stack, useLocalSearchParams } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 
-import { COLORS } from '../../constants';
+import { COLORS, CHILD_BOX_STATUS_COLORS } from '../../constants';
 import { dispatchService } from '../../services/dispatch.service';
-import type { DispatchRecord } from '../../types';
+import type { DispatchRecord, DispatchSourceType } from '../../types';
 import { useApiQuery } from '../../hooks/useApi';
 import { formatDate } from '../../utils';
 
@@ -38,6 +40,7 @@ function SummaryRow({ label, value }: { label: string; value: string }) {
 
 export default function DispatchDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const router = useRouter();
 
   const dispatchQ = useApiQuery(
     ['dispatch', id ?? ''],
@@ -94,6 +97,53 @@ export default function DispatchDetailScreen() {
   const createdDay = d.created_at.split('T')[0];
   const showCreatedAt = createdDay !== dispatchDay;
 
+  // Source type helpers
+  const sourceType: DispatchSourceType =
+    d.source_type ??
+    (d.master_carton_id ? 'master_carton' : 'master_carton');
+
+  const sourceChipBgColor =
+    sourceType === 'sample'
+      ? '#FEE2E2'
+      : sourceType === 'ecommerce'
+      ? '#F3E8FF'
+      : '#EEF0FF';
+  const sourceChipTextColor =
+    sourceType === 'sample'
+      ? COLORS.error
+      : sourceType === 'ecommerce'
+      ? CHILD_BOX_STATUS_COLORS.ECOMMERCE
+      : COLORS.primary;
+  const sourceChipLabel =
+    sourceType === 'sample'
+      ? 'Sample'
+      : sourceType === 'ecommerce'
+      ? 'E-commerce'
+      : 'Carton';
+
+  const sourceTypeLabel =
+    sourceType === 'sample'
+      ? 'Sample'
+      : sourceType === 'ecommerce'
+      ? 'E-commerce'
+      : 'Master Carton';
+
+  // Navigation to source record
+  const handleViewSource = () => {
+    if (sourceType === 'master_carton' && d.master_carton_id) {
+      router.push(('/master-cartons/' + d.master_carton_id) as any);
+    } else if (sourceType === 'sample' && d.sample_record_id) {
+      router.push(('/samples/' + d.sample_record_id) as any);
+    } else if (sourceType === 'ecommerce' && d.ecommerce_record_id) {
+      router.push(('/ecommerce/' + d.ecommerce_record_id) as any);
+    }
+  };
+
+  const hasSourceLink =
+    (sourceType === 'master_carton' && !!d.master_carton_id) ||
+    (sourceType === 'sample' && !!d.sample_record_id) ||
+    (sourceType === 'ecommerce' && !!d.ecommerce_record_id);
+
   return (
     <>
       <Stack.Screen options={{ title: 'Dispatch' }} />
@@ -114,8 +164,18 @@ export default function DispatchDetailScreen() {
         <Card style={styles.card}>
           <View style={styles.headerRow}>
             <Text style={styles.barcodeText} numberOfLines={1}>
-              {d.carton_barcode ?? '—'}
+              {d.source_label ?? d.carton_barcode ?? '—'}
             </Text>
+            <View
+              style={[
+                styles.sourceChip,
+                { backgroundColor: sourceChipBgColor },
+              ]}
+            >
+              <Text style={[styles.sourceChipText, { color: sourceChipTextColor }]}>
+                {sourceChipLabel}
+              </Text>
+            </View>
             <Text style={styles.headerDate}>
               {formatDate(d.dispatch_date)}
             </Text>
@@ -132,7 +192,23 @@ export default function DispatchDetailScreen() {
           )}
         </Card>
 
-        {/* ── 3. Shipment card (only if any field has a value) ──────────────── */}
+        {/* ── 3. Source card ───────────────────────────────────────────────── */}
+        <Card style={styles.card}>
+          <SectionTitle title="Source" />
+          <SummaryRow label="Type" value={sourceTypeLabel} />
+          {hasSourceLink && (
+            <TouchableOpacity
+              style={styles.viewSourceRow}
+              onPress={handleViewSource}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.viewSourceText}>View source record</Text>
+              <Ionicons name="arrow-forward-outline" size={16} color={COLORS.primary} />
+            </TouchableOpacity>
+          )}
+        </Card>
+
+        {/* ── 5. Shipment card (only if any field has a value) ──────────────── */}
         {(d.destination || d.transport_details || d.lr_number || d.vehicle_number) && (
           <Card style={styles.card}>
             <SectionTitle title="Shipment" />
@@ -151,7 +227,7 @@ export default function DispatchDetailScreen() {
           </Card>
         )}
 
-        {/* ── 4. Contents card ──────────────────────────────────────────────── */}
+        {/* ── 6. Contents card ──────────────────────────────────────────────── */}
         <Card style={styles.card}>
           <SectionTitle title="Contents" />
           <SummaryRow
@@ -175,7 +251,7 @@ export default function DispatchDetailScreen() {
           )}
         </Card>
 
-        {/* ── 5. Notes card (only if notes present) ────────────────────────── */}
+        {/* ── 7. Notes card (only if notes present) ────────────────────────── */}
         {!!d.notes && (
           <Card style={styles.card}>
             <SectionTitle title="Notes" />
@@ -183,7 +259,7 @@ export default function DispatchDetailScreen() {
           </Card>
         )}
 
-        {/* ── 6. Audit footer ───────────────────────────────────────────────── */}
+        {/* ── 8. Audit footer ───────────────────────────────────────────────── */}
         <View style={styles.auditFooter}>
           <Text style={styles.auditText}>
             Dispatched at: {formatDate(d.dispatch_date)}
@@ -228,6 +304,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    gap: 6,
   },
   barcodeText: {
     flex: 1,
@@ -235,12 +312,39 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: COLORS.text,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    marginRight: 10,
   },
   headerDate: {
     fontSize: 13,
     color: COLORS.textSecondary,
     flexShrink: 0,
+  },
+
+  // Source chip (in header)
+  sourceChip: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 10,
+    flexShrink: 0,
+  },
+  sourceChipText: {
+    fontSize: 10,
+    fontWeight: '700',
+  },
+
+  // Source card — view link row
+  viewSourceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: COLORS.borderLight,
+    marginTop: 2,
+  },
+  viewSourceText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: COLORS.primary,
   },
 
   // Section title

@@ -13,9 +13,9 @@ import {
 import { Stack, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useInfiniteQuery } from '@tanstack/react-query';
-import { COLORS } from '../../constants';
+import { COLORS, CHILD_BOX_STATUS_COLORS } from '../../constants';
 import { dispatchService } from '../../services/dispatch.service';
-import type { DispatchRecord } from '../../types';
+import type { DispatchRecord, DispatchSourceType } from '../../types';
 import Card from '../../components/ui/Card';
 import EmptyState from '../../components/ui/EmptyState';
 import Spinner from '../../components/ui/Spinner';
@@ -131,6 +131,32 @@ export default function DispatchScreen() {
     }
     const metaLine = metaParts.join(' · ');
 
+    // Source type chip
+    const sourceType: DispatchSourceType =
+      dispatch.source_type ??
+      (dispatch.master_carton_id ? 'master_carton' : 'master_carton');
+    const sourceChipStyle =
+      sourceType === 'sample'
+        ? styles.sourceChipSample
+        : sourceType === 'ecommerce'
+        ? styles.sourceChipEcommerce
+        : styles.sourceChipCarton;
+    const sourceChipTextStyle =
+      sourceType === 'sample'
+        ? styles.sourceChipTextSample
+        : sourceType === 'ecommerce'
+        ? styles.sourceChipTextEcommerce
+        : styles.sourceChipTextCarton;
+    const sourceChipLabel =
+      sourceType === 'sample'
+        ? 'Sample'
+        : sourceType === 'ecommerce'
+        ? 'E-commerce'
+        : 'Carton';
+
+    // Display barcode: prefer source_label, then carton_barcode, else '—'
+    const displayBarcode = dispatch.source_label ?? dispatch.carton_barcode ?? '—';
+
     return (
       <TouchableOpacity
         activeOpacity={0.7}
@@ -138,11 +164,14 @@ export default function DispatchScreen() {
         style={styles.rowTouchable}
       >
         <Card style={styles.itemCard}>
-          {/* Row 1: Barcode + dispatch date */}
+          {/* Row 1: Barcode + source chip + dispatch date */}
           <View style={styles.row1}>
             <Text style={styles.barcode} numberOfLines={1}>
-              {dispatch.carton_barcode ?? '—'}
+              {displayBarcode}
             </Text>
+            <View style={[styles.sourceChip, sourceChipStyle]}>
+              <Text style={[styles.sourceChipText, sourceChipTextStyle]}>{sourceChipLabel}</Text>
+            </View>
             <Text style={styles.dateText}>
               {formatDate(dispatch.dispatch_date)}
             </Text>
@@ -477,6 +506,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 4,
+    gap: 6,
   },
   barcode: {
     flex: 1,
@@ -484,12 +514,41 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: COLORS.text,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    marginRight: 8,
   },
   dateText: {
     fontSize: 12,
     color: COLORS.textSecondary,
     flexShrink: 0,
+  },
+
+  // Source type chip
+  sourceChip: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 10,
+    flexShrink: 0,
+  },
+  sourceChipText: {
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  sourceChipCarton: {
+    backgroundColor: '#EEF0FF',
+  },
+  sourceChipTextCarton: {
+    color: COLORS.primary,
+  },
+  sourceChipSample: {
+    backgroundColor: '#FEE2E2',
+  },
+  sourceChipTextSample: {
+    color: COLORS.error,
+  },
+  sourceChipEcommerce: {
+    backgroundColor: '#F3E8FF',
+  },
+  sourceChipTextEcommerce: {
+    color: CHILD_BOX_STATUS_COLORS.ECOMMERCE,
   },
   customerLine: {
     fontSize: 14,
