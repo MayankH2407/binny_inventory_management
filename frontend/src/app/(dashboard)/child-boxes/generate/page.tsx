@@ -216,21 +216,38 @@ export default function GenerateQRPage() {
         </div>`;
     });
 
+    const rowsHtml = labelHtmlParts
+      .reduce<string[][]>((acc, label, i) => {
+        if (i % 2 === 0) acc.push([label]);
+        else acc[acc.length - 1].push(label);
+        return acc;
+      }, [])
+      .map((pair) => `<div class="row">${pair[0]}${pair[1] ?? '<div class="label-empty"></div>'}</div>`)
+      .join('');
+
     const htmlContent = `
       <html>
         <head>
           <title>Print Labels</title>
           <style>
-            @page { size: 50mm 50mm; margin: 0; }
+            @page { size: 100mm 50mm; margin: 0; }
             * { margin: 0; padding: 0; box-sizing: border-box; }
             body { font-family: Arial, Helvetica, sans-serif; }
+            .row {
+              width: 100mm;
+              height: 50mm;
+              display: flex;
+              flex-direction: row;
+              page-break-after: always;
+              page-break-inside: avoid;
+            }
+            .row:last-child { page-break-after: avoid; }
             .label {
               width: 50mm;
               height: 50mm;
               border: 1.5px solid #000;
-              page-break-after: always;
             }
-            .label:last-child { page-break-after: avoid; }
+            .label-empty { width: 50mm; height: 50mm; visibility: hidden; }
             table.main { width: 100%; height: 100%; border-collapse: collapse; }
             table.main td { border: 0.5px solid #000; padding: 1mm 1.5mm; vertical-align: middle; }
             .article-row { font-weight: bold; font-size: 8pt; vertical-align: top; padding: 1mm 1.5mm; }
@@ -248,7 +265,7 @@ export default function GenerateQRPage() {
             .footer-row { font-size: 5pt; line-height: 1.2; padding: 0.8mm 1.5mm; vertical-align: top; border-top: 1px solid #000; }
           </style>
         </head>
-        <body>${labelHtmlParts.join('')}</body>
+        <body>${rowsHtml}</body>
       </html>
     `;
 
