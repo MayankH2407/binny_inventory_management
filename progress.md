@@ -860,7 +860,7 @@ Net effect: same 6-cell table structure, Colour and MRP cells now visibly domina
 
 ---
 
-## CURRENT EXECUTION (resumption marker — SESSION PAUSED 2026-05-01 EOD, RESUMES NEXT SESSION FROM M4)
+## CURRENT EXECUTION (resumption marker — 2026-05-02, RESUMES FROM M5)
 
 **Active workstream:** Mobile parity (M1 → M7). 7-phase plan to bring the mobile app up to feature parity with the web portal (Apr 27 mods + Apr 30 carton view). Opus plans each phase, Sonnet executes, orchestrator (Opus) verifies + updates this doc + commits per phase.
 
@@ -868,34 +868,34 @@ Net effect: same 6-cell table structure, Colour and MRP cells now visibly domina
 - **M1 — Data layer + barcode parsing** ✅ COMPLETE (2026-05-01, commit `2d77d19`). Types extended, samples + ecommerce services added, parseQRCode + BarcodeScanner accept SR/EC. `tsc --noEmit` clean.
 - **M2 — Sample module screens** ✅ COMPLETE (2026-05-01, commit `c5c92a4`). 3 screens (list / create / detail) + Samples menu tile. Lifecycle constraints match web. `tsc --noEmit` clean.
 - **M3 — E-commerce module screens** ✅ COMPLETE (2026-05-01, commit `206c353`). 3 screens cloned from Sample template with field substitutions + E-commerce menu tile. `tsc --noEmit` clean.
-- **M4 — Dispatch multi-source** — RESUME HERE next session.
-- M5 — Inventory: MRP grouping + Master Carton view tab — pending.
+- **M4 — Dispatch multi-source** ✅ COMPLETE (2026-05-02, commit `ae73320`). 3-way segmented picker on `dispatch/create.tsx` (Master Carton / Sample / E-commerce); per-source scan + manual barcode entry; customer/transport/LR/vehicle/notes shared. `dispatch/index.tsx` renders source-type chip + falls back to `source_label`. `dispatch/[id].tsx` adds Source card with type label + tappable "View source record" jump-link. CLOSED-only gating on all three paths. `tsc --noEmit` clean.
+- **M5 — Inventory: MRP grouping + Master Carton view tab** — RESUME HERE next session.
 - M6 — Reports stock-tab columns — pending.
 - M7 — TS check + jest + EAS preview build — pending.
 
-**Where to pick up M4 next session:**
+**Where to pick up M5 next session:**
 
-Goal: rework the dispatch flow so it can dispatch one master-carton batch, OR one sample, OR one e-commerce record — not just master cartons. Web ships this already. M1 already extended `CreateDispatchRequest` with `sample_record_id` + `ecommerce_record_id` and made `master_carton_ids` optional, so the type layer is ready.
+Goal: bring the mobile inventory screen (`mobile/app/(tabs)/inventory.tsx` or wherever the Inventory hierarchy lives — verify on entry) up to parity with web's `frontend/src/app/(dashboard)/inventory/page.tsx`. Two pieces:
 
-Files to touch (all in `mobile/app/dispatch/`):
-- `create.tsx` — add a 3-way segmented picker at top: `Master Carton | Sample | E-commerce`. Per source:
-  - **Master Carton:** existing flow (multi-scan CLOSED cartons, payload `master_carton_ids`).
-  - **Sample:** scan one CLOSED sample (`BarcodeScanner` `expectedType="sample"`), validate via `samplesService.getByBarcode`, payload `sample_record_id` (single).
-  - **E-commerce:** same as Sample but `ecommerceService.getByBarcode`, payload `ecommerce_record_id` (single).
-  - Customer + transport + LR + vehicle + notes + dispatch-date fields are shared across all three sources.
-- `index.tsx` — show a source-type chip/badge in each row (read from `record.source_type`).
-- `[id].tsx` — render source-type label + jump-link to the source record (sample/ecommerce/master-carton detail).
+1. **Multi-MRP grouping in the Child Box hierarchy.** When an article has more than one MRP across its boxes, insert an MRP step between Article → Colour. Subtitle on the article tile: `"N MRPs"` (vs `"N Colours"` for single-MRP articles). Demo fixture on local: `MRP TEST CITY 02` (2 MRPs: ₹299 + ₹399) vs `MRP TEST CITY 03` (1 MRP, jumps article→colour directly). FLOOR pattern on the size-level product cards: render `"<size> - ₹<mrp>"` (e.g. `"6 - ₹299"`).
+
+2. **Master Carton view tab.** Add a second top-level tab on the inventory screen alongside the existing Child Box hierarchy: `Status → Section → Article → Carton`. Mixed-article cartons dedup via COUNT DISTINCT on the article column (already handled server-side in `inventoryService.getCartonHierarchy()` or similar — verify endpoint). Each leaf carton card shows `cartonCount` per article + utilization bar + primary_section/article + dates. Tapping a carton routes to `/master-cartons/[id]`. CSV export is web-only — skip on mobile.
+
+Files to touch (verify exact paths on entry — they may differ from web's structure):
+- The inventory screen file (likely `mobile/app/(tabs)/inventory.tsx` or `mobile/app/inventory.tsx`)
+- Possibly extracting a `MasterCartonView` sub-component to keep the file readable
+- Confirm the inventory service in `mobile/services/inventory.service.ts` already has the carton-hierarchy endpoint hooked up — if not, add it (web reference: `frontend/src/services/inventory.service.ts`)
 
 Rules:
-- Only `CLOSED` sources are dispatchable (existing master-carton screens already enforce this — same rule for sample/ecommerce).
-- Roles unchanged: `Admin + Supervisor + Dispatch Operator`.
-- BarcodeScanner now supports `expectedType="sample" | "ecommerce"` (M1 wired this).
-- `parseQRCode` returns `{ type: 'sample' | 'ecommerce' | 'master' | 'child' | 'unknown', id }` (M1 wired this).
-- Reference for UX: `frontend/src/app/(dashboard)/dispatch/create/page.tsx` (already has a `dispatchType` state machine).
+- Roles unchanged for viewing inventory.
+- No CSV export on mobile (deferred — web-only).
+- Use existing UI primitives: `Card`, `Spinner`, `EmptyState`, `RoleGate` (where applicable).
+- Reference for UX: `frontend/src/app/(dashboard)/inventory/page.tsx` (Master Carton view tab + the conditional-MRP step in Child Box hierarchy).
 
-Implementation pattern: keep the existing `DispatchCreateScreen` mostly intact for the master-carton path; add `selectedSource: 'master_carton' | 'sample' | 'ecommerce'` state at top, render a segmented control, conditionally render the per-source scan section. Submit picks the right payload field. Customer/transport/etc are shared across all three.
+Implementation pattern: add a top-level tab toggle (`Child Box` | `Master Carton`) at the top of the inventory screen. Conditionally render whichever hierarchy the user selected. The Child Box hierarchy needs a small modification to insert the MRP step when the article has >1 distinct MRP across its boxes.
 
 **Working tree:** clean except `scripts/progress-checkpoint.sh` (untracked, leave alone). Latest commits on `main`:
+- `ae73320` — Mobile parity M4: dispatch multi-source
 - `206c353` — Mobile parity M3: E-commerce module screens
 - `c5c92a4` — Mobile parity M2: Sample module screens
 - `2d77d19` — Mobile parity M1: data layer + barcode parsing
