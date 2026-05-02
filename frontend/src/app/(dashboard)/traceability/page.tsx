@@ -4,10 +4,10 @@ import { useState, useCallback, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Search, Package, Boxes, Truck, Clock } from 'lucide-react';
 import Button from '@/components/ui/Button';
-import Input from '@/components/ui/Input';
 import { Card } from '@/components/ui/Card';
 import StatusBadge from '@/components/ui/StatusBadge';
 import QRScanner from '@/components/scanning/QRScanner';
+import HIDScannerInput from '@/components/scanning/HIDScannerInput';
 import PageHeader from '@/components/layout/PageHeader';
 import { inventoryService } from '@/services/inventory.service';
 import { childBoxService } from '@/services/childBox.service';
@@ -113,24 +113,23 @@ export default function TraceabilityPage() {
       />
 
       <Card className="p-6 mb-6">
-        <div className="flex flex-col sm:flex-row gap-3">
-          <div className="flex-1">
-            <Input
-              placeholder="Enter barcode to trace..."
-              value={qrCode}
-              onChange={(e) => setQrCode(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && trace(qrCode)}
-              leftIcon={<Search className="h-4 w-4" />}
-            />
-          </div>
-          <Button onClick={() => trace(qrCode)} isLoading={isSearching}>
-            Trace
-          </Button>
+        <HIDScannerInput
+          onScan={(code) => {
+            setQrCode(code);
+            trace(code);
+          }}
+          placeholder="Scan barcode to trace..."
+          autoFocus
+          className="mb-4"
+        />
+        <div className="flex items-center gap-3">
           <Button
             variant="outline"
+            size="sm"
             onClick={() => setShowScanner(!showScanner)}
+            leftIcon={<Search className="h-4 w-4" />}
           >
-            Scan QR
+            {showScanner ? 'Hide Camera' : 'Use Camera Instead'}
           </Button>
         </div>
         {showScanner && (

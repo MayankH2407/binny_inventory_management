@@ -15,7 +15,6 @@ import {
   BarChart3,
 } from 'lucide-react';
 import Button from '@/components/ui/Button';
-import Input from '@/components/ui/Input';
 import { Card } from '@/components/ui/Card';
 import {
   Table,
@@ -30,6 +29,7 @@ import { PageSpinner } from '@/components/ui/Spinner';
 import Modal from '@/components/ui/Modal';
 import PageHeader from '@/components/layout/PageHeader';
 import QRScanner from '@/components/scanning/QRScanner';
+import HIDScannerInput from '@/components/scanning/HIDScannerInput';
 import { ROUTES } from '@/constants';
 import { ecommerceService } from '@/services/ecommerce.service';
 import { childBoxService } from '@/services/childBox.service';
@@ -46,7 +46,6 @@ export default function EcommerceDetailPage() {
   const [showUnpackConfirm, setShowUnpackConfirm] = useState(false);
   const [showAddBox, setShowAddBox] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
-  const [manualBarcode, setManualBarcode] = useState('');
   const [isAdding, setIsAdding] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
   const queryClient = useQueryClient();
@@ -102,7 +101,6 @@ export default function EcommerceDetailPage() {
         }
         await ecommerceService.addBox({ child_box_id: childBox.id, ecommerce_record_id: id });
         toast.success(`Added: ${barcode}`);
-        setManualBarcode('');
         invalidateRecord();
       } catch (err: any) {
         const message = err?.response?.data?.message || err?.message || 'Failed to add box';
@@ -120,10 +118,6 @@ export default function EcommerceDetailPage() {
     },
     [addBoxByBarcode]
   );
-
-  const handleManualAdd = () => {
-    addBoxByBarcode(manualBarcode);
-  };
 
   const handleRemoveBox = useCallback(
     async (childBoxId: string, barcode: string) => {
@@ -299,26 +293,13 @@ export default function EcommerceDetailPage() {
             </Button>
           </div>
 
-          <div className="flex gap-3 mb-4">
-            <div className="flex-1">
-              <Input
-                placeholder="Enter barcode (e.g. BINNY-CB-001)"
-                value={manualBarcode}
-                onChange={(e) => setManualBarcode(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleManualAdd();
-                }}
-              />
-            </div>
-            <Button
-              onClick={handleManualAdd}
-              isLoading={isAdding}
-              disabled={!manualBarcode.trim()}
-              leftIcon={<Plus className="h-4 w-4" />}
-            >
-              Add
-            </Button>
-          </div>
+          <HIDScannerInput
+            onScan={handleScan}
+            placeholder="Scan or enter child box barcode..."
+            autoFocus
+            disabled={isAdding}
+            className="mb-4"
+          />
 
           <div className="flex items-center gap-3 mb-4">
             <Button
@@ -327,7 +308,7 @@ export default function EcommerceDetailPage() {
               onClick={() => setShowScanner(!showScanner)}
               leftIcon={<ScanLine className="h-4 w-4" />}
             >
-              {showScanner ? 'Hide Camera' : 'Open Camera Scanner'}
+              {showScanner ? 'Hide Camera' : 'Use Camera Instead'}
             </Button>
           </div>
 

@@ -16,7 +16,6 @@ import {
 } from 'lucide-react';
 // QRCodeSVG removed — master carton label no longer uses QR per client wireframe
 import Button from '@/components/ui/Button';
-import Input from '@/components/ui/Input';
 import { Card } from '@/components/ui/Card';
 import {
   Table,
@@ -31,6 +30,7 @@ import { PageSpinner } from '@/components/ui/Spinner';
 import Modal from '@/components/ui/Modal';
 import PageHeader from '@/components/layout/PageHeader';
 import QRScanner from '@/components/scanning/QRScanner';
+import HIDScannerInput from '@/components/scanning/HIDScannerInput';
 import { ROUTES } from '@/constants';
 import { masterCartonService } from '@/services/masterCarton.service';
 import { childBoxService } from '@/services/childBox.service';
@@ -45,7 +45,6 @@ export default function MasterCartonDetailPage() {
   const [showUnpackConfirm, setShowUnpackConfirm] = useState(false);
   const [showAddBoxes, setShowAddBoxes] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
-  const [manualBarcode, setManualBarcode] = useState('');
   const [isPacking, setIsPacking] = useState(false);
   const queryClient = useQueryClient();
 
@@ -91,7 +90,6 @@ export default function MasterCartonDetailPage() {
           master_carton_id: id,
         });
         toast.success(`Packed: ${barcode}`);
-        setManualBarcode('');
         queryClient.invalidateQueries({ queryKey: ['master-carton', id] });
         queryClient.invalidateQueries({ queryKey: ['master-carton-assortment', id] });
         queryClient.invalidateQueries({ queryKey: ['master-cartons'] });
@@ -113,10 +111,6 @@ export default function MasterCartonDetailPage() {
     },
     [packByBarcode]
   );
-
-  const handleManualAdd = () => {
-    packByBarcode(manualBarcode);
-  };
 
   const handlePrintLabel = async () => {
     if (!carton) return;
@@ -356,29 +350,16 @@ export default function MasterCartonDetailPage() {
             </Button>
           </div>
 
-          {/* Manual barcode entry */}
-          <div className="flex gap-3 mb-4">
-            <div className="flex-1">
-              <Input
-                placeholder="Enter barcode (e.g. BINNY-CB-001)"
-                value={manualBarcode}
-                onChange={(e) => setManualBarcode(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleManualAdd();
-                }}
-              />
-            </div>
-            <Button
-              onClick={handleManualAdd}
-              isLoading={isPacking}
-              disabled={!manualBarcode.trim()}
-              leftIcon={<Plus className="h-4 w-4" />}
-            >
-              Add
-            </Button>
-          </div>
+          {/* HID Scanner (primary) */}
+          <HIDScannerInput
+            onScan={handleScan}
+            placeholder="Scan or enter child box barcode..."
+            autoFocus
+            disabled={isPacking}
+            className="mb-4"
+          />
 
-          {/* Scanner toggle */}
+          {/* Camera scanner toggle (secondary) */}
           <div className="flex items-center gap-3 mb-4">
             <Button
               variant={showScanner ? 'secondary' : 'outline'}
@@ -386,7 +367,7 @@ export default function MasterCartonDetailPage() {
               onClick={() => setShowScanner(!showScanner)}
               leftIcon={<ScanLine className="h-4 w-4" />}
             >
-              {showScanner ? 'Hide Camera' : 'Open Camera Scanner'}
+              {showScanner ? 'Hide Camera' : 'Use Camera Instead'}
             </Button>
           </div>
 

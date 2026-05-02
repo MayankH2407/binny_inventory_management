@@ -8,6 +8,7 @@ import Input from '@/components/ui/Input';
 import { Card } from '@/components/ui/Card';
 import PageHeader from '@/components/layout/PageHeader';
 import QRScanner from '@/components/scanning/QRScanner';
+import HIDScannerInput from '@/components/scanning/HIDScannerInput';
 import { ROUTES } from '@/constants';
 import { ecommerceService } from '@/services/ecommerce.service';
 import { childBoxService } from '@/services/childBox.service';
@@ -28,7 +29,6 @@ export default function CreateEcommercePage() {
   const [notes, setNotes] = useState('');
   const [showScanner, setShowScanner] = useState(false);
   const [fullScreenScan, setFullScreenScan] = useState(false);
-  const [manualBarcode, setManualBarcode] = useState('');
   const { scannedItems, addItem, removeItem, clearItems } = useScanStore();
   const [itemDetails, setItemDetails] = useState<Record<string, ChildBoxWithProduct>>({});
 
@@ -190,63 +190,40 @@ export default function CreateEcommercePage() {
           </Card>
 
           <Card className="p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <div className="p-2 rounded-lg" style={{ backgroundColor: '#F5F4FF' }}>
-                  <ScanLine className="h-4 w-4" style={{ color: '#2D2A6E' }} />
-                </div>
-                <h3 className="font-semibold text-brand-text-dark">Scan Child Boxes</h3>
+            <div className="flex items-center gap-2 mb-4">
+              <div className="p-2 rounded-lg" style={{ backgroundColor: '#F5F4FF' }}>
+                <ScanLine className="h-4 w-4" style={{ color: '#2D2A6E' }} />
               </div>
+              <h3 className="font-semibold text-brand-text-dark">Scan Child Boxes</h3>
+            </div>
+
+            <HIDScannerInput
+              onScan={handleScan}
+              placeholder="Scan or enter child box barcode..."
+              autoFocus
+            />
+
+            <div className="mt-4 pt-4 border-t border-brand-border">
               <Button
-                variant={showScanner ? 'secondary' : 'primary'}
+                variant={showScanner ? 'secondary' : 'outline'}
                 size="sm"
                 onClick={() => setShowScanner(!showScanner)}
                 leftIcon={<ScanLine className="h-4 w-4" />}
               >
-                {showScanner ? 'Hide Scanner' : 'Open Scanner'}
+                {showScanner ? 'Hide Camera' : 'Use Camera Instead'}
               </Button>
             </div>
 
             {showScanner && (
-              <QRScanner
-                onScanSuccess={handleScan}
-                autoStart
-                fullScreen={fullScreenScan}
-                onToggleFullScreen={() => setFullScreenScan(!fullScreenScan)}
-              />
-            )}
-
-            <div className="mt-4 pt-4 border-t border-brand-border">
-              <p className="text-sm text-brand-text-muted mb-2">Or add barcode manually:</p>
-              <div className="flex gap-3">
-                <div className="flex-1">
-                  <Input
-                    placeholder="Enter barcode (e.g. BINNY-CB-001)"
-                    value={manualBarcode}
-                    onChange={(e) => setManualBarcode(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && manualBarcode.trim()) {
-                        handleScan(manualBarcode.trim());
-                        setManualBarcode('');
-                      }
-                    }}
-                  />
-                </div>
-                <Button
-                  size="sm"
-                  disabled={!manualBarcode.trim()}
-                  onClick={() => {
-                    if (manualBarcode.trim()) {
-                      handleScan(manualBarcode.trim());
-                      setManualBarcode('');
-                    }
-                  }}
-                  leftIcon={<Check className="h-4 w-4" />}
-                >
-                  Add
-                </Button>
+              <div className="mt-4">
+                <QRScanner
+                  onScanSuccess={handleScan}
+                  autoStart
+                  fullScreen={fullScreenScan}
+                  onToggleFullScreen={() => setFullScreenScan(!fullScreenScan)}
+                />
               </div>
-            </div>
+            )}
           </Card>
         </div>
 

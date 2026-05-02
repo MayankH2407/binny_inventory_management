@@ -3,11 +3,11 @@
 import { useState, useCallback, useEffect } from 'react';
 import { Search, Package, Boxes, Truck, Clock, Archive, CheckCircle, CloudOff } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
-import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
 import StatusBadge from '@/components/ui/StatusBadge';
 import Badge from '@/components/ui/Badge';
 import QRScanner from '@/components/scanning/QRScanner';
+import HIDScannerInput from '@/components/scanning/HIDScannerInput';
 import PageHeader from '@/components/layout/PageHeader';
 import { inventoryService } from '@/services/inventory.service';
 import { childBoxService } from '@/services/childBox.service';
@@ -167,31 +167,34 @@ export default function ScanTracePage() {
         {/* Left: Scanner + Manual Entry */}
         <div className="space-y-6">
           <Card className="p-6">
-            <h3 className="font-semibold text-brand-text-dark mb-4">Camera Scanner</h3>
-            <QRScanner
-              onScanSuccess={handleScan}
-              fullScreen={fullScreen}
-              onToggleFullScreen={() => setFullScreen(!fullScreen)}
-              pendingOfflineCount={pendingCount}
+            <h3 className="font-semibold text-brand-text-dark mb-4">Scan &amp; Trace</h3>
+            <HIDScannerInput
+              onScan={(code) => {
+                setBarcode(code);
+                lookup(code);
+              }}
+              placeholder="Scan barcode to trace..."
+              autoFocus
             />
-          </Card>
-
-          <Card className="p-6">
-            <h3 className="font-semibold text-brand-text-dark mb-4">Manual Entry</h3>
-            <div className="flex gap-3">
-              <div className="flex-1">
-                <Input
-                  placeholder="Enter barcode..."
-                  value={barcode}
-                  onChange={(e) => setBarcode(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && lookup(barcode)}
-                  leftIcon={<Search className="h-4 w-4" />}
-                />
-              </div>
-              <Button onClick={() => lookup(barcode)} isLoading={isSearching}>
-                Look Up
+            <div className="mt-4 pt-4 border-t border-brand-border">
+              <Button
+                variant={fullScreen ? 'secondary' : 'outline'}
+                size="sm"
+                onClick={() => setFullScreen(!fullScreen)}
+                leftIcon={<Search className="h-4 w-4" />}
+              >
+                Use Camera Instead
               </Button>
             </div>
+            {fullScreen && (
+              <div className="mt-4">
+                <QRScanner
+                  onScanSuccess={handleScan}
+                  fullScreen={false}
+                  pendingOfflineCount={pendingCount}
+                />
+              </div>
+            )}
           </Card>
         </div>
 

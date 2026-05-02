@@ -1,12 +1,13 @@
 'use client';
 
 import { useState, useCallback, type FormEvent } from 'react';
-import { Truck, ScanLine, X, Search, Plus, Package, FlaskConical, ShoppingCart } from 'lucide-react';
+import { Truck, ScanLine, X, Package, FlaskConical, ShoppingCart } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import Select from '@/components/ui/Select';
 import { Card } from '@/components/ui/Card';
 import QRScanner from '@/components/scanning/QRScanner';
+import HIDScannerInput from '@/components/scanning/HIDScannerInput';
 import PageHeader from '@/components/layout/PageHeader';
 import { dispatchService } from '@/services/dispatch.service';
 import { masterCartonService } from '@/services/masterCarton.service';
@@ -35,16 +36,13 @@ export default function DispatchPage() {
   // Master carton state (multi)
   const [showScanner, setShowScanner] = useState(false);
   const [fullScreenScan, setFullScreenScan] = useState(false);
-  const [manualBarcode, setManualBarcode] = useState('');
   const [scannedCartons, setScannedCartons] = useState<MasterCarton[]>([]);
 
   // Sample state (single)
-  const [sampleBarcode, setSampleBarcode] = useState('');
   const [selectedSample, setSelectedSample] = useState<SampleRecord | null>(null);
   const [showSampleScanner, setShowSampleScanner] = useState(false);
 
   // Ecommerce state (single)
-  const [ecBarcode, setEcBarcode] = useState('');
   const [selectedEc, setSelectedEc] = useState<EcommerceRecord | null>(null);
   const [showEcScanner, setShowEcScanner] = useState(false);
 
@@ -91,11 +89,6 @@ export default function DispatchPage() {
     },
     [scannedCartons]
   );
-
-  const handleAddManual = () => {
-    addCarton(manualBarcode);
-    setManualBarcode('');
-  };
 
   const removeCarton = (id: string) => {
     setScannedCartons((prev) => prev.filter((c) => c.id !== id));
@@ -320,54 +313,37 @@ export default function DispatchPage() {
           {sourceType === 'master_carton' && (
             <>
               <Card className="p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-2">
-                    <div className="p-2 rounded-lg" style={{ backgroundColor: '#F5F4FF' }}>
-                      <ScanLine className="h-4 w-4" style={{ color: '#2D2A6E' }} />
-                    </div>
-                    <h3 className="font-semibold text-brand-text-dark">Scan Master Cartons</h3>
+                <div className="flex items-center gap-2 mb-4">
+                  <div className="p-2 rounded-lg" style={{ backgroundColor: '#F5F4FF' }}>
+                    <ScanLine className="h-4 w-4" style={{ color: '#2D2A6E' }} />
                   </div>
+                  <h3 className="font-semibold text-brand-text-dark">Scan Master Cartons</h3>
+                </div>
+                <HIDScannerInput
+                  onScan={(code) => addCarton(code)}
+                  placeholder="Scan or enter carton barcode..."
+                  autoFocus={sourceType === 'master_carton'}
+                />
+                <div className="mt-4 pt-4 border-t border-brand-border">
                   <Button
-                    variant={showScanner ? 'secondary' : 'primary'}
+                    variant={showScanner ? 'secondary' : 'outline'}
                     size="sm"
                     onClick={() => setShowScanner(!showScanner)}
                     leftIcon={<ScanLine className="h-4 w-4" />}
                   >
-                    {showScanner ? 'Hide Scanner' : 'Open Scanner'}
+                    {showScanner ? 'Hide Camera' : 'Use Camera Instead'}
                   </Button>
                 </div>
                 {showScanner && (
-                  <QRScanner
-                    onScanSuccess={(code) => addCarton(code)}
-                    autoStart
-                    fullScreen={fullScreenScan}
-                    onToggleFullScreen={() => setFullScreenScan(!fullScreenScan)}
-                  />
-                )}
-                <div className="mt-4">
-                  <label className="text-sm font-medium text-brand-text-dark mb-1.5 block">
-                    Or enter barcode manually
-                  </label>
-                  <div className="flex gap-2">
-                    <div className="flex-1">
-                      <Input
-                        placeholder="Enter carton barcode..."
-                        value={manualBarcode}
-                        onChange={(e) => setManualBarcode(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            handleAddManual();
-                          }
-                        }}
-                        leftIcon={<Search className="h-4 w-4" />}
-                      />
-                    </div>
-                    <Button onClick={handleAddManual} leftIcon={<Plus className="h-4 w-4" />}>
-                      Add
-                    </Button>
+                  <div className="mt-4">
+                    <QRScanner
+                      onScanSuccess={(code) => addCarton(code)}
+                      autoStart
+                      fullScreen={fullScreenScan}
+                      onToggleFullScreen={() => setFullScreenScan(!fullScreenScan)}
+                    />
                   </div>
-                </div>
+                )}
               </Card>
 
               <Card className="p-6">
@@ -435,59 +411,38 @@ export default function DispatchPage() {
           {/* ── Sample panel ── */}
           {sourceType === 'sample' && (
             <Card className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                  <div className="p-2 rounded-lg" style={{ backgroundColor: '#FFF1F1' }}>
-                    <FlaskConical className="h-4 w-4 text-red-600" />
-                  </div>
-                  <h3 className="font-semibold text-brand-text-dark">Scan Sample</h3>
+              <div className="flex items-center gap-2 mb-4">
+                <div className="p-2 rounded-lg" style={{ backgroundColor: '#FFF1F1' }}>
+                  <FlaskConical className="h-4 w-4 text-red-600" />
                 </div>
+                <h3 className="font-semibold text-brand-text-dark">Scan Sample</h3>
+              </div>
+
+              <HIDScannerInput
+                onScan={(code) => lookupSample(code)}
+                placeholder="Scan or enter sample barcode..."
+                autoFocus={sourceType === 'sample'}
+              />
+
+              <div className="mt-4 pt-4 border-t border-brand-border">
                 <Button
-                  variant={showSampleScanner ? 'secondary' : 'primary'}
+                  variant={showSampleScanner ? 'secondary' : 'outline'}
                   size="sm"
                   onClick={() => setShowSampleScanner(!showSampleScanner)}
                   leftIcon={<ScanLine className="h-4 w-4" />}
                 >
-                  {showSampleScanner ? 'Hide Scanner' : 'Open Scanner'}
+                  {showSampleScanner ? 'Hide Camera' : 'Use Camera Instead'}
                 </Button>
               </div>
 
               {showSampleScanner && (
-                <QRScanner
-                  onScanSuccess={(code) => { lookupSample(code); setShowSampleScanner(false); }}
-                  autoStart
-                />
-              )}
-
-              <div className="mt-4">
-                <label className="text-sm font-medium text-brand-text-dark mb-1.5 block">
-                  Or enter sample barcode manually
-                </label>
-                <div className="flex gap-2">
-                  <div className="flex-1">
-                    <Input
-                      placeholder="BINNY-SR-..."
-                      value={sampleBarcode}
-                      onChange={(e) => setSampleBarcode(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          lookupSample(sampleBarcode);
-                          setSampleBarcode('');
-                        }
-                      }}
-                      leftIcon={<Search className="h-4 w-4" />}
-                    />
-                  </div>
-                  <Button
-                    type="button"
-                    onClick={() => { lookupSample(sampleBarcode); setSampleBarcode(''); }}
-                    leftIcon={<Search className="h-4 w-4" />}
-                  >
-                    Find
-                  </Button>
+                <div className="mt-4">
+                  <QRScanner
+                    onScanSuccess={(code) => { lookupSample(code); setShowSampleScanner(false); }}
+                    autoStart
+                  />
                 </div>
-              </div>
+              )}
 
               {selectedSample ? (
                 <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
@@ -528,59 +483,38 @@ export default function DispatchPage() {
           {/* ── E-commerce panel ── */}
           {sourceType === 'ecommerce' && (
             <Card className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                  <div className="p-2 rounded-lg" style={{ backgroundColor: '#F3F0FF' }}>
-                    <ShoppingCart className="h-4 w-4 text-purple-600" />
-                  </div>
-                  <h3 className="font-semibold text-brand-text-dark">Scan E-commerce Record</h3>
+              <div className="flex items-center gap-2 mb-4">
+                <div className="p-2 rounded-lg" style={{ backgroundColor: '#F3F0FF' }}>
+                  <ShoppingCart className="h-4 w-4 text-purple-600" />
                 </div>
+                <h3 className="font-semibold text-brand-text-dark">Scan E-commerce Record</h3>
+              </div>
+
+              <HIDScannerInput
+                onScan={(code) => lookupEc(code)}
+                placeholder="Scan or enter e-commerce barcode..."
+                autoFocus={sourceType === 'ecommerce'}
+              />
+
+              <div className="mt-4 pt-4 border-t border-brand-border">
                 <Button
-                  variant={showEcScanner ? 'secondary' : 'primary'}
+                  variant={showEcScanner ? 'secondary' : 'outline'}
                   size="sm"
                   onClick={() => setShowEcScanner(!showEcScanner)}
                   leftIcon={<ScanLine className="h-4 w-4" />}
                 >
-                  {showEcScanner ? 'Hide Scanner' : 'Open Scanner'}
+                  {showEcScanner ? 'Hide Camera' : 'Use Camera Instead'}
                 </Button>
               </div>
 
               {showEcScanner && (
-                <QRScanner
-                  onScanSuccess={(code) => { lookupEc(code); setShowEcScanner(false); }}
-                  autoStart
-                />
-              )}
-
-              <div className="mt-4">
-                <label className="text-sm font-medium text-brand-text-dark mb-1.5 block">
-                  Or enter e-commerce barcode manually
-                </label>
-                <div className="flex gap-2">
-                  <div className="flex-1">
-                    <Input
-                      placeholder="BINNY-EC-..."
-                      value={ecBarcode}
-                      onChange={(e) => setEcBarcode(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          lookupEc(ecBarcode);
-                          setEcBarcode('');
-                        }
-                      }}
-                      leftIcon={<Search className="h-4 w-4" />}
-                    />
-                  </div>
-                  <Button
-                    type="button"
-                    onClick={() => { lookupEc(ecBarcode); setEcBarcode(''); }}
-                    leftIcon={<Search className="h-4 w-4" />}
-                  >
-                    Find
-                  </Button>
+                <div className="mt-4">
+                  <QRScanner
+                    onScanSuccess={(code) => { lookupEc(code); setShowEcScanner(false); }}
+                    autoStart
+                  />
                 </div>
-              </div>
+              )}
 
               {selectedEc ? (
                 <div className="mt-4 p-3 bg-purple-50 border border-purple-200 rounded-lg">
