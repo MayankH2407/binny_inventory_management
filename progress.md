@@ -860,7 +860,7 @@ Net effect: same 6-cell table structure, Colour and MRP cells now visibly domina
 
 ---
 
-## CURRENT EXECUTION (resumption marker — 2026-05-02, RESUMES FROM M5)
+## CURRENT EXECUTION (resumption marker — 2026-05-02, RESUMES FROM M6)
 
 **Active workstream:** Mobile parity (M1 → M7). 7-phase plan to bring the mobile app up to feature parity with the web portal (Apr 27 mods + Apr 30 carton view). Opus plans each phase, Sonnet executes, orchestrator (Opus) verifies + updates this doc + commits per phase.
 
@@ -869,32 +869,31 @@ Net effect: same 6-cell table structure, Colour and MRP cells now visibly domina
 - **M2 — Sample module screens** ✅ COMPLETE (2026-05-01, commit `c5c92a4`). 3 screens (list / create / detail) + Samples menu tile. Lifecycle constraints match web. `tsc --noEmit` clean.
 - **M3 — E-commerce module screens** ✅ COMPLETE (2026-05-01, commit `206c353`). 3 screens cloned from Sample template with field substitutions + E-commerce menu tile. `tsc --noEmit` clean.
 - **M4 — Dispatch multi-source** ✅ COMPLETE (2026-05-02, commit `ae73320`). 3-way segmented picker on `dispatch/create.tsx` (Master Carton / Sample / E-commerce); per-source scan + manual barcode entry; customer/transport/LR/vehicle/notes shared. `dispatch/index.tsx` renders source-type chip + falls back to `source_label`. `dispatch/[id].tsx` adds Source card with type label + tappable "View source record" jump-link. CLOSED-only gating on all three paths. `tsc --noEmit` clean.
-- **M5 — Inventory: MRP grouping + Master Carton view tab** — RESUME HERE next session.
-- M6 — Reports stock-tab columns — pending.
+- **M5 — Inventory: MRP grouping + Master Carton view tab** ✅ COMPLETE (2026-05-02, commit `108796d`). `mobile/app/(tabs)/inventory.tsx` rewritten: conditional MRP drill step (article_name → mrp → colour when `distinctMrpCount > 1`), top-level segmented tab toggle (`Child Box | Master Carton`), Master Carton hierarchy (`status → section → article_name → carton`) with status-breakdown chips + utilization bar + leaf card routing to `/master-cartons/[id]`. Each tab keeps own breadcrumb stack. Load-more pagination on carton-leaf. CSV + search skipped (web-only / drill-filter sufficient). `tsc --noEmit` clean.
+- **M6 — Reports stock-tab columns** — RESUME HERE next session.
 - M7 — TS check + jest + EAS preview build — pending.
 
-**Where to pick up M5 next session:**
+**Where to pick up M6 next session:**
 
-Goal: bring the mobile inventory screen (`mobile/app/(tabs)/inventory.tsx` or wherever the Inventory hierarchy lives — verify on entry) up to parity with web's `frontend/src/app/(dashboard)/inventory/page.tsx`. Two pieces:
+Goal: bring the mobile reports screen (`mobile/app/reports.tsx`) up to parity with web's `frontend/src/app/(dashboard)/reports/page.tsx` for the Stock tab. The web Stock tab has additional columns added in the Apr 27 mods — sample/ecommerce columns added to the product-wise rows so users can see how many child boxes are in samples vs e-commerce vs dispatched.
 
-1. **Multi-MRP grouping in the Child Box hierarchy.** When an article has more than one MRP across its boxes, insert an MRP step between Article → Colour. Subtitle on the article tile: `"N MRPs"` (vs `"N Colours"` for single-MRP articles). Demo fixture on local: `MRP TEST CITY 02` (2 MRPs: ₹299 + ₹399) vs `MRP TEST CITY 03` (1 MRP, jumps article→colour directly). FLOOR pattern on the size-level product cards: render `"<size> - ₹<mrp>"` (e.g. `"6 - ₹299"`).
+Files to touch (verify on entry):
+- `mobile/app/reports.tsx` (or wherever the Reports screen lives — confirm by `Glob mobile/app/**/report*`)
+- Possibly `mobile/types/index.ts` if the row type needs `sample_boxes` / `ecommerce_boxes` fields (check first — they may already be there from M1 type extension; types/index.ts:366-367 has `sample_boxes` and `ecommerce_boxes` on `ProductWiseRow`)
+- `mobile/services/report.service.ts` (verify endpoint already returns the columns)
 
-2. **Master Carton view tab.** Add a second top-level tab on the inventory screen alongside the existing Child Box hierarchy: `Status → Section → Article → Carton`. Mixed-article cartons dedup via COUNT DISTINCT on the article column (already handled server-side in `inventoryService.getCartonHierarchy()` or similar — verify endpoint). Each leaf carton card shows `cartonCount` per article + utilization bar + primary_section/article + dates. Tapping a carton routes to `/master-cartons/[id]`. CSV export is web-only — skip on mobile.
-
-Files to touch (verify exact paths on entry — they may differ from web's structure):
-- The inventory screen file (likely `mobile/app/(tabs)/inventory.tsx` or `mobile/app/inventory.tsx`)
-- Possibly extracting a `MasterCartonView` sub-component to keep the file readable
-- Confirm the inventory service in `mobile/services/inventory.service.ts` already has the carton-hierarchy endpoint hooked up — if not, add it (web reference: `frontend/src/services/inventory.service.ts`)
+Web reference points to look at:
+- The Stock tab table on `frontend/src/app/(dashboard)/reports/page.tsx`
+- `frontend/src/services/report.service.ts` for any new response shape
 
 Rules:
-- Roles unchanged for viewing inventory.
-- No CSV export on mobile (deferred — web-only).
-- Use existing UI primitives: `Card`, `Spinner`, `EmptyState`, `RoleGate` (where applicable).
-- Reference for UX: `frontend/src/app/(dashboard)/inventory/page.tsx` (Master Carton view tab + the conditional-MRP step in Child Box hierarchy).
-
-Implementation pattern: add a top-level tab toggle (`Child Box` | `Master Carton`) at the top of the inventory screen. Conditionally render whichever hierarchy the user selected. The Child Box hierarchy needs a small modification to insert the MRP step when the article has >1 distinct MRP across its boxes.
+- Roles unchanged.
+- Reuse existing card / row patterns on mobile (the report rows are likely simple Cards or table rows in `reports.tsx`).
+- If the mobile reports screen has multiple tabs (Stock / Daily Activity / etc), only touch the Stock tab.
+- Don't add CSV export to mobile if it's not already there.
 
 **Working tree:** clean except `scripts/progress-checkpoint.sh` (untracked, leave alone). Latest commits on `main`:
+- `108796d` — Mobile parity M5: inventory MRP grouping + Master Carton tab
 - `ae73320` — Mobile parity M4: dispatch multi-source
 - `206c353` — Mobile parity M3: E-commerce module screens
 - `c5c92a4` — Mobile parity M2: Sample module screens
