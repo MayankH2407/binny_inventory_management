@@ -860,7 +860,7 @@ Net effect: same 6-cell table structure, Colour and MRP cells now visibly domina
 
 ---
 
-## CURRENT EXECUTION (resumption marker — 2026-05-02, RESUMES FROM M6)
+## CURRENT EXECUTION (resumption marker — 2026-05-02, RESUMES FROM M7)
 
 **Active workstream:** Mobile parity (M1 → M7). 7-phase plan to bring the mobile app up to feature parity with the web portal (Apr 27 mods + Apr 30 carton view). Opus plans each phase, Sonnet executes, orchestrator (Opus) verifies + updates this doc + commits per phase.
 
@@ -870,29 +870,27 @@ Net effect: same 6-cell table structure, Colour and MRP cells now visibly domina
 - **M3 — E-commerce module screens** ✅ COMPLETE (2026-05-01, commit `206c353`). 3 screens cloned from Sample template with field substitutions + E-commerce menu tile. `tsc --noEmit` clean.
 - **M4 — Dispatch multi-source** ✅ COMPLETE (2026-05-02, commit `ae73320`). 3-way segmented picker on `dispatch/create.tsx` (Master Carton / Sample / E-commerce); per-source scan + manual barcode entry; customer/transport/LR/vehicle/notes shared. `dispatch/index.tsx` renders source-type chip + falls back to `source_label`. `dispatch/[id].tsx` adds Source card with type label + tappable "View source record" jump-link. CLOSED-only gating on all three paths. `tsc --noEmit` clean.
 - **M5 — Inventory: MRP grouping + Master Carton view tab** ✅ COMPLETE (2026-05-02, commit `108796d`). `mobile/app/(tabs)/inventory.tsx` rewritten: conditional MRP drill step (article_name → mrp → colour when `distinctMrpCount > 1`), top-level segmented tab toggle (`Child Box | Master Carton`), Master Carton hierarchy (`status → section → article_name → carton`) with status-breakdown chips + utilization bar + leaf card routing to `/master-cartons/[id]`. Each tab keeps own breadcrumb stack. Load-more pagination on carton-leaf. CSV + search skipped (web-only / drill-filter sufficient). `tsc --noEmit` clean.
-- **M6 — Reports stock-tab columns** — RESUME HERE next session.
-- M7 — TS check + jest + EAS preview build — pending.
+- **M6 — Reports stock-tab columns** ✅ COMPLETE (2026-05-02, commit `e75bcc6`). `mobile/app/reports.tsx` StockTab: per-row card now renders 8 stat tiles in web column order (Total / Free / Packed / Sample / E-commerce / Dispatched / Pairs (Stock) / Pairs (Sent)); added Totals card above the per-row list mirroring the web's totals row. Uses `CHILD_BOX_STATUS_COLORS.SAMPLE` (red) and `.ECOMMERCE` (purple) consistent with mobile branding. `tsc --noEmit` clean.
+- **M7 — TS check + jest + EAS preview build** — RESUME HERE next session.
 
-**Where to pick up M6 next session:**
+**Where to pick up M7 next session:**
 
-Goal: bring the mobile reports screen (`mobile/app/reports.tsx`) up to parity with web's `frontend/src/app/(dashboard)/reports/page.tsx` for the Stock tab. The web Stock tab has additional columns added in the Apr 27 mods — sample/ecommerce columns added to the product-wise rows so users can see how many child boxes are in samples vs e-commerce vs dispatched.
+Goal: validation pass + optional preview build. M7 is the QA + build phase, not new feature work.
 
-Files to touch (verify on entry):
-- `mobile/app/reports.tsx` (or wherever the Reports screen lives — confirm by `Glob mobile/app/**/report*`)
-- Possibly `mobile/types/index.ts` if the row type needs `sample_boxes` / `ecommerce_boxes` fields (check first — they may already be there from M1 type extension; types/index.ts:366-367 has `sample_boxes` and `ecommerce_boxes` on `ProductWiseRow`)
-- `mobile/services/report.service.ts` (verify endpoint already returns the columns)
+1. **TS check (root + mobile)** — full `npx tsc --noEmit` from `mobile/` should be clean (already verified clean after each of M1-M6, but rerun as the final gate).
+2. **Jest** — if `mobile/` has a `jest.config.*` and `package.json` has a `test` script, run it. Mobile-parity work didn't add tests, but any pre-existing tests should pass. If there are no tests configured, note that and skip.
+3. **EAS preview build** — DO NOT KICK OFF without explicit user OK. The build runs against the EAS free queue (slow + costs queue time). When user OKs it, run `eas build --profile preview --platform android` from `mobile/`. Auth is via `EXPO_TOKEN` (project owned by kanikabehl per memory). Keep the build in foreground or capture build URL so user can track.
 
-Web reference points to look at:
-- The Stock tab table on `frontend/src/app/(dashboard)/reports/page.tsx`
-- `frontend/src/services/report.service.ts` for any new response shape
-
-Rules:
-- Roles unchanged.
-- Reuse existing card / row patterns on mobile (the report rows are likely simple Cards or table rows in `reports.tsx`).
-- If the mobile reports screen has multiple tabs (Stock / Daily Activity / etc), only touch the Stock tab.
-- Don't add CSV export to mobile if it's not already there.
+Implementation steps for M7 when resumed:
+- Run `cd mobile && npx tsc --noEmit` — confirm exit 0.
+- `cat mobile/package.json | grep -E "test|jest"` — see if jest is configured.
+- If jest is configured, `cd mobile && npm test` (or `npx jest`).
+- Report results to user. Ask explicitly: "Ready to kick off the EAS preview build? It will run against the free queue."
+- If user says yes: `cd mobile && eas build --profile preview --platform android` (need to confirm `eas.json` has a `preview` profile — if not, use `development` or whatever profile exists).
+- Capture build URL and post-build APK link for user testing.
 
 **Working tree:** clean except `scripts/progress-checkpoint.sh` (untracked, leave alone). Latest commits on `main`:
+- `e75bcc6` — Mobile parity M6: reports stock-tab sample/ecommerce columns
 - `108796d` — Mobile parity M5: inventory MRP grouping + Master Carton tab
 - `ae73320` — Mobile parity M4: dispatch multi-source
 - `206c353` — Mobile parity M3: E-commerce module screens
