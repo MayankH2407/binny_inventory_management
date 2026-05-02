@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { Stack } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
-import { COLORS, CARTON_STATUS_COLORS } from '../constants';
+import { COLORS, CARTON_STATUS_COLORS, CHILD_BOX_STATUS_COLORS } from '../constants';
 import { reportService } from '../services/report.service';
 import type {
   ProductWiseRow,
@@ -191,6 +191,23 @@ function StockTab() {
   const summary = summaryQuery.data ?? null;
   const rows = productQuery.data ?? [];
 
+  const totals = useMemo(() => {
+    if (rows.length === 0) return null;
+    return rows.reduce(
+      (acc, r) => ({
+        total_boxes: acc.total_boxes + r.total_boxes,
+        free_boxes: acc.free_boxes + r.free_boxes,
+        packed_boxes: acc.packed_boxes + r.packed_boxes,
+        sample_boxes: acc.sample_boxes + r.sample_boxes,
+        ecommerce_boxes: acc.ecommerce_boxes + r.ecommerce_boxes,
+        dispatched_boxes: acc.dispatched_boxes + r.dispatched_boxes,
+        pairs_in_stock: acc.pairs_in_stock + r.pairs_in_stock,
+        pairs_dispatched: acc.pairs_dispatched + r.pairs_dispatched,
+      }),
+      { total_boxes: 0, free_boxes: 0, packed_boxes: 0, sample_boxes: 0, ecommerce_boxes: 0, dispatched_boxes: 0, pairs_in_stock: 0, pairs_dispatched: 0 }
+    );
+  }, [rows]);
+
   if (isLoading && rows.length === 0) {
     return (
       <View style={styles.centered}>
@@ -219,6 +236,59 @@ function StockTab() {
           <SummaryCard label="Pairs In Stock" value={summary.totalPairsInStock} />
           <SummaryCard label="Pairs Dispatched" value={summary.totalPairsDispatched} />
         </View>
+      )}
+
+      {/* Totals card */}
+      {totals !== null && (
+        <Card style={styles.itemCard}>
+          <Text style={styles.rowTitle}>Totals</Text>
+          <View style={styles.statsGrid}>
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>{totals.total_boxes}</Text>
+              <Text style={styles.statLabel}>Total</Text>
+            </View>
+            <View style={styles.statItem}>
+              <Text style={[styles.statValue, { color: COLORS.statusFree }]}>
+                {totals.free_boxes}
+              </Text>
+              <Text style={styles.statLabel}>Free</Text>
+            </View>
+            <View style={styles.statItem}>
+              <Text style={[styles.statValue, { color: COLORS.statusPacked }]}>
+                {totals.packed_boxes}
+              </Text>
+              <Text style={styles.statLabel}>Packed</Text>
+            </View>
+            <View style={styles.statItem}>
+              <Text style={[styles.statValue, { color: CHILD_BOX_STATUS_COLORS.SAMPLE }]}>
+                {totals.sample_boxes}
+              </Text>
+              <Text style={styles.statLabel}>Sample</Text>
+            </View>
+            <View style={styles.statItem}>
+              <Text style={[styles.statValue, { color: CHILD_BOX_STATUS_COLORS.ECOMMERCE }]}>
+                {totals.ecommerce_boxes}
+              </Text>
+              <Text style={styles.statLabel}>E-commerce</Text>
+            </View>
+            <View style={styles.statItem}>
+              <Text style={[styles.statValue, { color: COLORS.statusDispatched }]}>
+                {totals.dispatched_boxes}
+              </Text>
+              <Text style={styles.statLabel}>Dispatched</Text>
+            </View>
+            <View style={styles.statItem}>
+              <Text style={[styles.statValue, { color: COLORS.info }]}>
+                {totals.pairs_in_stock}
+              </Text>
+              <Text style={styles.statLabel}>Pairs (Stock)</Text>
+            </View>
+            <View style={styles.statItem}>
+              <Text style={styles.statValue}>{totals.pairs_dispatched}</Text>
+              <Text style={styles.statLabel}>Pairs (Sent)</Text>
+            </View>
+          </View>
+        </Card>
       )}
 
       {/* Product-wise rows */}
@@ -256,6 +326,18 @@ function StockTab() {
                   {row.packed_boxes}
                 </Text>
                 <Text style={styles.statLabel}>Packed</Text>
+              </View>
+              <View style={styles.statItem}>
+                <Text style={[styles.statValue, { color: CHILD_BOX_STATUS_COLORS.SAMPLE }]}>
+                  {row.sample_boxes}
+                </Text>
+                <Text style={styles.statLabel}>Sample</Text>
+              </View>
+              <View style={styles.statItem}>
+                <Text style={[styles.statValue, { color: CHILD_BOX_STATUS_COLORS.ECOMMERCE }]}>
+                  {row.ecommerce_boxes}
+                </Text>
+                <Text style={styles.statLabel}>E-commerce</Text>
               </View>
               <View style={styles.statItem}>
                 <Text style={[styles.statValue, { color: COLORS.statusDispatched }]}>
