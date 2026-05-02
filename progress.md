@@ -860,7 +860,32 @@ Net effect: same 6-cell table structure, Colour and MRP cells now visibly domina
 
 ---
 
-## CURRENT EXECUTION (resumption marker — 2026-05-02, RESUMES FROM M7)
+## CURRENT EXECUTION (resumption marker — 2026-05-02, MOBILE PARITY M1-M7 ✅; TEST-CASE AUTHORING SESSIONS 1-3/13 ✅; CLIENT MOD #1 (2-up child-box labels) ✅ shipped)
+
+---
+
+## Workstream C — Client modification #1: 2-up child-box label print (2026-05-02)
+
+Client clarified that the label roll being used is **100mm wide carrying two 50×50mm labels side-by-side per row** (see `Rollsize.jpeg` in repo root). The previous print layout emitted one label per page (50×50mm @page), wasting half the roll on each pass. Re-laid out the print to produce two labels per page-row matching the physical roll geometry.
+
+**Changes:**
+- `frontend/src/app/(dashboard)/child-boxes/generate/page.tsx` `handlePrint()`:
+  - `@page` size `50mm 50mm` → `100mm 50mm`
+  - Group `labelHtmlParts` into pairs of 2; wrap each pair in a flex `<div class="row">` that handles the page-break (instead of `.label` doing it)
+  - Odd-count tail-padding via `<div class="label-empty">` (hidden, same dimensions) so the printer still advances 50mm and the next print run starts on a fresh row pair
+  - Per-label inner table content (article / colour / size / MRP / QR / footer) unchanged
+- Master-carton label print (100×150mm, separate code in `master-cartons/[id]/page.tsx`) untouched — different label format, not on the same roll.
+
+**Verification:**
+- `npx tsc --noEmit` from `frontend/`: clean for the modified file (pre-existing e2e spec errors unrelated)
+- `npm run lint`: exit 0
+- Visual print verification deferred to client's first run on the actual roll — flag in v3 phase-09 (web Child Box labels) and the upcoming mobile reports phase to update label TCs to assert 2-per-row layout
+
+**Commit:** `e6a3617` — "Child-box labels: print 2-up to match 100mm-wide roll" (1 file, +21/-4)
+
+**Test-suite impact:** v3 phase-09 (`phase-09-childbox-labels.md`, 56 TCs) currently asserts `@page size 50mm 50mm` and 1-up layout. Those TCs need updating once Workstream B resumes — add a follow-up note to AUTHORING_PROGRESS.md so the next test-authoring pass refreshes phase-09 to match the new 2-up layout (assertions: 100×50mm @page, two 50×50mm labels per page, hidden placeholder on odd counts, page-break on `.row` not `.label`).
+
+---
 
 **Active workstream:** Mobile parity (M1 → M7). 7-phase plan to bring the mobile app up to feature parity with the web portal (Apr 27 mods + Apr 30 carton view). Opus plans each phase, Sonnet executes, orchestrator (Opus) verifies + updates this doc + commits per phase.
 
@@ -871,23 +896,69 @@ Net effect: same 6-cell table structure, Colour and MRP cells now visibly domina
 - **M4 — Dispatch multi-source** ✅ COMPLETE (2026-05-02, commit `ae73320`). 3-way segmented picker on `dispatch/create.tsx` (Master Carton / Sample / E-commerce); per-source scan + manual barcode entry; customer/transport/LR/vehicle/notes shared. `dispatch/index.tsx` renders source-type chip + falls back to `source_label`. `dispatch/[id].tsx` adds Source card with type label + tappable "View source record" jump-link. CLOSED-only gating on all three paths. `tsc --noEmit` clean.
 - **M5 — Inventory: MRP grouping + Master Carton view tab** ✅ COMPLETE (2026-05-02, commit `108796d`). `mobile/app/(tabs)/inventory.tsx` rewritten: conditional MRP drill step (article_name → mrp → colour when `distinctMrpCount > 1`), top-level segmented tab toggle (`Child Box | Master Carton`), Master Carton hierarchy (`status → section → article_name → carton`) with status-breakdown chips + utilization bar + leaf card routing to `/master-cartons/[id]`. Each tab keeps own breadcrumb stack. Load-more pagination on carton-leaf. CSV + search skipped (web-only / drill-filter sufficient). `tsc --noEmit` clean.
 - **M6 — Reports stock-tab columns** ✅ COMPLETE (2026-05-02, commit `e75bcc6`). `mobile/app/reports.tsx` StockTab: per-row card now renders 8 stat tiles in web column order (Total / Free / Packed / Sample / E-commerce / Dispatched / Pairs (Stock) / Pairs (Sent)); added Totals card above the per-row list mirroring the web's totals row. Uses `CHILD_BOX_STATUS_COLORS.SAMPLE` (red) and `.ECOMMERCE` (purple) consistent with mobile branding. `tsc --noEmit` clean.
-- **M7 — TS check + jest + EAS preview build** — RESUME HERE next session.
+- **M7 — TS check + jest + EAS preview build** ✅ COMPLETE (2026-05-02). Final `tsc --noEmit` exit 0. Jest: 93/114 pass; 21 failures across 3 suites (`__tests__/services/api.test.ts`, `__tests__/hooks/useApi.test.ts`, `__tests__/components/ui.test.tsx`) are PRE-EXISTING — git log confirms neither the test files nor their source under test (`hooks/useApi.ts`, `components/ui/Button.tsx`, `services/api.ts`) were modified during M1-M6 or between Phase D commit `fedaaed` and M1, so failures pre-date the parity workstream. Tracked as separate cleanup, NOT a parity blocker. EAS preview build submitted to free queue: build ID `50dc7551-fa54-4621-b733-982bf831b0b3`, profile `preview` (internal distribution, APK output). Build URL: https://expo.dev/accounts/kanikabehl/projects/binny-inventory/builds/50dc7551-fa54-4621-b733-982bf831b0b3
 
-**Where to pick up M7 next session:**
+---
 
-Goal: validation pass + optional preview build. M7 is the QA + build phase, not new feature work.
+## Workstream B — Comprehensive mobile test-case authoring (started 2026-05-02)
 
-1. **TS check (root + mobile)** — full `npx tsc --noEmit` from `mobile/` should be clean (already verified clean after each of M1-M6, but rerun as the final gate).
-2. **Jest** — if `mobile/` has a `jest.config.*` and `package.json` has a `test` script, run it. Mobile-parity work didn't add tests, but any pre-existing tests should pass. If there are no tests configured, note that and skip.
-3. **EAS preview build** — DO NOT KICK OFF without explicit user OK. The build runs against the EAS free queue (slow + costs queue time). When user OKs it, run `eas build --profile preview --platform android` from `mobile/`. Auth is via `EXPO_TOKEN` (project owned by kanikabehl per memory). Keep the build in foreground or capture build URL so user can track.
+User requested an exhaustive test-case suite covering all roles and all modules — frontend + backend + Maestro E2E for mobile, Playwright for web. The existing v3 web suite is intact (1,469 TCs across 20 phase files); the new work is mobile-only this round (web re-pass deferred). Plan: 13 sessions, each producing ~50-130 TCs in one phase markdown file. Opus plans + verifies; Sonnet authors per session.
 
-Implementation steps for M7 when resumed:
-- Run `cd mobile && npx tsc --noEmit` — confirm exit 0.
-- `cat mobile/package.json | grep -E "test|jest"` — see if jest is configured.
-- If jest is configured, `cd mobile && npm test` (or `npx jest`).
-- Report results to user. Ask explicitly: "Ready to kick off the EAS preview build? It will run against the free queue."
-- If user says yes: `cd mobile && eas build --profile preview --platform android` (need to confirm `eas.json` has a `preview` profile — if not, use `development` or whatever profile exists).
-- Capture build URL and post-build APK link for user testing.
+**Plan tracker (canonical):** `docs/test-cases-v3/AUTHORING_PROGRESS.md`. Read that file first when resuming.
+
+**Authoring rule established this session:** Hold ALL commits until the full 13-session workstream is done — user will run a single combined commit at the end. The working tree will accumulate uncommitted work across sessions. Saved to memory: `feedback_combined_commit_test_authoring.md`.
+
+**Sessions completed (this calendar day):**
+
+- **Session 1 — `phase-21-mobile-foundation.md`** ✅ (106 TCs, 21 Maestro flows, 14 sections). Auth/login per role, AuthGate routing, bottom tab bar, Dashboard tab, Menu grid (role-gated tiles for all 4 roles incl. Warehouse/Dispatch restriction), Settings, logout, token persistence in SecureStore, 401 wipe behavior. 2 `[?]` flags raised: deep-link-return-to-target after login (likely not implemented), JWT revocation on remote logout (server is stateless).
+- **Session 2 — `phase-22-mobile-inventory.md`** ✅ (94 TCs, 19 Maestro flows, 22 sections). Both inventory tabs (Child Box | Master Carton — M5), conditional MRP drill, breadcrumbs per tab, summary cards, status-breakdown chips, utilization bar color thresholds, status pill colors, leaf-carton routing, load-more pagination. Per-role exercises in 22.1 + 22.21. 4 `[?]` flags: silent error fallback, missing `node.id` guard, Maestro selector ambiguity, no locale formatting on large counts.
+- **Session 3 — `phase-23-mobile-products-childboxes.md`** ✅ (122 TCs, 15 Maestro flows, 23 sections). Products list/detail (Admin+Supervisor only — read-only on mobile, no create), Child Boxes list/detail/aging-tint (90d yellow / 180d red, FREE-only), Generate web-only stub screen, Repack/Unpack/Storage workflows. 6 `[?]` flags incl. **2 real behavioral inconsistencies discovered by source read**:
+  - Mobile **Unpack** does NOT block CREATED-status cartons while Repack/Storage do — likely gap in `mobile/app/unpack.tsx`.
+  - Mobile **Storage** RoleGate allows Warehouse Op but the v3 capability matrix says backend close mutation is Admin+Supervisor only — mobile UX → API layer mismatch (will succeed at screen, fail at API).
+
+**Sessions remaining (10):**
+- Session 4 — `phase-24-mobile-master-cartons.md` (Master Cartons list/create/detail + status state machine + role divergence on Close action) — **WAS DISPATCHED but Sonnet hit usage limit before completing; phase-24 file was NOT created. Re-dispatch Sonnet with the same brief next session (the brief is in this conversation's history).**
+- Session 5 — `phase-25-mobile-samples.md` (Samples M2 — full lifecycle on mobile)
+- Session 6 — `phase-26-mobile-ecommerce.md` (E-commerce M3 — full lifecycle)
+- Session 7 — `phase-27-mobile-dispatch.md` (Dispatch M4 — 3-way source picker + jump-link)
+- Session 8 — `phase-28-mobile-customers-users.md` (Customers per role; Users Admin-only)
+- Session 9 — `phase-29-mobile-scan-traceability.md` (Scan tab; parseQRCode CB/MC/SR/EC; traceability)
+- Session 10 — `phase-30-mobile-reports.md` (Reports M6 — Sample/Ecommerce columns + Cartons/Dispatches/Activity tabs)
+- Session 11 — `phase-31-cross-platform-parity.md` (web ↔ mobile data parity, JWT sharing, status both ways)
+- Session 12 — `phase-32-mobile-edge-cases.md` (network/offline/camera/token-refresh/perf smoke)
+- Session 13 — README + tracker finalisation (capability matrix mobile rows, drop "out of scope" line, finalise tracker)
+
+**Working tree at pause point** (uncommitted by design — combined commit deferred):
+- `docs/test-cases-v3/phase-21-mobile-foundation.md` (new, 802 lines, 106 TCs)
+- `docs/test-cases-v3/phase-22-mobile-inventory.md` (new, 961 lines, 94 TCs)
+- `docs/test-cases-v3/phase-23-mobile-products-childboxes.md` (new, 827 lines, 122 TCs)
+- `docs/test-cases-v3/AUTHORING_PROGRESS.md` (new, session tracker)
+- `docs/test-cases-v3/README.md` (modified — phases 21-32 added, mobile no longer "out of scope")
+- `progress.md` (modified — this update + earlier M7 EAS-build update)
+- `scripts/progress-checkpoint.sh` (untracked, established session-long file, leave alone)
+
+**Cumulative TC count from this workstream so far: 322 mobile TCs across 3 phases.**
+
+**Pause reason (2026-05-02):** Client provided a slight modification to implement first; resuming testing afterwards. When resuming, read `docs/test-cases-v3/AUTHORING_PROGRESS.md` first, find the lowest-# pending session, plan brief with Opus, dispatch Sonnet.
+
+---
+
+## Workstream A resumption — Mobile parity M1-M7 follow-ups
+
+Mobile parity M1-M7 is COMPLETE. Next session focus depends on EAS build outcome + client testing:
+
+1. **Once EAS build finishes** (10-30 min on free queue): grab the APK install URL from the build page (`https://expo.dev/accounts/kanikabehl/projects/binny-inventory/builds/50dc7551-fa54-4621-b733-982bf831b0b3`) and forward to client/QA for sideloading on their Android device. Smoke-test these flows on the APK:
+   - Samples module: create → activate → close → dispatch (M2)
+   - E-commerce module: same lifecycle (M3)
+   - Dispatch: switch source picker between all 3 types (M4)
+   - Inventory: drill into a multi-MRP article like `MRP TEST CITY 02` and confirm the MRP step appears; switch to Master Carton tab and drill `status → section → article → carton` (M5)
+   - Reports → Stock: confirm Sample + E-commerce stat tiles appear with non-zero counts when fixtures exist (M6)
+2. **Pre-existing jest failures** (21 tests in `services/api.test.ts`, `hooks/useApi.test.ts`, `components/ui.test.tsx`): low-pri cleanup. Likely Jest/RN version drift since neither tests nor sources changed. Triage when there's downtime — not a release blocker.
+3. **3 deferred web defects** still pending product input (carried over from before mobile parity):
+   - `section.service.ts deleteSection()` — FK guard for products?
+   - `customer.service.ts deleteCustomer()` — FK guard for sample/dispatch records?
+   - `dispatchListQuerySchema` — server-side `source_type` filter (currently client-side useMemo)?
+4. **Client feedback loop**: if client reports bugs from APK testing, reproduce + patch + redeploy (web) or rebuild EAS (mobile).
 
 **Working tree:** clean except `scripts/progress-checkpoint.sh` (untracked, leave alone). Latest commits on `main`:
 - `e75bcc6` — Mobile parity M6: reports stock-tab sample/ecommerce columns
