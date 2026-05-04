@@ -32,6 +32,30 @@ export default function HIDScannerInput({
   const [value, setValue] = useState('');
   const [isFocused, setIsFocused] = useState(false);
 
+  // Stable refs so the global keydown listener doesn't need to re-bind
+  // every render and always sees the latest props.
+  const onScanRef = useRef(onScan);
+  const minLengthRef = useRef(minLength);
+  useEffect(() => {
+    onScanRef.current = onScan;
+    minLengthRef.current = minLength;
+  }, [onScan, minLength]);
+
+  // Submit helper. Reads the DOM value at call time and clears both state
+  // and DOM so the next scan starts fresh.
+  const submit = useCallback((code: string) => {
+    const trimmed = code.trim();
+    if (trimmed.length < minLengthRef.current) return;
+    if (inputRef.current) {
+      inputRef.current.value = '';
+    }
+    setValue('');
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+    });
+    void Promise.resolve(onScanRef.current(trimmed));
+  }, []);
+
   // Auto-focus on mount
   useEffect(() => {
     if (autoFocus && !disabled) {
@@ -39,53 +63,70 @@ export default function HIDScannerInput({
     }
   }, [autoFocus, disabled]);
 
-  // Re-focus on any keystroke when no editable element has focus and we're not disabled
+  // Global keydown: when our input is NOT focused, capture characters that
+  // would otherwise be lost and route them into the input. The previous
+  // implementation only called .focus() on the first keystroke — but focus
+  // is async, so the keystroke that triggered it (and any others arriving
+  // before focus settles) was dropped. HID scanners inject the entire
+  // barcode in a single burst, so dropping the first 1-2 chars usually
+  // breaks the scan.
   useEffect(() => {
     if (!autoFocus || disabled) return;
 
     const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      const dom = inputRef.current;
+      if (!dom) return;
+
       const active = document.activeElement;
-      const isEditable =
+      // Our input owns its keystrokes — let handleKeyDown handle them.
+      if (active === dom) return;
+
+      const isOtherEditable =
         active instanceof HTMLInputElement ||
         active instanceof HTMLTextAreaElement ||
         active instanceof HTMLSelectElement ||
         (active instanceof HTMLElement && active.isContentEditable);
+      // User is typing into another field — don't hijack their input.
+      if (isOtherEditable) return;
 
-      if (!isEditable && inputRef.current) {
-        // Don't steal focus for modifier-only or special keys
-        if (e.key.length === 1 || e.key === 'Backspace') {
-          inputRef.current.focus();
-        }
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        submit(dom.value);
+        return;
+      }
+
+      if (e.key.length === 1) {
+        e.preventDefault();
+        const next = dom.value + e.key;
+        dom.value = next;
+        setValue(next);
+        dom.focus();
+      } else if (e.key === 'Backspace') {
+        e.preventDefault();
+        const next = dom.value.slice(0, -1);
+        dom.value = next;
+        setValue(next);
       }
     };
 
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [autoFocus, disabled]);
-
-  const triggerScan = useCallback(
-    async (code: string) => {
-      const trimmed = code.trim();
-      if (trimmed.length < minLength) return;
-      setValue('');
-      // Refocus after state clear so next scan lands in the input immediately
-      requestAnimationFrame(() => {
-        inputRef.current?.focus();
-      });
-      await onScan(trimmed);
-    },
-    [onScan, minLength]
-  );
+  }, [autoFocus, disabled, submit]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      triggerScan(value);
+      // Read the DOM directly. During an HID burst (12+ chars + Enter in
+      // <50ms), React state from setValue may not have committed yet, so
+      // the closure value is stale and triggerScan would fire with a
+      // partial barcode. e.currentTarget.value reflects what the user
+      // (or scanner) actually typed.
+      submit(e.currentTarget.value);
     }
   };
 
   const handleAddClick = () => {
-    triggerScan(value);
+    submit(inputRef.current?.value ?? value);
   };
 
   const scannerReadyIcon = (

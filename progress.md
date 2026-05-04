@@ -13,6 +13,30 @@
 
 ## Phase 6 — Post-QA Modifications (batched; testing deferred to after all mods)
 
+### May 4, 2026 — HID scanner bug fix: stale-closure dropping scans
+
+**Issue reported by client:** scanner showing "Scanner ready" / connected (works in Notepad) but barcodes don't register in the app.
+
+**Root cause:** `HIDScannerInput.handleKeyDown` read `value` from React state closure when Enter fired. HID scanners (BPS250BC) inject the entire barcode + Enter as a single keystroke burst in <50ms — far faster than React commits renders. So the closure in the active render still held a stale (often empty or 1-char) `value` when Enter arrived, and `triggerScan` fired with the wrong payload (or short-circuited via `minLength`). User saw "nothing happened."
+
+**Secondary bug (also fixed):** the global keydown listener auto-focused the input on first keystroke but didn't insert the character that triggered focus — so when the badge was gray ("Click to focus"), the first 1-2 chars of every scan were silently dropped.
+
+**Fix — `frontend/src/components/scanning/HIDScannerInput.tsx`:**
+- Submit path now reads `e.currentTarget.value` / `inputRef.current.value` (DOM truth) instead of the stale closure `value`. DOM reflects every keystroke that actually fired, regardless of whether React state has caught up.
+- New `submit(code)` helper centralizes the read-clear-focus-onScan flow; called from input keydown, button click, and the global handler.
+- Global keydown listener rewritten: when input isn't focused, it now (a) appends the character to `dom.value` AND syncs React state, (b) calls `e.preventDefault()` to suppress page-level shortcuts, (c) triggers submit when Enter arrives at body. So scans no longer require pre-focus to land cleanly.
+- `onScan` and `minLength` captured via refs so the global listener doesn't rebind on every prop change.
+
+**Verification:**
+- `npx tsc --noEmit` from `frontend/` → only the 3 pre-existing e2e errors (TestDetails type signature in `03-child-boxes.spec.ts`, `27-edge-cases.spec.ts`) — same set the original `eba073d` commit reported. No new errors introduced by this fix.
+- Manual hardware testing pending — to be re-verified by client on deployed build.
+
+**Print issue (also reported, NOT a code fix):** client also reported labels printing at 50×25mm instead of the expected 50×50mm. CSS in `child-boxes/generate/page.tsx` is correct (`@page 100mm 50mm` with two 50×50mm labels per row). Most likely cause is the **printer driver media size** still set to 50×50mm from before the 2-up mod (`e6a3617`); when the browser sends a 100×50mm page, the driver scales-to-fit the 50mm-wide media (50% scale) → exactly 50×25mm output. Fix is at the driver: set Stock/Page Setup → 100mm × 50mm in the printer's Windows driver. No code change made.
+
+**Next:** await client confirmation that scanner works on the deployed build, then proceed with mobile parity M4 (dispatch multi-source).
+
+---
+
 ### May 1, 2026 — Mobile parity M3: E-commerce module screens
 
 **Cloned M2's Sample screens with field substitutions.** No customer picker (e-commerce has marketplace/listing_sku/order_reference instead). Lifecycle constraints + role gates identical to Sample.
