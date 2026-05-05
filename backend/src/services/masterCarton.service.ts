@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { query, getClient } from '../config/database';
 import { MasterCarton, CartonChildMapping } from '../types';
+import { generateUniqueBarcode } from '../utils/barcodeGenerator';
 import { MASTER_CARTON_STATUS, CHILD_BOX_STATUS, TRANSACTION_TYPES } from '../config/constants';
 import { NotFoundError, BadRequestError } from '../utils/errors';
 import { generateMasterCartonQR } from '../utils/qrGenerator';
@@ -13,7 +14,7 @@ export async function createMasterCarton(
   createdBy: string
 ): Promise<MasterCarton & { qr_data_uri: string }> {
   const id = uuidv4();
-  const cartonBarcode = `BINNY-MC-${id}`;
+  const cartonBarcode = await generateUniqueBarcode('MC');
   const qrDataUri = await generateMasterCartonQR(id);
   const barcodes = input.child_box_barcodes || [];
 

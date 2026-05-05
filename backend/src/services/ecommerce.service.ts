@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { query, getClient } from '../config/database';
 import { ECOMMERCE_STATUS, CHILD_BOX_STATUS, TRANSACTION_TYPES } from '../config/constants';
+import { generateUniqueBarcode } from '../utils/barcodeGenerator';
 import { NotFoundError, BadRequestError } from '../utils/errors';
 import { createAuditLog } from './auditLog.service';
 import { CreateEcommerceInput, AddBoxToEcommerceInput, RemoveBoxFromEcommerceInput, EcommerceListQuery } from '../models/schemas/ecommerce.schema';
@@ -14,7 +15,7 @@ export async function createEcommerce(
   createdBy: string
 ): Promise<Record<string, unknown> & { qr_barcode: string }> {
   const id = uuidv4();
-  const ecommerceBarcode = `BINNY-EC-${id}`;
+  const ecommerceBarcode = await generateUniqueBarcode('EC');
   const barcodes = input.child_box_barcodes || [];
 
   if (barcodes.length > 0) {

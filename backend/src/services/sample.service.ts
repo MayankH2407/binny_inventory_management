@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { query, getClient } from '../config/database';
 import { SAMPLE_STATUS, CHILD_BOX_STATUS, TRANSACTION_TYPES } from '../config/constants';
+import { generateUniqueBarcode } from '../utils/barcodeGenerator';
 import { NotFoundError, BadRequestError } from '../utils/errors';
 import { createAuditLog } from './auditLog.service';
 import { CreateSampleInput, AddBoxToSampleInput, RemoveBoxFromSampleInput } from '../models/schemas/sample.schema';
@@ -48,7 +49,7 @@ export async function createSample(
   createdBy: string
 ): Promise<SampleRecord> {
   const id = uuidv4();
-  const sampleBarcode = `BINNY-SR-${id}`;
+  const sampleBarcode = await generateUniqueBarcode('SR');
   const barcodes = input.child_box_barcodes || [];
 
   if (barcodes.length > 0) {

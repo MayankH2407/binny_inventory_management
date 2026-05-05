@@ -19,19 +19,34 @@ export function truncate(str: string, maxLength: number): string {
 
 /**
  * Parse QR code string and detect type (child/master/sample/ecommerce).
+ * Recognises both the new short format (8 chars: 2-char type prefix + 6 Crockford Base32)
+ * and the legacy long format (BINNY-XX-{uuid}).
  */
 export function parseQRCode(raw: string): {
   type: 'child' | 'master' | 'sample' | 'ecommerce' | 'unknown';
   id: string;
 } {
   const trimmed = raw.trim();
-  // Extract the BINNY-CB-... / BINNY-MC-... / BINNY-SR-... / BINNY-EC-... token from anywhere in the string.
-  const match = trimmed.match(/BINNY-(CB|MC|SR|EC)-[A-Za-z0-9-]+/i);
-  if (!match) return { type: 'unknown', id: trimmed };
-  const token = match[0].toUpperCase();
-  if (token.startsWith('BINNY-CB-')) return { type: 'child', id: token };
-  if (token.startsWith('BINNY-MC-')) return { type: 'master', id: token };
-  if (token.startsWith('BINNY-SR-')) return { type: 'sample', id: token };
-  if (token.startsWith('BINNY-EC-')) return { type: 'ecommerce', id: token };
-  return { type: 'unknown', id: token };
+
+  // New short format: 8 chars, type prefix + 6 Crockford Base32 chars
+  const shortMatch = trimmed.match(/^(CB|MC|SR|EC)[0-9A-Z]{6}$/);
+  if (shortMatch) {
+    const prefix = shortMatch[1];
+    if (prefix === 'CB') return { type: 'child', id: trimmed };
+    if (prefix === 'MC') return { type: 'master', id: trimmed };
+    if (prefix === 'SR') return { type: 'sample', id: trimmed };
+    if (prefix === 'EC') return { type: 'ecommerce', id: trimmed };
+  }
+
+  // Legacy long format: BINNY-XX-{uuid}, possibly embedded in surrounding text
+  const longMatch = trimmed.match(/BINNY-(CB|MC|SR|EC)-[A-Za-z0-9-]+/i);
+  if (longMatch) {
+    const token = longMatch[0].toUpperCase();
+    if (token.startsWith('BINNY-CB-')) return { type: 'child', id: token };
+    if (token.startsWith('BINNY-MC-')) return { type: 'master', id: token };
+    if (token.startsWith('BINNY-SR-')) return { type: 'sample', id: token };
+    if (token.startsWith('BINNY-EC-')) return { type: 'ecommerce', id: token };
+  }
+
+  return { type: 'unknown', id: trimmed };
 }

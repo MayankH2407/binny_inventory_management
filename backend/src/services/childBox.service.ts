@@ -8,6 +8,7 @@ import { createAuditLog } from './auditLog.service';
 import { CreateChildBoxInput, CreateBulkChildBoxInput, CreateBulkMultiSizeChildBoxInput, bulkUploadChildBoxRowSchema } from '../models/schemas/childBox.schema';
 import { logger } from '../utils/logger';
 import { parse } from 'csv-parse/sync';
+import { generateUniqueBarcode } from '../utils/barcodeGenerator';
 
 export async function createChildBox(
   input: CreateChildBoxInput,
@@ -24,7 +25,7 @@ export async function createChildBox(
 
   const product = productResult.rows[0];
   const id = uuidv4();
-  const barcode = `BINNY-CB-${id}`;
+  const barcode = await generateUniqueBarcode('CB');
   const qrDataUri = await generateChildBoxQR(id);
 
   const result = await query(
@@ -85,7 +86,7 @@ export async function createBulkChildBoxes(
 
     for (let i = 0; i < input.count; i++) {
       const id = uuidv4();
-      const barcode = `BINNY-CB-${id}`;
+      const barcode = await generateUniqueBarcode('CB', client);
       const qrDataUri = await generateChildBoxQR(id);
 
       const result = await client.query(
@@ -184,7 +185,7 @@ export async function createBulkMultiSizeChildBoxes(
 
       for (let i = 0; i < sizeEntry.count; i++) {
         const id = uuidv4();
-        const barcode = `BINNY-CB-${id}`;
+        const barcode = await generateUniqueBarcode('CB', client);
         const qrDataUri = await generateChildBoxQR(id);
 
         const result = await client.query(
@@ -437,7 +438,7 @@ export async function bulkUploadChildBoxesFromCSV(
 
       for (let j = 0; j < count; j++) {
         const id = uuidv4();
-        const barcode = `BINNY-CB-${id}`;
+        const barcode = await generateUniqueBarcode('CB', client);
         const qrDataUri = await generateChildBoxQR(id);
 
         await client.query(
