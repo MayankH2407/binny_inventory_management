@@ -232,22 +232,32 @@ export default function GenerateQRPage() {
           <style>
             @page { size: 100mm 50mm; margin: 0; }
             * { margin: 0; padding: 0; box-sizing: border-box; }
+            html, body { width: 100mm; margin: 0; padding: 0; }
             body { font-family: Arial, Helvetica, sans-serif; }
+            /* Inline-block layout (vs flex) is more print-engine-safe.
+               flex's cross-axis stretch is implemented inconsistently in
+               print contexts across browsers; inline-block sidesteps that. */
             .row {
               width: 100mm;
               height: 50mm;
-              display: flex;
-              flex-direction: row;
               page-break-after: always;
               page-break-inside: avoid;
+              font-size: 0;        /* kill inline-block whitespace gap */
+              white-space: nowrap;
             }
             .row:last-child { page-break-after: avoid; }
-            .label {
+            .label, .label-empty {
+              display: inline-block;
+              vertical-align: top;
               width: 50mm;
               height: 50mm;
-              border: 1.5px solid #000;
+              font-size: 11pt;     /* reset for inner content */
             }
-            .label-empty { width: 50mm; height: 50mm; visibility: hidden; }
+            .label {
+              border: 1.5px solid #000;
+              overflow: hidden;
+            }
+            .label-empty { visibility: hidden; }
             table.main { width: 100%; height: 100%; border-collapse: collapse; }
             table.main td { border: 0.5px solid #000; padding: 1mm 1.5mm; vertical-align: middle; }
             .article-row { font-weight: bold; font-size: 8pt; vertical-align: top; padding: 1mm 1.5mm; }
