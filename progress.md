@@ -41,19 +41,28 @@ Six commits across backend / frontend / mobile / Playwright suite, all in the wo
 - `docs/tsc-printer-setup-guide.html` (untracked — May 4 doc, awaits client TSC model confirmation)
 - `scripts/progress-checkpoint.sh` (per-session crash-resume artefact, leave alone)
 
-**Branch state:** `main` is now 23 ahead of `origin/main`. Six commits since this morning's deploy log:
+**Branch state:** `main` is now 24 ahead of `origin/main`. Seven commits since this morning's deploy log:
 - `ea6d5b6` Child-box label: show article name instead of article code
 - `ecde27c` Child box create response: emit article_name (not product_name)
 - `8cc41b3` Barcodes: switch new records to 8-char short format (CBxxxxxx etc.)
 - `0fc8ec9` Barcodes: one-shot migration script for existing records
 - `32ae367` Print labels: master carton QR + Article-name + barcode caption
 - `b400917` Playwright e2e: assert new 8-char barcode format on created records
+- `6923cf4` progress.md: log May 5 client mods batch (short barcodes + label refresh + e2e)
 
-**Next session:**
-- Hand off `docs/tsc-printer-setup-guide.html` once client confirms TSC model.
-- When client OKs the new label visuals: deploy to test portal (frontend rebuild + run `migrate-barcodes-to-short-format.ts` against portal DB).
-- Eyeball verify on localhost: child-box generate → short-format QR + caption print correctly; `/master-cartons/<id>` → QR on the right of the info table + caption below.
-- Resume mobile test-authoring at session 4 (`phase-24-mobile-master-cartons.md`).
+**Deploy status:** explicitly **NOT deployed** per user instruction at end of session. Test portal (`https://srv1409601.hstgr.cloud/binny/`) is still running the morning's `f914855` (print CSS hardening) on top of `b756293` (HID scanner). Test-portal DB still on legacy `BINNY-XX-{uuid}` barcodes — the migration script has only run against the local DB.
+
+**Next session — pre-deploy gate:**
+1. Eyeball verify on localhost: `/child-boxes/generate` → fresh box prints with `CB[6 chars]` QR + Courier caption; `/master-cartons/<id>` → print preview shows QR on the right of the info table + Courier caption below it. Confirm the labels look right at 50×50mm and 100×150mm respectively.
+2. Hand off `docs/tsc-printer-setup-guide.html` once client confirms TSC printer model.
+3. **When client OKs the new label visuals**, deploy to test portal:
+   - tar+SSH the frontend changes → `docker compose -f docker-compose.prod.yml build binny-frontend`
+   - copy `backend/scripts/migrate-barcodes-to-short-format.ts` to the portal `/opt/binny/backend/scripts/`
+   - tar+SSH the four backend service files + new util to the portal `/opt/binny/backend/src/`
+   - `docker compose build binny-backend` and bring up
+   - `docker compose exec binny-backend npx ts-node scripts/migrate-barcodes-to-short-format.ts` (run against portal DB; expect ~6,775+ rows depending on portal data volume)
+   - `up -d` for both frontend + backend; verify `/api/v1/health` and a sample `GET /child-boxes/qr/CB...` lookup
+4. After portal ships and client signs off, resume mobile test-authoring at session 4 (`phase-24-mobile-master-cartons.md`).
 
 ---
 
