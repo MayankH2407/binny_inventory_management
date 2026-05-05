@@ -13,6 +13,50 @@
 
 ## Phase 6 — Post-QA Modifications (batched; testing deferred to after all mods)
 
+### May 5, 2026 — Client mods batch: short barcodes + label refresh + Playwright sweep (committed, not yet deployed)
+
+Six commits across backend / frontend / mobile / Playwright suite, all in the working tree by end of day. Test portal **not yet redeployed** — deferred per user instruction. Local dev stack has all changes active and verified.
+
+**1. Article-name on child-box label** — `ea6d5b6`. The printed child-box label's top row read "Article No: <article_code>" using the SKU/code; client clarified it should read the human-readable article name. Single-line change in the print template (`box.article_code` → `box.article_name`) since `article_name` is already on the `ChildBoxWithProduct` type at `frontend/src/types/index.ts:78`.
+
+**2. Backend `article_name` response field** — `ecde27c`. Surfaced when (1) above shipped: the bulk-multi-size create endpoint constructed its response object with key `product_name` (not `article_name`), so the new label printed "Article: undefined" on localhost. The earlier label using `article_code` had been correctly named in the response, masking the inconsistency. Read-path queries had been de-aliased to return `article_name` directly per a prior fix (Apr 30); this commit applies the same convention to the three write-path response constructors in `backend/src/services/childBox.service.ts` and updates the inline return-type annotations. Local backend container restarted (Windows Docker bind-mounts don't propagate inotify, so nodemon couldn't auto-reload). Verified end-to-end via API call returning the expected shape.
+
+**3. Master carton label: add QR + Article-name** — part of `32ae367`. `frontend/src/app/(dashboard)/master-cartons/[id]/page.tsx` regains a QR (was previously removed per an earlier client wireframe) on the right side of the info table — `<td rowspan="3" class="qr-cell">` — encoding `carton_barcode`. Right-side placement matches the child-box pattern; it sits with the variable-height info rows so the sizes table below grows independently when there are many sizes. Bottom placement was attempted first then rejected for that same reason. "Article No.: <name>" row also renamed to "Article: <name>". Layout fits comfortably within the 92×142mm printable area (logo 19mm + info 24mm + assortment 8mm + sizes 16mm + headroom).
+
+**4. Short barcode format (8 chars)** — `8cc41b3`. Replaces legacy `BINNY-XX-{uuid}` (~45 chars) with `<2-char type><6-char Crockford Base32>` for newly-generated child-box / master-carton / sample / e-commerce records. Type prefixes (`CB`, `MC`, `SR`, `EC`) preserve existing scanner-side dispatch — no multi-table lookup needed. `backend/src/utils/barcodeGenerator.ts` (new) provides `generateUniqueBarcode(type, client?)` which retries up to 10 times against the target table's UNIQUE constraint inside an optional transaction. Crockford alphabet excludes I, L, O, U for human readability — the new short barcode is now printed beneath the QR. Reason for shortening: client wants the barcode visible as a fallback for unscannable QRs, and 45 chars don't fit cleanly in monospaced caption space. Mobile `parseQRCode` keeps **dual-format** support: the `^(CB|MC|SR|EC)[0-9A-Z]{6}$` regex matches new-format codes; falls back to the legacy `BINNY-XX-{uuid}` matcher for any pre-migration physical labels still in circulation.
+
+**5. Existing-records migration** — `0fc8ec9`. One-shot Node script `backend/scripts/migrate-barcodes-to-short-format.ts` per-table-transactionally UPDATEs every `barcode LIKE 'BINNY-%'` row to a new short barcode via `generateUniqueBarcode()`. Idempotent (the LIKE filter skips already-migrated rows). Writes a CSV of `{table, id, old_barcode, new_barcode}` to `backend/scripts/barcode-migration-{timestamp}.csv` (gitignored) as the rollback record. Audit log `notes` text intentionally NOT rewritten — those record what the barcode was at the time of the event. Local DB migrated: **6,256 child boxes + 374 master cartons + 80 samples + 65 e-commerce records = 6,775 rows**. Independent SQL verification: zero `BINNY-%` rows remain across all four tables. Test portal DB still on legacy format; will run the same script there at next deploy. **Rollback:** the CSV captures pre-migration values; `parseQRCode`'s dual-format fallback means rollback isn't strictly needed even if a few legacy physical labels exist (they parse and would lookup-by-barcode, just to nothing).
+
+**6. Print labels: barcode caption beneath QR** — also part of `32ae367`. Both labels now show the new short barcode in plain text beneath the QR (Courier-mono — 6pt on child-box, 8pt on master carton). Lets a human read and type the code if the QR is unscannable.
+
+**7. Playwright e2e suite updates** — `b400917`. Six specs updated: `03-child-boxes`, `04-master-cartons`, `19-childbox-rbac`, `30-generated-lifecycle`, `31-samples-module`, `32-ecommerce-module`. Hardcoded `^BINNY-XX-/` regex assertions now use `^XX[0-9A-Z]{6}$/`; search-input fixture in `03` flipped from `'BINNY-CB-'` to `'CB'`; `04`'s detail-page locator uses an unanchored substring match so it finds the carton barcode wherever it appears in surrounding text. `12-pwa-features` intentionally left untouched — it uses `BINNY-CB-...` as offline-queue mock fixtures (PWA queue logic, not DB lookup), and the dual-format parser still recognises them. **Result: 90/90 of the 6 affected specs pass** (3.9 min wall-clock), zero pre-existing flakes triggered.
+
+**Test impact (deferred work):**
+- v3 phase markdown specs that hard-code `BINNY-XX-` references (phase-09, 10, 11, 12, 13, 16, 18, 20, 07, 08) need updating to the new format. Held with the rest of the test-authoring backlog (combined commit at end of 13-session work).
+- Mobile parseQRCode is dual-format; mobile spec files don't yet have explicit unit tests for the short format. Add when sessions 4-13 of mobile authoring resume.
+
+**Held in working tree (NOT today's commits):**
+- `docs/test-cases-v3/README.md` (modified — phase 21-32 mobile rows added on May 2)
+- `docs/test-cases-v3/phase-21/22/23-*.md` (untracked — mobile test-authoring sessions 1-3)
+- `docs/tsc-printer-setup-guide.html` (untracked — May 4 doc, awaits client TSC model confirmation)
+- `scripts/progress-checkpoint.sh` (per-session crash-resume artefact, leave alone)
+
+**Branch state:** `main` is now 23 ahead of `origin/main`. Six commits since this morning's deploy log:
+- `ea6d5b6` Child-box label: show article name instead of article code
+- `ecde27c` Child box create response: emit article_name (not product_name)
+- `8cc41b3` Barcodes: switch new records to 8-char short format (CBxxxxxx etc.)
+- `0fc8ec9` Barcodes: one-shot migration script for existing records
+- `32ae367` Print labels: master carton QR + Article-name + barcode caption
+- `b400917` Playwright e2e: assert new 8-char barcode format on created records
+
+**Next session:**
+- Hand off `docs/tsc-printer-setup-guide.html` once client confirms TSC model.
+- When client OKs the new label visuals: deploy to test portal (frontend rebuild + run `migrate-barcodes-to-short-format.ts` against portal DB).
+- Eyeball verify on localhost: child-box generate → short-format QR + caption print correctly; `/master-cartons/<id>` → QR on the right of the info table + caption below.
+- Resume mobile test-authoring at session 4 (`phase-24-mobile-master-cartons.md`).
+
+---
+
 ### May 5, 2026 — Print CSS hardening committed + deployed to testing portal
 
 Per user request, shipped the print CSS hardening from the May 4 entry without waiting for client driver-model confirmation. The CSS change is independent of and complementary to the printer-driver fix — even with the driver correctly set to 100×50mm media, the hardened layout (inline-block over flex, explicit body width anchor, `overflow: hidden` on `.label`) is the more print-engine-safe form.
