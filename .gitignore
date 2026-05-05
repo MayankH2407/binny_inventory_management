@@ -105,6 +105,9 @@ Basiq360 Logo.png
 *.apk
 *.aab
 
+# Barcode migration artefacts
+backend/scripts/*.csv
+
 # Root-level PNG scan debug images
 /child qr*.png
 /qr child*.png
