@@ -13,6 +13,74 @@
 
 ## Phase 6 — Post-QA Modifications (batched; testing deferred to after all mods)
 
+### May 5, 2026 — Print CSS hardening committed + deployed to testing portal
+
+Per user request, shipped the print CSS hardening from the May 4 entry without waiting for client driver-model confirmation. The CSS change is independent of and complementary to the printer-driver fix — even with the driver correctly set to 100×50mm media, the hardened layout (inline-block over flex, explicit body width anchor, `overflow: hidden` on `.label`) is the more print-engine-safe form.
+
+**Commit:** `f914855` — "Child-box label print: harden CSS for 2-up layout cross-browser" (1 file, +14/-4).
+
+**Deploy procedure:** same recipe as `b756293` yesterday.
+- `tar` over SSH → `frontend/src/app/(dashboard)/child-boxes/generate/page.tsx` streamed to `/opt/binny/` on `srv1409601.hstgr.cloud`.
+- `docker compose -f docker-compose.prod.yml build binny-frontend` → image rebuilt clean (cache hit on most layers, ~10s total).
+- `docker compose -f docker-compose.prod.yml up -d binny-frontend` → container recreated, healthy in ~5s.
+
+**Verification:**
+- `GET /binny/api/v1/health` → 200 `{"status":"ok","timestamp":"2026-05-05T05:19:59.419Z"}`.
+- `GET /binny/` → 200 after 1 redirect.
+- `GET /binny/child-boxes/generate` → 200 (no redirect — auth-protected route returns the page wrapper).
+
+Branch is now 17 ahead of `origin/main` (push deferred). The TSC printer driver setup guide (`docs/tsc-printer-setup-guide.html`) remains uncommitted and untracked — it's a standalone reference doc, not server-deployed; will be handed off to client/on-site IT directly.
+
+**Client-side verification still required** (only the driver fix can produce the visible 50×50mm output): client to follow `docs/tsc-printer-setup-guide.html` to set the TSC driver media to 100×50mm + custom stock `Binny 100x50 2up`, then print one batch from the deployed portal and confirm dies are correctly placed on the 100mm-wide roll.
+
+---
+
+### May 4, 2026 — Scanner fix deployed + print CSS hardening + TSC driver setup guide
+
+**Three follow-on items from the scanner/print bug report:**
+
+**1. Deployed scanner fix (`b756293`) to testing portal.**
+- `tar` over SSH streamed `frontend/src/components/scanning/HIDScannerInput.tsx` + `progress.md` to `/opt/binny` on `srv1409601.hstgr.cloud`.
+- `docker compose -f docker-compose.prod.yml build binny-frontend` → image `binny-binny-frontend:latest` rebuilt clean.
+- `docker compose -f docker-compose.prod.yml up -d binny-frontend` → container recreated, healthy in ~3s.
+- Verification: `https://srv1409601.hstgr.cloud/binny/` → HTTP 200 after 1 redirect; `/api/v1/health` → `{"status":"ok"}`.
+- No backend rebuild, no DB migration. Branch is now 16 ahead of `origin/main` (push deferred).
+
+**2. Print CSS hardening — `frontend/src/app/(dashboard)/child-boxes/generate/page.tsx`.**
+
+Client clarified the print intent: roll is 100mm wide × 50mm tall per row, two 50×50mm sticker dies per row, each peeled and stuck on a separate child box, each QR scanned independently. The CSS in commit `e6a3617` already targets this layout, but the symptom (labels printing at ~50×25mm) points to the printer driver's media size still being 50×50mm from the pre-2-up days — when Windows scales the 100×50mm page to fit a 50mm-wide media, output is uniform 50% → 50×25mm. **CSS cannot fix a driver-side scale**, but I hardened the print-window styles to remove flexbox-in-print as a possible co-factor:
+
+- Replaced `display: flex; flex-direction: row` on `.row` with inline-block + `white-space: nowrap` + `font-size: 0` (kills inline-block whitespace) + `font-size: 11pt` reset on `.label` for inner content. Inline-block has more consistent cross-axis sizing in print contexts than flex across Chrome/Edge versions.
+- Added `html, body { width: 100mm; margin: 0; padding: 0; }` as an explicit anchor so the body never shrinks to fit content height.
+- `.label` adds `overflow: hidden` so any 0.1mm sub-pixel rounding doesn't push the inner table past the 50mm boundary and trigger an extra page.
+- Inner `table.main { width: 100%; height: 100%; }` left unchanged — works correctly now that the parent isn't flex.
+
+`npx tsc --noEmit` clean (same 3 pre-existing e2e errors only). Not yet committed or deployed — bundling with the driver guide pending client model confirmation.
+
+**3. New doc: `docs/tsc-printer-setup-guide.html`.**
+
+Standalone HTML setup guide for the on-site TSC printer driver reconfiguration (the actual fix for the 50×25mm symptom). Confirmed details from client: TSC printer (model TBD), admin rights present, directly attached via USB.
+
+Six-step walkthrough — open Printer Properties → define a `Binny 100x50 2up` custom stock (Labels with Gaps, 100×50mm, gap 3mm, sensor=Gap) → set as default in **both** Preferences AND Printing Defaults (the latter is the commonly-missed step that makes Chrome use the wrong size) → calibrate gap sensor → print test from Chrome with explicit Paper-size selection (Chrome's dropdown sometimes still shows A4 even after driver default change).
+
+Doc style mirrors `docs/Binny_Inventory_App.html` (navy/red brand palette, card layout). Self-contained — no external CSS/JS/fonts, can be emailed or shared on USB. Includes:
+- Anchor-linked TOC
+- Color-coded callouts (info/warn/danger/success)
+- Step 4 ("Printing Defaults") explicitly highlighted with red left border + danger callout — that's the single most-missed step
+- Tables for dialog field/value pairs (Step 2 driver dialog, Step 6 Chrome print settings)
+- Troubleshooting matrix (9 symptom×cause×fix rows)
+- Escalation checklist (5 items to send back if stuck — model number, screenshots, photo with ruler)
+- `@media print` block strips the gradient header / TOC and avoids page-break-inside on cards so the doc itself prints cleanly to PDF
+- Mobile-responsive layout (single-column meta-card under 640px)
+
+**Next:**
+- Await client confirmation that the scanner now works on the deployed portal (commit `b756293` is live).
+- Hand off `docs/tsc-printer-setup-guide.html` to the client / on-site IT for the printer driver reconfig.
+- Once client confirms 2-up printing is good, commit + deploy the print-page CSS hardening alongside (currently uncommitted).
+- Then resume mobile parity M4 (dispatch multi-source).
+
+---
+
 ### May 4, 2026 — HID scanner bug fix: stale-closure dropping scans
 
 **Issue reported by client:** scanner showing "Scanner ready" / connected (works in Notepad) but barcodes don't register in the app.
