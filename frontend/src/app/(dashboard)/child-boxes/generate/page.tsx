@@ -180,7 +180,7 @@ export default function GenerateQRPage() {
         <div class="label">
           <table class="main">
             <tr>
-              <td colspan="2" class="article-row">Article No: ${box.article_code}</td>
+              <td colspan="2" class="article-row">Article: ${box.article_name}</td>
             </tr>
             <tr>
               <td class="colour-row">Colour: ${box.colour}</td>
