@@ -200,6 +200,7 @@ export default function GenerateQRPage() {
               <td class="small-row">Packed on: ${today}</td>
               <td rowspan="2" class="qr-cell">
                 ${qrSvg}
+                <div class="barcode-text">${box.barcode}</div>
               </td>
             </tr>
             <tr>
@@ -272,6 +273,7 @@ export default function GenerateQRPage() {
             .small-row { font-size: 6pt; padding: 0.3mm 1.5mm; height: 2.5mm; }
             .qr-cell { text-align: center; vertical-align: middle; padding: 0.3mm; }
             .qr-cell svg { width: 13mm; height: 13mm; }
+            .qr-cell .barcode-text { font-size: 6pt; font-family: 'Courier New', monospace; margin-top: 0.5mm; letter-spacing: 0.3mm; }
             .footer-row { font-size: 5pt; line-height: 1.2; padding: 0.8mm 1.5mm; vertical-align: top; border-top: 1px solid #000; }
           </style>
         </head>

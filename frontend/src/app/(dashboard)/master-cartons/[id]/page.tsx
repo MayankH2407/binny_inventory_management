@@ -14,7 +14,9 @@ import {
   X,
   BarChart3,
 } from 'lucide-react';
-// QRCodeSVG removed — master carton label no longer uses QR per client wireframe
+import { QRCodeSVG } from 'qrcode.react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { createElement } from 'react';
 import Button from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import {
@@ -168,6 +170,10 @@ export default function MasterCartonDetailPage() {
 
     const mrpFormatted = primaryMrp ? Number(primaryMrp).toFixed(2) : '-';
 
+    const qrSvg = renderToStaticMarkup(
+      createElement(QRCodeSVG, { value: carton.carton_barcode, size: 128, level: 'M' })
+    );
+
     printWindow.document.write(`
       <!DOCTYPE html>
       <html>
@@ -184,6 +190,9 @@ export default function MasterCartonDetailPage() {
           table.info td { border: 1px solid #000; padding: 2mm 3mm; font-size: 10pt; }
           .article-row { font-weight: bold; font-size: 12pt; }
           .split-row td { width: 50%; }
+          .qr-cell { width: 28mm; text-align: center; vertical-align: middle; padding: 2mm; }
+          .qr-cell svg { width: 22mm; height: 22mm; display: block; margin: 0 auto; }
+          .qr-cell .barcode-text { font-size: 8pt; font-family: 'Courier New', monospace; margin-top: 1.5mm; letter-spacing: 0.5mm; word-break: break-all; }
           .assortment-label { font-weight: bold; font-size: 10pt; padding: 2mm 3mm; border: 1px solid #000; border-top: none; }
           table.sizes { width: 100%; border-collapse: collapse; font-size: 10pt; }
           table.sizes td { border: 1px solid #000; text-align: center; padding: 2mm 1.5mm; }
@@ -201,7 +210,11 @@ export default function MasterCartonDetailPage() {
           </div>
           <table class="info">
             <tr>
-              <td colspan="2" class="article-row">Article No.: ${primaryArticle || '-'}</td>
+              <td colspan="2" class="article-row">Article: ${primaryArticle || '-'}</td>
+              <td rowspan="3" class="qr-cell">
+                ${qrSvg}
+                <div class="barcode-text">${carton.carton_barcode}</div>
+              </td>
             </tr>
             <tr>
               <td colspan="2">Colour: ${primaryColour || '-'}</td>
