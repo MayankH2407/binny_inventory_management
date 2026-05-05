@@ -151,7 +151,7 @@ test.describe.serial('Child Box RBAC Suite', () => {
   // =========================================================================
 
   test.describe('TC-CB-ADM: Admin child box operations', () => {
-    test('TC-CB-ADM-001: Admin creates single child box — 201, barcode starts with BINNY-CB-', async ({
+    test('TC-CB-ADM-001: Admin creates single child box — 201, barcode is CB[short]', async ({
       request,
     }) => {
       const res = await request.post(`${BASE_API}/child-boxes`, {
@@ -165,7 +165,7 @@ test.describe.serial('Child Box RBAC Suite', () => {
       const body = await res.json();
       expect(body.success).toBe(true);
       expect(body.data.barcode).toBeTruthy();
-      expect(body.data.barcode).toMatch(/^BINNY-CB-/);
+      expect(body.data.barcode).toMatch(/^CB[0-9A-Z]{6}$/);
       createdBarcode = body.data.barcode;
     });
 
@@ -188,7 +188,7 @@ test.describe.serial('Child Box RBAC Suite', () => {
       // Store barcodes for later tests
       bulkBarcodes = body.data.map((cb: { barcode: string }) => cb.barcode);
       for (const bc of bulkBarcodes) {
-        expect(bc).toMatch(/^BINNY-CB-/);
+        expect(bc).toMatch(/^CB[0-9A-Z]{6}$/);
       }
     });
   });
@@ -209,7 +209,7 @@ test.describe.serial('Child Box RBAC Suite', () => {
       expect(res.status()).toBe(201);
       const body = await res.json();
       expect(body.success).toBe(true);
-      expect(body.data.barcode).toMatch(/^BINNY-CB-/);
+      expect(body.data.barcode).toMatch(/^CB[0-9A-Z]{6}$/);
     });
   });
 
@@ -225,7 +225,7 @@ test.describe.serial('Child Box RBAC Suite', () => {
       expect(res.status()).toBe(201);
       const body = await res.json();
       expect(body.success).toBe(true);
-      expect(body.data.barcode).toMatch(/^BINNY-CB-/);
+      expect(body.data.barcode).toMatch(/^CB[0-9A-Z]{6}$/);
     });
   });
 

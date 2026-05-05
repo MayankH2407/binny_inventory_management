@@ -89,7 +89,7 @@ async function createEcommerce(
 // TC-EC-CREATE: Create ecommerce record
 // ---------------------------------------------------------------------------
 test.describe('TC-EC-CREATE: Create E-commerce Record', () => {
-  test('TC-EC-CREATE-001: POST /ecommerce → 201, status CREATED, barcode starts BINNY-EC-', async ({
+  test('TC-EC-CREATE-001: POST /ecommerce → 201, status CREATED, barcode is EC[short]', async ({
     request,
   }) => {
     const token = await loginAs(request, ADMIN_EMAIL, ADMIN_PASSWORD);
@@ -98,7 +98,7 @@ test.describe('TC-EC-CREATE: Create E-commerce Record', () => {
     expect(rec.status).toBe('CREATED');
     const barcode: string =
       rec.barcode ?? (rec as unknown as { ecommerce_barcode: string }).ecommerce_barcode;
-    expect(barcode).toMatch(/^BINNY-EC-/);
+    expect(barcode).toMatch(/^EC[0-9A-Z]{6}$/);
   });
 
   test('TC-EC-CREATE-002: Create with marketplace, order_reference, listing_sku fields', async ({

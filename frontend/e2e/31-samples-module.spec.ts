@@ -96,7 +96,7 @@ test.describe('TC-SM-CREATE: Create Sample', () => {
     const sample = await createSample(request, token, `Smoke Sample ${TS6}`);
 
     expect(sample.status).toBe('CREATED');
-    expect(sample.barcode ?? (sample as unknown as { sample_barcode: string }).sample_barcode).toMatch(/^BINNY-SR-/);
+    expect(sample.barcode ?? (sample as unknown as { sample_barcode: string }).sample_barcode).toMatch(/^SR[0-9A-Z]{6}$/);
   });
 
   test('TC-SM-CREATE-002: Create sample with customer_id', async ({ request }) => {

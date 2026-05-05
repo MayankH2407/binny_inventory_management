@@ -69,7 +69,7 @@ test.describe('TC-MC: Master Carton Management', () => {
       await page.goto(`/master-cartons/${cartonId}`);
       await page.waitForLoadState('networkidle');
 
-      await expect(page.getByText('BINNY-MC-').first()).toBeVisible();
+      await expect(page.getByText(/MC[0-9A-Z]{6}/).first()).toBeVisible();
       await expect(page.getByText(/Child Boxes/).first()).toBeVisible();
 
       // Clean up: full unpack

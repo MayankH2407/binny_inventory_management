@@ -108,7 +108,7 @@ test.describe('TC-GENL: Create → GENERATED status', () => {
 
     const box = await createChildBox(request, token, productId);
     expect(box.status).toBe('GENERATED');
-    expect(box.barcode).toMatch(/^BINNY-CB-/);
+    expect(box.barcode).toMatch(/^CB[0-9A-Z]{6}$/);
   });
 
   test('TC-GENL-002: Newly created box does NOT appear as FREE in /child-boxes/free', async ({

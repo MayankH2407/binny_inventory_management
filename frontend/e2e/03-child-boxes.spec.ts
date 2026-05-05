@@ -241,7 +241,7 @@ test.describe('TC-CB: Child Box Management', () => {
     await page.waitForLoadState('networkidle');
 
     const searchInput = page.getByPlaceholder(/search/i);
-    await searchInput.fill('BINNY-CB-');
+    await searchInput.fill('CB');
     await page.waitForTimeout(1000);
   });
 
