@@ -12,7 +12,7 @@ import { parse } from 'csv-parse/sync';
 export async function createChildBox(
   input: CreateChildBoxInput,
   createdBy: string
-): Promise<ChildBox & { qr_data_uri: string; product_name: string; product_sku: string; size: string; colour: string }> {
+): Promise<ChildBox & { qr_data_uri: string; article_name: string; product_sku: string; size: string; colour: string }> {
   // Verify product exists
   const productResult = await query(
     'SELECT id, article_name, article_code, sku, size, colour, mrp FROM products WHERE id = $1 AND is_active = true',
@@ -55,7 +55,7 @@ export async function createChildBox(
   return {
     ...result.rows[0],
     qr_data_uri: qrDataUri,
-    product_name: product.article_name,
+    article_name: product.article_name,
     article_code: product.article_code,
     product_sku: product.sku,
     size: product.size,
@@ -67,7 +67,7 @@ export async function createChildBox(
 export async function createBulkChildBoxes(
   input: CreateBulkChildBoxInput,
   createdBy: string
-): Promise<Array<ChildBox & { qr_data_uri: string; product_name: string; product_sku: string; size: string; colour: string }>> {
+): Promise<Array<ChildBox & { qr_data_uri: string; article_name: string; product_sku: string; size: string; colour: string }>> {
   const productResult = await query(
     'SELECT id, article_name, article_code, sku, size, colour, mrp FROM products WHERE id = $1 AND is_active = true',
     [input.product_id]
@@ -78,7 +78,7 @@ export async function createBulkChildBoxes(
 
   const product = productResult.rows[0];
   const client = await getClient();
-  const childBoxes: Array<ChildBox & { qr_data_uri: string; product_name: string; product_sku: string; size: string; colour: string }> = [];
+  const childBoxes: Array<ChildBox & { qr_data_uri: string; article_name: string; product_sku: string; size: string; colour: string }> = [];
 
   try {
     await client.query('BEGIN');
@@ -106,7 +106,7 @@ export async function createBulkChildBoxes(
       childBoxes.push({
         ...result.rows[0],
         qr_data_uri: qrDataUri,
-        product_name: product.article_name,
+        article_name: product.article_name,
         article_code: product.article_code,
         product_sku: product.sku,
         size: product.size,
@@ -137,7 +137,7 @@ export async function createBulkChildBoxes(
 export async function createBulkMultiSizeChildBoxes(
   input: CreateBulkMultiSizeChildBoxInput,
   createdBy: string
-): Promise<Array<ChildBox & { qr_data_uri: string; product_name: string; product_sku: string; size: string; colour: string }>> {
+): Promise<Array<ChildBox & { qr_data_uri: string; article_name: string; product_sku: string; size: string; colour: string }>> {
   // Get the base product to find article_name and colour
   const baseProductResult = await query(
     'SELECT id, article_name, colour FROM products WHERE id = $1 AND is_active = true',
@@ -174,7 +174,7 @@ export async function createBulkMultiSizeChildBoxes(
   }
 
   const client = await getClient();
-  const childBoxes: Array<ChildBox & { qr_data_uri: string; product_name: string; product_sku: string; size: string; colour: string }> = [];
+  const childBoxes: Array<ChildBox & { qr_data_uri: string; article_name: string; product_sku: string; size: string; colour: string }> = [];
 
   try {
     await client.query('BEGIN');
@@ -203,7 +203,7 @@ export async function createBulkMultiSizeChildBoxes(
         childBoxes.push({
           ...result.rows[0],
           qr_data_uri: qrDataUri,
-          product_name: product.article_name,
+          article_name: product.article_name,
           article_code: product.article_code,
           product_sku: product.sku,
           size: product.size,
