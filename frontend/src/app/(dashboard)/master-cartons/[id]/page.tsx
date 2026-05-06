@@ -137,22 +137,29 @@ export default function MasterCartonDetailPage() {
       return;
     }
 
-    // Compute size assortment from assortment data: pivot by size
+    // Compute size assortment from assortment data: pivot by size.
+    // Aggregate distinct articles / colours / MRPs across all rows so a
+    // multi-colour or multi-MRP carton lists every value, not just the first.
     const sizeMap: Record<string, number> = {};
-    let primaryArticle = '';
-    let primaryColour = '';
-    let primaryMrp = 0;
+    const articleSet = new Set<string>();
+    const colourSet = new Set<string>();
+    const mrpSet = new Set<number>();
 
     if (assortment && assortment.length > 0) {
       for (const item of assortment) {
         sizeMap[item.size] = (sizeMap[item.size] || 0) + item.count;
-        if (!primaryArticle) {
-          primaryArticle = item.article_name;
-          primaryColour = item.colour;
-          primaryMrp = item.mrp;
-        }
+        if (item.article_name) articleSet.add(item.article_name);
+        if (item.colour) colourSet.add(item.colour);
+        if (item.mrp != null) mrpSet.add(Number(item.mrp));
       }
     }
+
+    const articleLabel = Array.from(articleSet).join(', ');
+    const colourLabel = Array.from(colourSet).join(', ');
+    const mrpLabel = Array.from(mrpSet)
+      .sort((a, b) => a - b)
+      .map((m) => m.toFixed(2))
+      .join(' / ');
 
     const sizes = Object.keys(sizeMap).sort((a, b) => {
       const numA = parseInt(a, 10);
@@ -167,8 +174,6 @@ export default function MasterCartonDetailPage() {
     const packDate = carton.closed_at
       ? new Date(carton.closed_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
       : new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-
-    const mrpFormatted = primaryMrp ? Number(primaryMrp).toFixed(2) : '-';
 
     const qrSvg = renderToStaticMarkup(
       createElement(QRCodeSVG, { value: carton.carton_barcode, size: 128, level: 'M' })
@@ -210,17 +215,17 @@ export default function MasterCartonDetailPage() {
           </div>
           <table class="info">
             <tr>
-              <td colspan="2" class="article-row">Article: ${primaryArticle || '-'}</td>
+              <td colspan="2" class="article-row">Article: ${articleLabel || '-'}</td>
               <td rowspan="3" class="qr-cell">
                 ${qrSvg}
                 <div class="barcode-text">${carton.carton_barcode}</div>
               </td>
             </tr>
             <tr>
-              <td colspan="2">Colour: ${primaryColour || '-'}</td>
+              <td colspan="2">Colour: ${colourLabel || '-'}</td>
             </tr>
             <tr class="split-row">
-              <td>MRP: &#8377; ${mrpFormatted}</td>
+              <td>MRP: &#8377; ${mrpLabel || '-'}</td>
               <td>Pack Date: ${packDate}</td>
             </tr>
           </table>
