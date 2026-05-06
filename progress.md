@@ -13,6 +13,76 @@
 
 ## Phase 6 — Post-QA Modifications (batched; testing deferred to after all mods)
 
+### May 6, 2026 — Bugfix: master carton label only printed first colour (multi-colour cartons)
+
+**Issue reported by client:** Master carton `MCHT43E1` was packed with Blue, Red, and Green child boxes (MOGLI PLUS 02, sizes 2 + 3, 60 boxes total — BLUE 28, GREEN 8, RED 24), but the printed label's `Colour:` row read only `BLUE`.
+
+**Root cause:** `frontend/src/app/(dashboard)/master-cartons/[id]/page.tsx` `handlePrintLabel` accumulated only the first assortment row's article/colour/MRP via `if (!primaryArticle) { ... }`. The `sizeMap` correctly aggregated all rows but the article/colour/MRP scalars latched on the first row alone. Multi-colour or multi-MRP cartons silently lost data on the printed label.
+
+**Fix (1 file):** swap the three scalars for `Set<string>` / `Set<number>` accumulators, render comma-joined for article/colour and ` / `-joined sorted for MRP.
+- `articleLabel = Array.from(articleSet).join(', ')`
+- `colourLabel = Array.from(colourSet).join(', ')`
+- `mrpLabel = Array.from(mrpSet).sort().map(toFixed(2)).join(' / ')`
+
+Single-value cartons render exactly as before; multi-value cartons now list every distinct entry. The on-screen Assortment Summary table was already correct (it iterates the full assortment array) — only the print-window label had the bug.
+
+**Verification:**
+- `npx tsc --noEmit` from `frontend/` → only the 3 pre-existing e2e errors (`03-child-boxes.spec.ts`, `27-edge-cases.spec.ts`); no new errors.
+- Portal DB query: `MCHT43E1` returns 6 assortment rows × 3 distinct colours × 1 article × 1 MRP. Aggregation will render `Article: MOGLI PLUS 02 / Colour: BLUE, GREEN, RED / MRP: ₹ 117.00`.
+
+**Deploy:**
+- `tar -cz "frontend/.../master-cartons/[id]/page.tsx" | ssh ... tar -xzv` into `/opt/binny/`.
+- `docker compose -f docker-compose.prod.yml build binny-frontend` → image rebuilt clean.
+- `docker compose -f docker-compose.prod.yml up -d binny-frontend` → recreated, healthy.
+- Backend not touched (no schema or service change).
+
+**Action for client:** re-print the `MCHT43E1` label after a hard refresh (Ctrl+Shift+R) of `/master-cartons/<id>` to bust the prior bundle cache. Expect `Colour: BLUE, GREEN, RED`. If the label width is too narrow for a long colour list, we'll need a layout pass (font-size step or row-wrap) — flag if seen.
+
+**Not committed yet** — held with the prior May 5 batch until you're ready for a combined commit.
+
+---
+
+### May 6, 2026 — Deployed May 5 client-mods batch to testing portal
+
+Shipped the six-commit batch from yesterday (`ea6d5b6` → `b400917`) to `srv1409601.hstgr.cloud`. Migration ran cleanly against the portal DB; new short-format barcodes resolve end-to-end.
+
+**What shipped (8 files):**
+- Backend services: `childBox.service.ts`, `ecommerce.service.ts`, `masterCarton.service.ts`, `sample.service.ts`
+- Backend util: `barcodeGenerator.ts` (new)
+- Backend script: `migrate-barcodes-to-short-format.ts` (+ JS twin for prod container — see below)
+- Frontend: `child-boxes/generate/page.tsx`, `master-cartons/[id]/page.tsx`
+
+**Deploy procedure:**
+1. `tar -cz <files> | ssh ... tar -xzv` into `/opt/binny/` (one stream for backend, one for frontend).
+2. `docker compose -f docker-compose.prod.yml build binny-backend` → image `binny-binny-backend:latest` rebuilt clean.
+3. `docker compose -f docker-compose.prod.yml build binny-frontend` → image `binny-binny-frontend:latest` rebuilt clean.
+4. `docker compose -f docker-compose.prod.yml up -d binny-backend binny-frontend` → both containers recreated; backend healthy in ~5s, frontend up.
+5. Migration: prod container is built multi-stage (only `dist/` ships, no ts-node). Wrote `backend/scripts/migrate-barcodes-to-short-format.js` (CommonJS twin of the TS script using `require('../dist/...')`), `docker cp`-ed into `binny-backend:/app/scripts/`, executed via `docker exec binny-backend node /app/scripts/migrate-barcodes-to-short-format.js`.
+6. CSV rollback record copied back to host: `/opt/binny/backend/scripts/barcode-migration-2026-05-06T07-58-20.csv` (16 KB).
+
+**Migration results (portal DB):**
+- child_boxes: 154 rows
+- master_cartons: 1 row
+- sample_records: 1 row
+- ecommerce_records: 1 row
+- **Total: 157 rows** (much smaller than local's 6,775 — portal carries cleaner test data).
+- Independent SQL verification: zero `BINNY-%` rows remain across all four tables.
+
+**End-to-end verification:**
+- `GET /binny/api/v1/health` → `{"status":"ok","timestamp":"2026-05-06T07:58:50.615Z"}`.
+- Sampled new barcode `CBG338WY` from `child_boxes`, logged in as admin, `GET /binny/api/v1/child-boxes/qr/CBG338WY` → 200 with `article_name: "CITY 02"` populated (confirms both the short-format dispatch and the `ecde27c` response-field fix work in production).
+
+**Note on JS twin script:** `backend/scripts/migrate-barcodes-to-short-format.js` is the deploy artefact for prod-container execution. It's idempotent (same `LIKE 'BINNY-%'` filter) and could be re-run safely if the portal ever ingests legacy-format records again. Should commit alongside the TS source for future deploys.
+
+**Branch state:** Local `main` is still 24 ahead of `origin/main` — push not done. The new JS twin script (`migrate-barcodes-to-short-format.js`) is untracked.
+
+**Next:**
+- Push branch to `origin/main` once user OKs.
+- Resume mobile test-case authoring at session 4 (`phase-24-mobile-master-cartons.md`).
+- Hand off `docs/tsc-printer-setup-guide.html` once client confirms TSC printer model.
+
+---
+
 ### May 5, 2026 — Client mods batch: short barcodes + label refresh + Playwright sweep (committed, not yet deployed)
 
 Six commits across backend / frontend / mobile / Playwright suite, all in the working tree by end of day. Test portal **not yet redeployed** — deferred per user instruction. Local dev stack has all changes active and verified.
