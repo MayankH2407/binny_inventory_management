@@ -48,6 +48,8 @@ services:
     container_name: binny_frontend
     environment:
       NEXT_PUBLIC_API_URL: http://192.168.100.229:3001/api/v1
+      WATCHPACK_POLLING: "true"
+      CHOKIDAR_USEPOLLING: "true"
     ports:
       - "3000:3000"
     depends_on:

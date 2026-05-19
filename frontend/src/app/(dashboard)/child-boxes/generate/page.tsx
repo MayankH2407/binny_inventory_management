@@ -169,7 +169,9 @@ export default function GenerateQRPage() {
   };
 
   const handlePrint = () => {
-    const today = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+    const today = new Date()
+      .toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })
+      .toUpperCase();
 
     // Pre-render all QR SVGs safely using createElement
     const labelHtmlParts = generatedBoxes.map((box) => {
@@ -180,25 +182,24 @@ export default function GenerateQRPage() {
         <div class="label">
           <table class="main">
             <tr>
-              <td colspan="2" class="article-row">Article: ${box.article_name}</td>
+              <td colspan="2" class="article-row">${box.article_name}</td>
             </tr>
             <tr>
               <td class="colour-row">Colour: ${box.colour}</td>
-              <td class="size-cell" rowspan="2" style="width:35%;">
-                <div class="size-label">Size:</div>
-                <div class="size-value">${box.size}</div>
+              <td class="size-cell" style="width:35%;">
+                <span class="size-label">Size: </span><span class="size-value">${box.size}</span>
               </td>
             </tr>
             <tr>
-              <td class="mrp-row">
-                <div class="mrp-label">M.R.P.</div>
-                <div class="mrp-value">&#8377; ${Number(box.mrp).toFixed(2)}</div>
-                <div class="mrp-sub">(Inc of all taxes)</div>
+              <td colspan="2" class="mrp-row">
+                <span class="mrp-label">M.R.P.</span>
+                <span class="mrp-value">&#8377; ${Number(box.mrp).toFixed(2)}</span>
+                <span class="mrp-sub">(Inc of all taxes)</span>
               </td>
             </tr>
             <tr>
               <td class="small-row">Packed on: ${today}</td>
-              <td rowspan="2" class="qr-cell">
+              <td rowspan="3" class="qr-cell">
                 ${qrSvg}
                 <div class="barcode-text">${box.barcode}</div>
               </td>
@@ -207,7 +208,7 @@ export default function GenerateQRPage() {
               <td class="small-row">Content: ${(box.quantity || 1) * 2}N (${box.quantity || 1} Pair)</td>
             </tr>
             <tr>
-              <td colspan="2" class="footer-row">
+              <td class="footer-row">
                 Mfg &amp; Mktd by: Mahavir Polymers Pvt Ltd<br/>
                 FE 16-17 MIA Jaipur - 302017 Raj (India)<br/>
                 Customer Care: 0141 2751684
@@ -231,16 +232,16 @@ export default function GenerateQRPage() {
         <head>
           <title>Print Labels</title>
           <style>
-            @page { size: 100mm 50mm; margin: 0; }
+            @page { size: 96mm 48mm; margin: 0; }
             * { margin: 0; padding: 0; box-sizing: border-box; }
-            html, body { width: 100mm; margin: 0; padding: 0; }
+            html, body { width: 96mm; margin: 0; padding: 0; }
             body { font-family: Arial, Helvetica, sans-serif; }
             /* Inline-block layout (vs flex) is more print-engine-safe.
                flex's cross-axis stretch is implemented inconsistently in
                print contexts across browsers; inline-block sidesteps that. */
             .row {
-              width: 100mm;
-              height: 50mm;
+              width: 96mm;
+              height: 48mm;
               page-break-after: always;
               page-break-inside: avoid;
               font-size: 0;        /* kill inline-block whitespace gap */
@@ -250,8 +251,8 @@ export default function GenerateQRPage() {
             .label, .label-empty {
               display: inline-block;
               vertical-align: top;
-              width: 50mm;
-              height: 50mm;
+              width: 48mm;
+              height: 48mm;
               font-size: 11pt;     /* reset for inner content */
             }
             .label {
@@ -261,20 +262,20 @@ export default function GenerateQRPage() {
             .label-empty { visibility: hidden; }
             table.main { width: 100%; height: 100%; border-collapse: collapse; }
             table.main td { border: 0.5px solid #000; padding: 1mm 1.5mm; vertical-align: middle; }
-            .article-row { font-weight: bold; font-size: 8pt; vertical-align: top; padding: 1mm 1.5mm; }
-            .colour-row { font-size: 11pt; font-weight: bold; padding: 1.5mm 1.5mm; }
-            .mrp-row { vertical-align: middle; padding: 1mm 1.5mm; line-height: 1.15; }
+            .article-row { font-weight: bold; font-size: 11pt; vertical-align: middle; padding: 0.8mm 1.5mm; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center; }
+            .colour-row { font-size: 9pt; font-weight: bold; padding: 0.7mm 1.5mm; }
+            .mrp-row { vertical-align: middle; padding: 0.7mm 1.5mm; line-height: 1.15; white-space: nowrap; }
             .mrp-label { font-weight: bold; font-size: 8pt; }
-            .mrp-value { font-weight: bold; font-size: 11pt; }
+            .mrp-value { font-weight: bold; font-size: 11pt; margin: 0 1mm; }
             .mrp-sub { font-size: 5pt; color: #333; }
             .size-cell { text-align: center; vertical-align: middle; }
-            .size-label { font-size: 7pt; margin-bottom: 0.5mm; }
-            .size-value { font-size: 34pt; font-weight: bold; line-height: 1; }
-            .small-row { font-size: 6pt; padding: 0.3mm 1.5mm; height: 2.5mm; }
+            .size-label { font-size: 8pt; font-weight: bold; }
+            .size-value { font-size: 14pt; font-weight: bold; line-height: 1; }
+            .small-row { font-size: 6pt; padding: 0.3mm 1.5mm; height: 3mm; white-space: nowrap; overflow: hidden; vertical-align: middle; }
             .qr-cell { text-align: center; vertical-align: middle; padding: 0.3mm; }
-            .qr-cell svg { width: 13mm; height: 13mm; }
-            .qr-cell .barcode-text { font-size: 6pt; font-family: 'Courier New', monospace; margin-top: 0.5mm; letter-spacing: 0.3mm; }
-            .footer-row { font-size: 5pt; line-height: 1.2; padding: 0.8mm 1.5mm; vertical-align: top; border-top: 1px solid #000; }
+            .qr-cell svg { width: 18mm; height: 18mm; display: block; margin: 0 auto; }
+            .footer-row { font-size: 5pt; line-height: 1.1; padding: 0.6mm 1.5mm; vertical-align: middle; border-top: 1px solid #000; }
+            .qr-cell .barcode-text { font-family: 'Courier New', monospace; font-weight: bold; font-size: 10pt; letter-spacing: 0.3mm; margin-top: 0.5mm; text-align: center; }
           </style>
         </head>
         <body>${rowsHtml}</body>

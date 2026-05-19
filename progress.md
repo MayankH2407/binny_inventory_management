@@ -13,6 +13,122 @@
 
 ## Phase 6 — Post-QA Modifications (batched; testing deferred to after all mods)
 
+### May 19, 2026 — Iterated child-box label v2 against local Docker preview + landscape-rotated master carton label
+
+**Local-dev tooling fix (one-time):** brought the stack up via `docker compose up -d` against the existing compose. Windows host → Linux container file-change events don't reliably fire Next's webpack watcher, so HMR was dead on `frontend/src` edits. Added `WATCHPACK_POLLING=true` + `CHOKIDAR_USEPOLLING=true` to the `frontend` service env in `docker-compose.yml` and recreated. Polling-mode HMR works; all subsequent edits today picked up live without restart.
+
+**Child-box label (`frontend/src/app/(dashboard)/child-boxes/generate/page.tsx`)** — six deltas from this morning's drafted v2:
+
+1. **`Article:` prefix dropped** — `.article-row` now also `white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-align:center`. Guarantees the article name renders on one line, truncating with `…` only if pathologically long (MOGLI PLUS 02 etc. fit well under 48mm at 11pt).
+2. **Pack date format `"19 May 2026"` → `"19 MAY 26"`** — `year: '2-digit'` + `.toUpperCase()` on the existing `toLocaleDateString('en-IN', …)` call. Also added `white-space:nowrap` to `.small-row` so the "Packed on: …" text can never wrap.
+3. **QR enlarged 14mm → 18mm.**
+4. **Major layout restructure — `.qr-cell` `rowspan="2"` → `rowspan="3"`** (covers Packed-on + Content + Mfg rows, i.e. the entire right column from MRP downward). With `.small-row { height: 3mm }` pinned, the rowspan cell's QR-driven ≥18mm demand falls almost entirely onto the Mfg row's left cell — it now gets ~12mm of vertical room, enough for the 3-line address at 5pt with comfortable padding. **Resolves the "Footer fit risk" flagged this morning** (Mfg block is now full-width in its row, no horizontal competition from a sibling barcode cell).
+5. **Barcode is now inside `.qr-cell` directly under the QR** — `<div class="barcode-text">${box.barcode}</div>` after the QR SVG; styled as **Courier-mono bold 10pt with `letter-spacing: 0.3mm`, centered**. The original standalone `.barcode-cell` td/CSS is gone. Putting the barcode inside the rowspan-3 cell makes it immune to row-distribution overflow that was clipping it as a trailing row 7 in intermediate attempts.
+6. **`table.main` kept at `height: 100%`** so the 4 + qr-rowspan structure stretches to fill the full 48mm box — no bottom blank strip. Safe now that there's no trailing barcode row below the rowspan cell that could be pushed past the 48mm `overflow:hidden` cutoff.
+
+Side touch-ups during iteration: tightened `.article-row`/`.colour-row`/`.mrp-row` paddings (1.2/1.0/1.0mm → 0.8/0.7/0.7mm) and `.footer-row` line-height 1.2 → 1.1 to reclaim ~2mm of vertical budget.
+
+**Master carton label (`frontend/src/app/(dashboard)/master-cartons/[id]/page.tsx`)** — rotated portrait → landscape per client ask:
+
+- `@page { size: 100mm 150mm }` → **`150mm 100mm`**; `body { width: 92mm }` → **`142mm`** to match the new page width minus the 4mm margins.
+- `.qr-cell .barcode-text` made **bold** + bumped **8pt → 11pt** for legibility (same ask as note #2 from the morning entry, but applied to the master-carton template which this morning's edit didn't touch).
+- **Internal composition is still vertical** (logo → info table → assortment grid). It fits the 100mm-tall landscape page (content ≈ 80mm) but doesn't take advantage of the new horizontal real estate. A "true" landscape composition — info-block left, QR-block right — would be a separate restructure if the client wants it after seeing a sample print.
+
+**Carry-over open item from morning entry:**
+- **Roll spec / TSC driver media size** — still pending hardware confirmation. Both labels now have non-default page sizes (child box 96×48mm, master carton 150×100mm); the TSC driver's media size in `docs/tsc-printer-setup-guide.html:319` will need a parallel update before a clean print.
+
+**Status:** all edits live in working tree, picked up via polling-HMR in the local Docker stack. **Not committed** — bundled with the held mobile-test-authoring batch per [[feedback_combined_commit_test_authoring]]. Client mentioned a few more label tweaks pending; push to testing server happens after that round.
+
+---
+
+### May 19, 2026 — Drafted: child-box label v2 (48×48 redesign + bigger article / bold barcode)
+
+**Source:** client photo `Updated Label format.jpeg` — side-by-side "Present" vs "New" sketch on the current MOGLI PLUS 02 label, plus two handwritten notes:
+1. Increase Article name font size
+2. Bold barcode number and increase font size
+
+**Diff scope — single file: `frontend/src/app/(dashboard)/child-boxes/generate/page.tsx`** (the only active child-box label renderer; mobile generate screen is a web-only redirect, and `backend/src/utils/labelTemplates.ts` is currently unwired — confirmed via grep, zero callers).
+
+**HTML changes (handlePrint label template, ~line 179):**
+- Size cell: dropped `rowspan="2"` — now a single cell beside Colour with `Size:` label inline, not a tall right block spanning Colour+MRP.
+- MRP row: now spans both columns full-width (previously shared row with the tall Size cell).
+- Removed `.barcode-text` div from inside `.qr-cell` (barcode no longer sits under the QR).
+- Footer row split into two cells: left keeps Mfg & Mktd address block; right is a new `.barcode-cell` containing the human-readable barcode (e.g. `CEY2DBGY`).
+
+**CSS changes (~line 234):**
+- `@page` 100mm×50mm → **96mm×48mm**; `.row` width 100→96mm height 50→48mm; `.label` 50×50 → **48×48mm**.
+- `.article-row` font 8pt → **11pt** (note #1).
+- `.size-value` 34pt → 14pt (size no longer occupies a giant rowspan column — it's now an inline value beside its label).
+- New `.barcode-cell` rule: Courier-mono, **bold, 9pt, letter-spaced 0.3mm**, centred (note #2).
+- Padding/line-height nudges to fit the shorter 48mm height.
+
+**Two open items flagged to user (awaiting reply):**
+1. **Physical label roll** — change assumes a 48×48mm roll. If the current portal/printer is still loaded with 50×50 stock, the TSC driver's media size must be updated to match the new `@page` (same caveat as the `100mm×50mm` switch documented in `docs/tsc-printer-setup-guide.html:319`). Did not change the driver-side guide yet — pending hardware confirmation.
+2. **Footer fit risk** — the Mfg+address block (3 lines: company, address, customer-care) now shares row 6 with the barcode cell instead of spanning the full label width. At 5pt the wrap risk is real on a printed sample. Options if it looks cramped: drop the customer-care line, or shrink footer to 4.5pt. Deferred until a test print is run.
+
+**Status:** edits applied to working tree. **Not committed** — bundled with the held mobile-test-authoring batch per `feedback_combined_commit_test_authoring`. No deploy until client signs off on a test print + confirms the 48×48mm roll spec.
+
+---
+
+### May 11, 2026 — Mobile test-case authoring — session 9 (`phase-29-mobile-scan-traceability.md`)
+
+**Authored:** `docs/test-cases-v3/phase-29-mobile-scan-traceability.md` (445 lines, 113 TCs, 20 sections, 7 Maestro flows, 11 `[?]` flags 65-75).
+
+Mobile scan tab is a single-screen "Scan & Trace" surface (`mobile/app/(tabs)/scan.tsx`) — no role gate, all 4 roles can use. Camera scanner OR manual entry path. Backend `GET /inventory/trace/{barcode}` returns child-box / master-carton / timeline data.
+
+**Bugs / gaps surfaced:**
+- ⚠️ **`[?]`65 — Sample/E-commerce trace results NOT rendered in UI.** `scan.tsx:114-156` only renders `result.childBox` and `result.masterCarton` cards. Scanning an SR or EC barcode reaches the backend trace endpoint successfully but the UI has no card for samples or ecommerce. Timeline still shows, source info hidden. Real UX gap.
+- ⚠️ **`[?]`66 — GENERATED auto-activation side effect on trace.** `scan.tsx:31-39` silently transitions a GENERATED box to FREE when scanned via trace. Warehouse operator scanning to inspect can inadvertently activate stock. Trace is conceptually read-only; this breaks that. Activation failures are silently swallowed (`catch {}`).
+- **`[?]`67** — Manual-entry placeholder still says `"Enter barcode (e.g., BINNY-CB-...)"`. Stale post-May-5 short-format migration.
+- **`[?]`70** — `parseQRCode` short-format regex is `[0-9A-Z]{6}` (uppercase only). Pasted lowercase codes silently fall to `unknown`. Mitigated by `autoCapitalize="characters"` on most inputs.
+
+**Cumulative:** 1,261 mobile TCs across 9 phase files; 75 open questions logged in `AUTHORING_PROGRESS.md`. Sessions remaining: 10 (reports/M6), 11 (cross-platform), 12 (edge cases), 13 (finalise).
+
+---
+
+### May 11, 2026 — Mobile test-case authoring workstream B — sessions 4-8 of 13 (5 phase files in one day)
+
+Resumed the comprehensive mobile test-case authoring workstream (started May 2 with sessions 1-3) at user request. Opus orchestrator + Sonnet sub-agents per session, one phase markdown file per session. **Canonical tracker: `docs/test-cases-v3/AUTHORING_PROGRESS.md`** — always read first when resuming.
+
+**Sessions completed today:**
+
+| Session | File | TCs | Sections | Maestro | `[?]` flags |
+|---:|---|---:|---:|---:|---|
+| 4 | `phase-24-mobile-master-cartons.md` | 150 | 25 | 10 | 13-19 (7) |
+| 5 | `phase-25-mobile-samples.md` | 178 | 30 | 12 | 20-28 (9) |
+| 6 | `phase-26-mobile-ecommerce.md` | 170 | 30 | 8 | 29-36 (8) |
+| 7 | `phase-27-mobile-dispatch.md` | 185 | 28 | 12 | 37-50 (14) |
+| 8 | `phase-28-mobile-customers-users.md` | 143 (135 cust + 8 user) | 24 | 10 | 51-64 (14) |
+| **Day total** | **5 files** | **826** | **137** | **52** | **52 flags** |
+
+Combined with sessions 1-3 (May 2: 322 TCs), the mobile suite now stands at **1,148 TCs across 8 phase files** with **64 open questions** logged in `AUTHORING_PROGRESS.md`.
+
+**Real bugs surfaced during authoring (action-needed):**
+
+- **`[?]`37 — `sourceType` derivation ternary is a no-op**: `mobile/app/dispatch/index.tsx:135-137` and `[id].tsx:101-103` use `dispatch.source_type ?? (dispatch.master_carton_id ? 'master_carton' : 'master_carton')`. Both branches of the ternary return `'master_carton'`. Any legacy dispatch record with neither `source_type` nor `master_carton_id` is mislabelled "Carton" on both list chip and detail. Copy-paste during M4 (`ae73320`).
+- **`[?]`43 — `invalidateKeys` omits `samples` and `ecommerce`** on dispatch-create (`mobile/app/dispatch/create.tsx:263-270`). After dispatching a sample/ecommerce record, those source lists show stale CLOSED status until pull-to-refresh. Cache propagation gap.
+- **`[?]`44 — `router.replace('/dispatch')` after submit** (line 273) instead of the new record's detail page. All other create flows replace to detail. UX inconsistency.
+- **`[?]`51 — Users module product gap**: `mobile/app/(tabs)/menu.tsx:100` exposes a Users tile (Admin-only) routing to `/users`, but `mobile/app/users/` does not exist → expo-router unmatched-route fallback. Either remove tile or build screens. `mobile/services/user.service.ts` is fully declared but UI-dead (`[?]`62).
+- **`[?]`52, 53 — Mobile customers have no delete + no activate/deactivate UI**. Service has no `remove` method; detail screen has no toggle. To reactivate, must use web.
+
+**Architectural inconsistencies surfaced (cross-cutting):**
+
+- **`[?]`34 — Role-gate strategy is inconsistent across modules**: Samples and E-commerce use per-button gates on detail action bars → Dispatch Op CAN dispatch CLOSED records on both. Master Cartons wraps action bar in a single outer `RoleGate` → Dispatch Op CANNOT dispatch CLOSED cartons. Three modules confirmed; cross-cutting architectural decision needed (converge to per-button or to outer-gate).
+- **`[?]`33 — Dispatch button doesn't pass source record ID**: `master-cartons/[id].tsx:341`, `samples/[id].tsx:443`, `ecommerce/[id].tsx:443` all `router.push('/dispatch/create')` with no params. User must re-scan source on dispatch screen. Triple-module gap; single cross-cutting fix needed.
+
+**Process note — split-write strategy adopted:** First attempt at phase-25 hit the 32k output-token cap mid-Write call (Sonnet built the file in memory then failed to emit). Resolved by mandating a two-tool-call pattern: `Write` first half + `<!-- SPLIT-MARKER -->`, then `Edit` to replace the marker with the second half. Saved as the default playbook for the remaining sessions. All subsequent sessions (5-8) used the strategy without recurrence.
+
+**Per-agent dispatch rule held:** every Sonnet dispatch included an explicit "DO NOT modify `progress.md` or `AUTHORING_PROGRESS.md`" instruction (per memory `feedback_agents_progress_scope`). Verified post-write — no sub-agent touched either tracker.
+
+**Held in working tree (NOT committed; per `feedback_combined_commit_test_authoring`):**
+- `docs/test-cases-v3/phase-24-…md`, `phase-25-…md`, `phase-26-…md`, `phase-27-…md`, `phase-28-…md` (sessions 4-8 outputs, 3,639 lines total).
+- `docs/test-cases-v3/AUTHORING_PROGRESS.md` — modified (session-status rows updated, open questions 13-64 appended).
+- (Plus prior held items: phase-21/22/23 from May 2, README.md mods from May 2, `tsc-printer-setup-guide.html`, `migrate-barcodes-to-short-format.js` JS twin, etc.)
+
+**Sessions remaining:** 9 (scan + traceability), 10 (reports/M6), 11 (cross-platform parity), 12 (mobile edge cases), 13 (README + tracker finalise). The combined commit happens after session 13.
+
+---
+
 ### May 6, 2026 — Bugfix: master carton label only printed first colour (multi-colour cartons)
 
 **Issue reported by client:** Master carton `MCHT43E1` was packed with Blue, Red, and Green child boxes (MOGLI PLUS 02, sizes 2 + 3, 60 boxes total — BLUE 28, GREEN 8, RED 24), but the printed label's `Colour:` row read only `BLUE`.
@@ -1075,7 +1191,7 @@ Net effect: same 6-cell table structure, Colour and MRP cells now visibly domina
 
 ---
 
-## CURRENT EXECUTION (resumption marker — 2026-05-02, MOBILE PARITY M1-M7 ✅; TEST-CASE AUTHORING SESSIONS 1-3/13 ✅; CLIENT MODS #1 (2-up labels) + #2 (HID scanner) ✅ shipped + DEPLOYED to testing portal)
+## CURRENT EXECUTION (resumption marker — 2026-05-19, MOBILE PARITY M1-M7 ✅; TEST-CASE AUTHORING SESSIONS 1-9/13 ✅ (4/13 remaining: reports, cross-platform, edge cases, finalise); CLIENT MODS #1 + #2 + multi-colour label fix + barcode migration ✅ DEPLOYED to testing portal; child-box label v2 (48×48 + bigger article + bold barcode) DRAFTED in working tree, awaiting test-print + 48×48 roll confirmation before deploy; 24 commits ahead of origin/main; combined commit for mobile test-authoring + label v2 held until session 13)
 
 ---
 

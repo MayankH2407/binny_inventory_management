@@ -185,9 +185,9 @@ export default function MasterCartonDetailPage() {
       <head>
         <title>Label - ${carton.carton_barcode}</title>
         <style>
-          @page { size: 100mm 150mm; margin: 4mm; }
+          @page { size: 150mm 100mm; margin: 4mm; }
           * { margin: 0; padding: 0; box-sizing: border-box; }
-          body { font-family: Arial, Helvetica, sans-serif; width: 92mm; }
+          body { font-family: Arial, Helvetica, sans-serif; width: 142mm; }
           .label { border: 2px solid #000; }
           .logo { text-align: center; padding: 3mm 2mm 2mm 2mm; }
           .logo img { height: 14mm; }
@@ -197,7 +197,7 @@ export default function MasterCartonDetailPage() {
           .split-row td { width: 50%; }
           .qr-cell { width: 28mm; text-align: center; vertical-align: middle; padding: 2mm; }
           .qr-cell svg { width: 22mm; height: 22mm; display: block; margin: 0 auto; }
-          .qr-cell .barcode-text { font-size: 8pt; font-family: 'Courier New', monospace; margin-top: 1.5mm; letter-spacing: 0.5mm; word-break: break-all; }
+          .qr-cell .barcode-text { font-size: 11pt; font-weight: bold; font-family: 'Courier New', monospace; margin-top: 1.5mm; letter-spacing: 0.3mm; white-space: nowrap; }
           .assortment-label { font-weight: bold; font-size: 10pt; padding: 2mm 3mm; border: 1px solid #000; border-top: none; }
           table.sizes { width: 100%; border-collapse: collapse; font-size: 10pt; }
           table.sizes td { border: 1px solid #000; text-align: center; padding: 2mm 1.5mm; }
