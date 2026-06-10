@@ -13,6 +13,7 @@ import PageHeader from '@/components/layout/PageHeader';
 import { SkeletonTable } from '@/components/ui/Spinner';
 import { PRODUCT_CATEGORIES, PRODUCT_LOCATIONS } from '@/constants';
 import { useAuth } from '@/hooks/useAuth';
+import { useCan } from '@/hooks/useCan';
 import { useApiQuery, useApiMutation } from '@/hooks/useApi';
 import { useDebounce } from '@/hooks/useDebounce';
 import { productService, BulkUploadResult, BulkRowError } from '@/services/product.service';
@@ -51,13 +52,19 @@ const emptyForm: ProductForm = {
   hsn_code: '', size_from: '', size_to: '',
 };
 
+// Env-driven cap: default 500 (test/local); live build sets NEXT_PUBLIC_PRODUCT_CSV_MAX=2000.
+const MAX_CSV_ROWS = Number(process.env.NEXT_PUBLIC_PRODUCT_CSV_MAX) || 500;
+
 export default function ProductsPage() {
   const { isManager } = useAuth();
+  const canCreate = useCan('products:create');
+  const canUpdate = useCan('products:update');
 
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [activeSection, setActiveSection] = useState<string>('');
   const [filters, setFilters] = useState<Record<string, string>>({});
+  const [statusFilter, setStatusFilter] = useState<'active' | 'inactive' | 'all'>('active');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [form, setForm] = useState<ProductForm>({ ...emptyForm });
@@ -77,12 +84,14 @@ export default function ProductsPage() {
   const sections = sectionsData ?? [];
 
   const { data, isLoading, refetch } = useApiQuery(
-    ['products-admin', debouncedSearch, String(page), activeSection, JSON.stringify(filters)],
+    ['products-admin', debouncedSearch, String(page), activeSection, JSON.stringify(filters), statusFilter],
     () => productService.getAll({
       search: debouncedSearch || undefined,
       page,
       limit: 25,
       section: activeSection || undefined,
+      // Active / Inactive / All status filter (default: Active).
+      is_active: statusFilter === 'all' ? undefined : statusFilter === 'active',
       ...Object.fromEntries(Object.entries(filters).filter(([, v]) => v)),
     }),
   );
@@ -335,14 +344,20 @@ export default function ProductsPage() {
         title="Products"
         description="Manage product master (SKU catalog)"
         action={
-          <div className="flex gap-2">
-            <Button variant="outline" leftIcon={<Upload className="h-4 w-4" />} onClick={() => setShowBulkModal(true)}>
-              Bulk Import
-            </Button>
-            <Button leftIcon={<Plus className="h-4 w-4" />} onClick={() => setShowCreateModal(true)}>
-              Add Product
-            </Button>
-          </div>
+          (canCreate) ? (
+            <div className="flex gap-2">
+              {canCreate && (
+                <Button variant="outline" leftIcon={<Upload className="h-4 w-4" />} onClick={() => setShowBulkModal(true)}>
+                  Bulk Import
+                </Button>
+              )}
+              {canCreate && (
+                <Button leftIcon={<Plus className="h-4 w-4" />} onClick={() => setShowCreateModal(true)}>
+                  Add Product
+                </Button>
+              )}
+            </div>
+          ) : undefined
         }
       />
 
@@ -387,6 +402,18 @@ export default function ProductsPage() {
         {/* Column filters */}
         <div className="p-4 border-b border-brand-border bg-gray-50/50">
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
+            <div className="relative">
+              <select
+                className="w-full text-xs border border-brand-border rounded-md px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-brand-primary/30 appearance-none pr-6"
+                value={statusFilter}
+                onChange={(e) => { setStatusFilter(e.target.value as 'active' | 'inactive' | 'all'); setPage(1); }}
+              >
+                <option value="active">Active only</option>
+                <option value="inactive">Inactive only</option>
+                <option value="all">All products</option>
+              </select>
+            </div>
+
             <div className="relative">
               <select
                 className="w-full text-xs border border-brand-border rounded-md px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-brand-primary/30 appearance-none pr-6"
@@ -533,17 +560,19 @@ export default function ProductsPage() {
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
-                          <Button size="sm" variant="outline" onClick={() => openEdit(p)}>Edit</Button>
-                          <button
-                            onClick={() => toggleStatus(p)}
-                            className="p-1.5 rounded-md hover:bg-gray-100 transition-colors"
-                            title={p.is_active ? 'Deactivate' : 'Activate'}
-                          >
-                            {p.is_active
-                              ? <UserX className="h-4 w-4 text-red-500" />
-                              : <UserCheck className="h-4 w-4 text-green-500" />
-                            }
-                          </button>
+                          {canUpdate && <Button size="sm" variant="outline" onClick={() => openEdit(p)}>Edit</Button>}
+                          {canUpdate && (
+                            <button
+                              onClick={() => toggleStatus(p)}
+                              className="p-1.5 rounded-md hover:bg-gray-100 transition-colors"
+                              title={p.is_active ? 'Deactivate' : 'Activate'}
+                            >
+                              {p.is_active
+                                ? <UserX className="h-4 w-4 text-red-500" />
+                                : <UserCheck className="h-4 w-4 text-green-500" />
+                              }
+                            </button>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>
@@ -580,12 +609,14 @@ export default function ProductsPage() {
                       </p>
                     </div>
                   </div>
-                  <div className="flex gap-2 pt-1">
-                    <Button size="sm" variant="outline" onClick={() => openEdit(p)}>Edit</Button>
-                    <Button size="sm" variant="outline" onClick={() => toggleStatus(p)}>
-                      {p.is_active ? 'Deactivate' : 'Activate'}
-                    </Button>
-                  </div>
+                  {canUpdate && (
+                    <div className="flex gap-2 pt-1">
+                      <Button size="sm" variant="outline" onClick={() => openEdit(p)}>Edit</Button>
+                      <Button size="sm" variant="outline" onClick={() => toggleStatus(p)}>
+                        {p.is_active ? 'Deactivate' : 'Activate'}
+                      </Button>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -768,7 +799,7 @@ export default function ProductsPage() {
             <p className="font-medium mb-1">Required columns:</p>
             <p>article_code, article_name, colour, size, mrp, section, category</p>
             <p className="mt-1">Optional: location, description, article_group, hsn_code, size_from, size_to</p>
-            <p className="mt-1">Maximum 500 rows per upload. Images must be uploaded separately after import.</p>
+            <p className="mt-1">Maximum {MAX_CSV_ROWS} rows per upload. Images must be uploaded separately after import.</p>
           </div>
 
           {/* File input */}

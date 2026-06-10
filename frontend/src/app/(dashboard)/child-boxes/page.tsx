@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
-import { Plus, Search, Package, Upload, Download, FileSpreadsheet, AlertCircle, CheckCircle } from 'lucide-react';
+import { Plus, Search, Package, Upload, Download, FileSpreadsheet, AlertCircle, CheckCircle, Printer } from 'lucide-react';
+import { printChildBoxLabels } from '@/lib/childBoxLabel';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import Select from '@/components/ui/Select';
@@ -23,7 +24,7 @@ import { ROUTES, PAGE_SIZE } from '@/constants';
 import { childBoxService, BulkUploadResult, BulkRowError } from '@/services/childBox.service';
 import { productService } from '@/services/product.service';
 import { useApiQuery } from '@/hooks/useApi';
-import { useAuth } from '@/hooks/useAuth';
+import { useCan } from '@/hooks/useCan';
 import { keepPreviousData } from '@tanstack/react-query';
 import { formatDateTime, formatCurrency } from '@/lib/utils';
 import type { ChildBoxWithProduct } from '@/types';
@@ -45,12 +46,14 @@ function getAgeDays(createdAt: string): number {
 }
 
 export default function ChildBoxesPage() {
-  const { isManager } = useAuth();
+  const canCreate = useCan('child_boxes:create');
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [productFilter, setProductFilter] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const headerCheckboxRef = useRef<HTMLInputElement>(null);
 
   // Bulk upload state
   const [showBulkModal, setShowBulkModal] = useState(false);
@@ -78,6 +81,33 @@ export default function ChildBoxesPage() {
   );
 
   const products = productsData?.data ?? [];
+
+  // Indeterminate state for header checkbox
+  useEffect(() => {
+    if (!headerCheckboxRef.current || !data?.data?.length) return;
+    const allSelected = data.data.every((b: ChildBoxWithProduct) => selectedIds.has(b.id));
+    const someSelected = data.data.some((b: ChildBoxWithProduct) => selectedIds.has(b.id));
+    headerCheckboxRef.current.indeterminate = someSelected && !allSelected;
+  }, [selectedIds, data]);
+
+  const toggleSelectAll = () => {
+    if (!data?.data?.length) return;
+    const allSelected = data.data.every((b: ChildBoxWithProduct) => selectedIds.has(b.id));
+    if (allSelected) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(data.data.map((b: ChildBoxWithProduct) => b.id)));
+    }
+  };
+
+  const toggleSelectOne = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   const toggleExpand = (id: string) => {
     setExpandedId((prev) => (prev === id ? null : id));
@@ -146,14 +176,28 @@ export default function ChildBoxesPage() {
         description="Manage and track all child boxes in the system"
         action={
           <div className="flex gap-2">
-            {isManager && (
+            {selectedIds.size > 0 && (
+              <Button
+                variant="secondary"
+                leftIcon={<Printer className="h-4 w-4" />}
+                onClick={() => {
+                  printChildBoxLabels(data!.data.filter((b: ChildBoxWithProduct) => selectedIds.has(b.id)));
+                  setSelectedIds(new Set());
+                }}
+              >
+                Print Selected ({selectedIds.size})
+              </Button>
+            )}
+            {canCreate && (
               <Button variant="outline" leftIcon={<Upload className="h-4 w-4" />} onClick={() => setShowBulkModal(true)}>
                 Bulk Import
               </Button>
             )}
-            <Link href={ROUTES.CHILD_BOXES_GENERATE}>
-              <Button leftIcon={<Plus className="h-4 w-4" />}>Generate Labels</Button>
-            </Link>
+            {canCreate && (
+              <Link href={ROUTES.CHILD_BOXES_GENERATE}>
+                <Button leftIcon={<Plus className="h-4 w-4" />}>Generate Labels</Button>
+              </Link>
+            )}
           </div>
         }
       />
@@ -180,6 +224,7 @@ export default function ChildBoxesPage() {
                 onChange={(e) => {
                   setSearch(e.target.value);
                   setPage(1);
+                  setSelectedIds(new Set());
                 }}
                 leftIcon={<Search className="h-4 w-4" />}
               />
@@ -196,6 +241,7 @@ export default function ChildBoxesPage() {
               onChange={(e) => {
                 setStatusFilter(e.target.value);
                 setPage(1);
+                setSelectedIds(new Set());
               }}
               className="w-full sm:w-44"
             />
@@ -211,6 +257,7 @@ export default function ChildBoxesPage() {
               onChange={(e) => {
                 setProductFilter(e.target.value);
                 setPage(1);
+                setSelectedIds(new Set());
               }}
               className="w-full sm:w-56"
             />
@@ -244,9 +291,18 @@ export default function ChildBoxesPage() {
                   onClick={() => toggleExpand(box.id)}
                 >
                   <div className="flex items-center justify-between mb-2">
-                    <span className="font-mono text-xs text-brand-text-dark">
-                      {box.barcode}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-brand-border text-binny-navy focus:ring-binny-navy/30 flex-shrink-0"
+                        checked={selectedIds.has(box.id)}
+                        onChange={() => toggleSelectOne(box.id)}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                      <span className="font-mono text-xs text-brand-text-dark">
+                        {box.barcode}
+                      </span>
+                    </div>
                     <div className="flex items-center gap-1.5">
                       <StatusBadge status={box.status} size="sm" />
                       {aging && (
@@ -266,6 +322,19 @@ export default function ChildBoxesPage() {
                     <span>{box.colour}</span>
                     <span>Size {box.size}</span>
                     <span>{formatCurrency(box.mrp)}</span>
+                  </div>
+                  <div className="flex justify-end mt-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      leftIcon={<Printer className="h-4 w-4" />}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        printChildBoxLabels([box]);
+                      }}
+                    >
+                      Print Label
+                    </Button>
                   </div>
                   {expandedId === box.id && (
                     <div className="mt-3 pt-3 border-t border-brand-border text-xs text-brand-text-muted space-y-1">
@@ -293,6 +362,15 @@ export default function ChildBoxesPage() {
               <Table>
                 <TableHead>
                   <TableRow>
+                    <TableHeader className="w-10">
+                      <input
+                        ref={headerCheckboxRef}
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-brand-border text-binny-navy focus:ring-binny-navy/30"
+                        checked={!!data?.data?.length && data.data.every((b: ChildBoxWithProduct) => selectedIds.has(b.id))}
+                        onChange={toggleSelectAll}
+                      />
+                    </TableHeader>
                     <TableHeader>Barcode</TableHeader>
                     <TableHeader>Product</TableHeader>
                     <TableHeader>SKU</TableHeader>
@@ -301,6 +379,7 @@ export default function ChildBoxesPage() {
                     <TableHeader>MRP</TableHeader>
                     <TableHeader>Status</TableHeader>
                     <TableHeader>Created</TableHeader>
+                    <TableHeader>Actions</TableHeader>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -314,6 +393,15 @@ export default function ChildBoxesPage() {
                       onClick={() => toggleExpand(box.id)}
                       className={aging === 'red' ? 'bg-red-50 hover:bg-red-100' : aging === 'yellow' ? 'bg-yellow-50 hover:bg-yellow-100' : ''}
                     >
+                      <TableCell className="w-10">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 rounded border-brand-border text-binny-navy focus:ring-binny-navy/30"
+                          checked={selectedIds.has(box.id)}
+                          onChange={() => toggleSelectOne(box.id)}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      </TableCell>
                       <TableCell>
                         <span className="font-mono text-xs">{box.barcode}</span>
                       </TableCell>
@@ -337,6 +425,19 @@ export default function ChildBoxesPage() {
                       <TableCell className="text-brand-text-muted text-xs">
                         {formatDateTime(box.created_at)}
                       </TableCell>
+                      <TableCell>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          leftIcon={<Printer className="h-4 w-4" />}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            printChildBoxLabels([box]);
+                          }}
+                        >
+                          Print
+                        </Button>
+                      </TableCell>
                     </TableRow>
                     );
                   })}
@@ -356,7 +457,7 @@ export default function ChildBoxesPage() {
                     variant="secondary"
                     size="sm"
                     disabled={page === 1}
-                    onClick={() => setPage(page - 1)}
+                    onClick={() => { setPage(page - 1); setSelectedIds(new Set()); }}
                   >
                     Previous
                   </Button>
@@ -367,7 +468,7 @@ export default function ChildBoxesPage() {
                     variant="secondary"
                     size="sm"
                     disabled={page === data.totalPages}
-                    onClick={() => setPage(page + 1)}
+                    onClick={() => { setPage(page + 1); setSelectedIds(new Set()); }}
                   >
                     Next
                   </Button>

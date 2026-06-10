@@ -11,6 +11,8 @@ import reportRoutes from './report.routes';
 import customerRoutes from './customer.routes';
 import sampleRoutes from './sample.routes';
 import ecommerceRoutes from './ecommerce.routes';
+import roleRoutes from './role.routes';
+import permissionRoutes from './permission.routes';
 
 const router = Router();
 
@@ -21,6 +23,8 @@ router.get('/health', (_req, res) => {
 
 router.use('/auth', authRoutes);
 router.use('/users', userRoutes);
+router.use('/roles', roleRoutes);
+router.use('/permissions', permissionRoutes);
 router.use('/products', productRoutes);
 router.use('/sections', sectionRoutes);
 router.use('/child-boxes', childBoxRoutes);

@@ -39,12 +39,13 @@ export const sampleService = {
     sample_date?: string | null;
     notes?: string | null;
     child_box_barcodes?: string[];
+    box_feet?: Record<string, 'LEFT' | 'RIGHT' | 'PAIR'>;
   }): Promise<SampleRecord> {
     const response = await api.post<SampleRecord>('/samples', data);
     return response.data;
   },
 
-  async addBox(data: { child_box_id: string; sample_record_id: string }): Promise<any> {
+  async addBox(data: { child_box_id: string; sample_record_id: string; foot?: 'LEFT' | 'RIGHT' | 'PAIR' }): Promise<any> {
     const response = await api.post('/samples/add-box', data);
     return response.data;
   },

@@ -48,6 +48,8 @@ export default function EcommerceDetailPage() {
   const [showScanner, setShowScanner] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const [cartonBarcode, setCartonBarcode] = useState('');
+  const [isScanningCarton, setIsScanningCarton] = useState(false);
   const queryClient = useQueryClient();
 
   const { data: record, isLoading } = useApiQuery(
@@ -117,6 +119,30 @@ export default function EcommerceDetailPage() {
       addBoxByBarcode(qrCode);
     },
     [addBoxByBarcode]
+  );
+
+  // Scan a whole master carton → move ALL its packed boxes into this record at once.
+  const handleScanCarton = useCallback(
+    async (barcode: string) => {
+      const code = barcode.trim().toUpperCase();
+      if (!code) {
+        toast.error('Enter a carton barcode');
+        return;
+      }
+      setIsScanningCarton(true);
+      try {
+        const result = await ecommerceService.scanCarton({ ecommerce_record_id: id, carton_barcode: code });
+        toast.success(`Added ${result.added} box${result.added === 1 ? '' : 'es'} from carton ${result.cartonBarcode}`);
+        setCartonBarcode('');
+        invalidateRecord();
+      } catch (err: any) {
+        const message = err?.response?.data?.message || err?.message || 'Failed to scan carton';
+        toast.error(message);
+      } finally {
+        setIsScanningCarton(false);
+      }
+    },
+    [id, invalidateRecord]
   );
 
   const handleRemoveBox = useCallback(
@@ -317,6 +343,35 @@ export default function EcommerceDetailPage() {
               <QRScanner onScanSuccess={handleScan} autoStart />
             </div>
           )}
+
+          {/* Add a full master carton in one scan */}
+          <div className="mt-4 pt-4 border-t border-brand-border">
+            <p className="text-sm font-medium text-brand-text-dark mb-1 flex items-center gap-2">
+              <PackageOpen className="h-4 w-4" />
+              Or add a full carton
+            </p>
+            <p className="text-xs text-brand-text-muted mb-2">
+              Scan/enter a master carton barcode to move ALL its packed boxes into this record at once.
+            </p>
+            <div className="flex gap-2 max-w-md">
+              <input
+                type="text"
+                value={cartonBarcode}
+                onChange={(e) => setCartonBarcode(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleScanCarton(cartonBarcode); }}
+                placeholder="Master carton barcode..."
+                className="flex-1 px-3 py-2 border border-brand-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-primary/20"
+              />
+              <Button
+                onClick={() => handleScanCarton(cartonBarcode)}
+                isLoading={isScanningCarton}
+                disabled={!cartonBarcode.trim() || isScanningCarton}
+                leftIcon={<PackageOpen className="h-4 w-4" />}
+              >
+                Add Carton
+              </Button>
+            </div>
+          </div>
         </Card>
       )}
 

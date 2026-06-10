@@ -12,6 +12,9 @@ const COOKIE_OPTIONS = {
   path: '/',
 };
 
+const ACCESS_COOKIE_MAX_AGE_MS = 60 * 60 * 1000; // 1h, must stay aligned with env.JWT_EXPIRY
+const REFRESH_COOKIE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7d, aligned with env.JWT_REFRESH_EXPIRY
+
 export async function login(
   req: AuthenticatedRequest,
   res: Response,
@@ -27,12 +30,12 @@ export async function login(
     // Set tokens in httpOnly cookies
     res.cookie('accessToken', result.accessToken, {
       ...COOKIE_OPTIONS,
-      maxAge: 15 * 60 * 1000, // 15 minutes
+      maxAge: ACCESS_COOKIE_MAX_AGE_MS,
     });
 
     res.cookie('refreshToken', result.refreshToken, {
       ...COOKIE_OPTIONS,
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      maxAge: REFRESH_COOKIE_MAX_AGE_MS,
     });
 
     sendSuccess(res, {
@@ -60,12 +63,12 @@ export async function refreshToken(
 
     res.cookie('accessToken', tokens.accessToken, {
       ...COOKIE_OPTIONS,
-      maxAge: 15 * 60 * 1000,
+      maxAge: ACCESS_COOKIE_MAX_AGE_MS,
     });
 
     res.cookie('refreshToken', tokens.refreshToken, {
       ...COOKIE_OPTIONS,
-      maxAge: 7 * 24 * 60 * 60 * 1000,
+      maxAge: REFRESH_COOKIE_MAX_AGE_MS,
     });
 
     sendSuccess(res, {

@@ -1,9 +1,8 @@
 import { Router } from 'express';
 import * as dispatchController from '../controllers/dispatch.controller';
 import { authenticate } from '../middleware/auth.middleware';
-import { authorize } from '../middleware/rbac.middleware';
+import { authorizePermission } from '../middleware/rbac.middleware';
 import { validate } from '../middleware/validate.middleware';
-import { USER_ROLES } from '../config/constants';
 import {
   createDispatchSchema,
   dispatchIdParamSchema,
@@ -16,7 +15,7 @@ router.use(authenticate);
 
 router.post(
   '/',
-  authorize(USER_ROLES.ADMIN, USER_ROLES.SUPERVISOR, USER_ROLES.DISPATCH_OPERATOR),
+  authorizePermission('dispatch:create'),
   validate({ body: createDispatchSchema }),
   dispatchController.createDispatch
 );

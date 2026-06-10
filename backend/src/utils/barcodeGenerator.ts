@@ -37,3 +37,43 @@ export async function generateUniqueBarcode(
   }
   throw new Error(`Failed to generate unique ${type} barcode after ${MAX_ATTEMPTS} attempts`);
 }
+
+export async function generateUniqueBarcodes(
+  type: BarcodeType,
+  count: number,
+  client?: PoolClient
+): Promise<string[]> {
+  const { table, column } = TABLE_BY_TYPE[type];
+  const exec = client ? client.query.bind(client) : query;
+  const accepted: string[] = [];
+  const seen = new Set<string>();
+  let rounds = 0;
+  while (accepted.length < count) {
+    if (rounds++ >= MAX_ATTEMPTS) {
+      throw new Error(`Failed to generate ${count} unique ${type} barcodes after ${MAX_ATTEMPTS} rounds`);
+    }
+    const need = count - accepted.length;
+    const candidates: string[] = [];
+    for (let i = 0; i < need; i++) {
+      let candidate: string;
+      do {
+        candidate = type + generateRandom(RANDOM_LENGTH);
+      } while (seen.has(candidate));
+      seen.add(candidate);
+      candidates.push(candidate);
+    }
+    const result = await exec(
+      `SELECT ${column} AS bc FROM ${table} WHERE ${column} = ANY($1::text[])`,
+      [candidates]
+    );
+    const taken = new Set<string>(result.rows.map((r: { bc: string }) => r.bc));
+    for (const candidate of candidates) {
+      if (taken.has(candidate)) {
+        seen.delete(candidate);
+      } else {
+        accepted.push(candidate);
+      }
+    }
+  }
+  return accepted;
+}

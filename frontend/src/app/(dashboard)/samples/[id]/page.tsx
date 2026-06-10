@@ -37,6 +37,7 @@ import { useApiQuery, useApiMutation } from '@/hooks/useApi';
 import { useAuth } from '@/hooks/useAuth';
 import { useQueryClient } from '@tanstack/react-query';
 import { formatDateTime, formatCurrency } from '@/lib/utils';
+import { checkFootAvailability } from '@/lib/sampleFoot';
 import toast from 'react-hot-toast';
 
 export default function SampleDetailPage() {
@@ -48,6 +49,7 @@ export default function SampleDetailPage() {
   const [showScanner, setShowScanner] = useState(false);
   const [isAdding, setIsAdding] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const [selectedFoot, setSelectedFoot] = useState<'PAIR' | 'LEFT' | 'RIGHT'>('PAIR');
   const queryClient = useQueryClient();
 
   const { data: sample, isLoading } = useApiQuery(
@@ -95,12 +97,14 @@ export default function SampleDetailPage() {
       setIsAdding(true);
       try {
         const childBox = await childBoxService.getByBarcode(barcode.trim());
-        if (childBox.status !== 'FREE' && childBox.status !== 'GENERATED') {
-          toast.error(`Box ${barcode} is ${childBox.status} — only FREE or GENERATED boxes can be added`);
+        // Foot-aware guard: a SAMPLE box is still addable for its other free foot.
+        const avail = checkFootAvailability(childBox, selectedFoot);
+        if (!avail.ok) {
+          toast.error(avail.reason);
           return;
         }
-        await sampleService.addBox({ child_box_id: childBox.id, sample_record_id: id });
-        toast.success(`Added: ${barcode}`);
+        await sampleService.addBox({ child_box_id: childBox.id, sample_record_id: id, foot: selectedFoot });
+        toast.success(`Added: ${barcode}${selectedFoot !== 'PAIR' ? ` (${selectedFoot === 'LEFT' ? 'Left' : 'Right'} foot)` : ''}`);
         invalidateSample();
       } catch (err: any) {
         const message = err?.response?.data?.message || err?.message || 'Failed to add box';
@@ -109,7 +113,7 @@ export default function SampleDetailPage() {
         setIsAdding(false);
       }
     },
-    [id, invalidateSample]
+    [id, invalidateSample, selectedFoot]
   );
 
   const handleScan = useCallback(
@@ -295,6 +299,27 @@ export default function SampleDetailPage() {
             </Button>
           </div>
 
+          {/* Dispatch unit applied to the next scanned box(es) */}
+          <div className="mb-4">
+            <p className="text-xs font-medium text-brand-text-muted mb-1.5">Dispatch unit for scanned boxes</p>
+            <div className="flex gap-2">
+              {(['PAIR', 'LEFT', 'RIGHT'] as const).map((f) => (
+                <button
+                  key={f}
+                  type="button"
+                  onClick={() => setSelectedFoot(f)}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                    selectedFoot === f
+                      ? 'bg-binny-navy text-white border-binny-navy'
+                      : 'bg-white text-brand-text-muted border-brand-border hover:bg-gray-50'
+                  }`}
+                >
+                  {f === 'PAIR' ? 'Pair' : f === 'LEFT' ? 'Left foot' : 'Right foot'}
+                </button>
+              ))}
+            </div>
+          </div>
+
           <HIDScannerInput
             onScan={handleScan}
             placeholder="Scan or enter child box barcode..."
@@ -444,6 +469,7 @@ export default function SampleDetailPage() {
                     <TableHeader>Product</TableHeader>
                     <TableHeader>Colour</TableHeader>
                     <TableHeader>Size</TableHeader>
+                    <TableHeader>Foot</TableHeader>
                     <TableHeader>MRP</TableHeader>
                     <TableHeader>Status</TableHeader>
                     {sample.status === 'ACTIVE' && <TableHeader>{''}</TableHeader>}
@@ -460,6 +486,15 @@ export default function SampleDetailPage() {
                       <TableCell className="font-medium">{box.article_name}</TableCell>
                       <TableCell>{box.colour}</TableCell>
                       <TableCell>{box.size}</TableCell>
+                      <TableCell>
+                        {((box as { foot?: string }).foot ?? 'PAIR') === 'PAIR' ? (
+                          <span className="text-brand-text-muted text-xs">Pair</span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-700">
+                            {(box as { foot?: string }).foot === 'LEFT' ? 'Left' : 'Right'} foot
+                          </span>
+                        )}
+                      </TableCell>
                       <TableCell>{formatCurrency(box.mrp)}</TableCell>
                       <TableCell>
                         <StatusBadge status={box.status} size="sm" />

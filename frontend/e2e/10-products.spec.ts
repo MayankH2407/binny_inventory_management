@@ -66,7 +66,9 @@ test.describe('TC-PRODX: Product Management', () => {
     await expect(page.getByLabel(/location/i)).toBeVisible();
     await expect(page.getByLabel(/article group/i)).toBeVisible();
     await expect(page.getByLabel(/hsn code/i)).toBeVisible();
-    await expect(page.getByLabel(/size group/i)).toBeVisible();
+    // Size-range fields (there is no "Size Group" field — the modal uses Size From/To).
+    await expect(page.getByLabel(/size from/i)).toBeVisible();
+    await expect(page.getByLabel(/size to/i)).toBeVisible();
   });
 
   test('TC-PRODX-007: Section dropdown loads from API (not hardcoded)', async ({ page }) => {
@@ -183,8 +185,10 @@ test.describe('TC-PRODX: Product Management', () => {
   test('TC-PRODX-015: Add Product modal has size_from and size_to fields', async ({ page }) => {
     await page.goto('/products');
     await page.getByRole('button', { name: /add product/i }).click();
-    await expect(page.getByLabel(/size from/i).or(page.getByPlaceholder(/e\.g\., 6/i))).toBeVisible({ timeout: 5000 });
-    await expect(page.getByLabel(/size to/i).or(page.getByPlaceholder(/e\.g\., 10/i))).toBeVisible();
+    // Use the exact label — the placeholder fallback /e\.g\., 6/ also matched the HSN
+    // field (placeholder "e.g., 6402"), causing a strict-mode multi-match.
+    await expect(page.getByLabel(/size from/i)).toBeVisible({ timeout: 5000 });
+    await expect(page.getByLabel(/size to/i)).toBeVisible();
   });
 
   test('TC-PRODX-016: Add Product modal has image upload field', async ({ page }) => {

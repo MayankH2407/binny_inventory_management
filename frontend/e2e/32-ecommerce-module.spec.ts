@@ -422,20 +422,18 @@ test.describe('TC-EC-ROLE: Role Gates', () => {
     expect(res.status()).toBe(403);
   });
 
-  test('TC-EC-ROLE-002: Warehouse Operator can create and add/remove boxes', async ({
+  test('TC-EC-ROLE-002: Warehouse Operator cannot create e-commerce record (403)', async ({
     request,
   }) => {
+    // E-commerce is managerial-only (Admin/Supervisor). Since the RBAC migration to
+    // permission-based guards (ecommerce:create), Warehouse Operator — whose seeded
+    // permission set has no ecommerce:* — is denied. Mirrors mobile (WH Op locked out).
     const adminToken = await loginAs(request, ADMIN_EMAIL, ADMIN_PASSWORD);
 
     await request.post(`${BASE_API}/users`, {
       headers: { Authorization: `Bearer ${adminToken}` },
       data: { email: USERS.warehouse.email, password: USERS.warehouse.password, name: 'EC WH', role: USERS.warehouse.role },
     });
-
-    // Do all admin setup BEFORE switching identity — Playwright shares cookies across calls
-    // and the auth middleware reads cookie before the Authorization header.
-    const productId = await createProduct(request, adminToken, `ECROLE${TS6}`);
-    const box = await createFreeBox(request, adminToken, productId);
 
     const loginRes = await request.post(`${BASE_API}/auth/login`, {
       data: { email: USERS.warehouse.email, password: USERS.warehouse.password },
@@ -450,14 +448,7 @@ test.describe('TC-EC-ROLE: Role Gates', () => {
       headers: { Authorization: `Bearer ${whToken}`, 'Content-Type': 'application/json' },
       data: { name: `WH Ecom ${TS6}` },
     });
-    expect(recRes.status()).toBe(201);
-    const rec = (await recRes.json()).data;
-
-    const addRes = await request.post(`${BASE_API}/ecommerce/add-box`, {
-      headers: { Authorization: `Bearer ${whToken}`, 'Content-Type': 'application/json' },
-      data: { ecommerce_record_id: rec.id, child_box_id: box.id },
-    });
-    expect(addRes.ok()).toBeTruthy();
+    expect(recRes.status()).toBe(403);
   });
 });
 

@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { query, getClient } from '../config/database';
-import { ECOMMERCE_STATUS, CHILD_BOX_STATUS, TRANSACTION_TYPES } from '../config/constants';
+import { ECOMMERCE_STATUS, MASTER_CARTON_STATUS, CHILD_BOX_STATUS, TRANSACTION_TYPES } from '../config/constants';
 import { generateUniqueBarcode } from '../utils/barcodeGenerator';
 import { NotFoundError, BadRequestError } from '../utils/errors';
 import { createAuditLog } from './auditLog.service';
@@ -38,7 +38,7 @@ export async function createEcommerce(
       let mappedCount = 0;
       for (const barcode of barcodes) {
         const cbResult = await client.query(
-          'SELECT * FROM child_boxes WHERE barcode = $1 FOR UPDATE',
+          'SELECT * FROM child_boxes WHERE barcode = UPPER($1) FOR UPDATE',
           [barcode]
         );
         if (cbResult.rows.length === 0) {
@@ -242,6 +242,28 @@ export async function getEcommerceChildren(ecommerceId: string): Promise<Record<
 }
 
 // ---------------------------------------------------------------------------
+// getEcommerceStockSummary — per-product stock split into ALLOCATED (boxes
+// currently mapped to e-commerce) vs AVAILABLE (free/unassigned boxes).
+// ---------------------------------------------------------------------------
+export async function getEcommerceStockSummary(): Promise<Record<string, unknown>[]> {
+  const result = await query(
+    `SELECT p.id AS product_id, p.article_name, p.colour, p.size, p.sku, p.mrp,
+            COUNT(*) FILTER (WHERE cb.status = $1)::int AS allocated_boxes,
+            COALESCE(SUM(cb.quantity) FILTER (WHERE cb.status = $1), 0)::int AS allocated_pairs,
+            COUNT(*) FILTER (WHERE cb.status IN ($2, $3))::int AS available_boxes,
+            COALESCE(SUM(cb.quantity) FILTER (WHERE cb.status IN ($2, $3)), 0)::int AS available_pairs
+     FROM child_boxes cb
+     JOIN products p ON p.id = cb.product_id
+     GROUP BY p.id, p.article_name, p.colour, p.size, p.sku, p.mrp
+     HAVING COUNT(*) FILTER (WHERE cb.status = $1) > 0
+         OR COUNT(*) FILTER (WHERE cb.status IN ($2, $3)) > 0
+     ORDER BY p.article_name, p.colour, p.size`,
+    [CHILD_BOX_STATUS.ECOMMERCE, CHILD_BOX_STATUS.FREE, CHILD_BOX_STATUS.GENERATED]
+  );
+  return result.rows;
+}
+
+// ---------------------------------------------------------------------------
 // addBoxToEcommerce
 // ---------------------------------------------------------------------------
 export async function addBoxToEcommerce(
@@ -349,6 +371,129 @@ export async function addBoxToEcommerce(
       record: updatedRecordResult.rows[0],
       mapping: mappingResult.rows[0],
     };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// scanCartonToEcommerce — move ALL child boxes currently packed in a master
+// carton into an e-commerce record in one scan (atomic unpack + ecommerce).
+// ---------------------------------------------------------------------------
+export async function scanCartonToEcommerce(
+  ecommerceRecordId: string,
+  cartonBarcode: string,
+  addedBy: string
+): Promise<{ record: Record<string, unknown>; added: number; cartonBarcode: string }> {
+  const client = await getClient();
+
+  try {
+    await client.query('BEGIN');
+
+    // Lock e-commerce record
+    const erResult = await client.query(
+      'SELECT * FROM ecommerce_records WHERE id = $1 FOR UPDATE',
+      [ecommerceRecordId]
+    );
+    if (erResult.rows.length === 0) {
+      throw new NotFoundError('E-commerce record not found');
+    }
+    const record = erResult.rows[0];
+    if (record.status === ECOMMERCE_STATUS.CLOSED || record.status === ECOMMERCE_STATUS.DISPATCHED) {
+      throw new BadRequestError(`E-commerce record is ${record.status} and cannot accept new child boxes`);
+    }
+
+    // Lock master carton by barcode
+    const mcResult = await client.query(
+      'SELECT * FROM master_cartons WHERE carton_barcode = $1 FOR UPDATE',
+      [cartonBarcode]
+    );
+    if (mcResult.rows.length === 0) {
+      throw new NotFoundError(`No master carton found with barcode ${cartonBarcode}`);
+    }
+    const carton = mcResult.rows[0];
+    if (carton.status === MASTER_CARTON_STATUS.DISPATCHED) {
+      throw new BadRequestError(`Master carton ${cartonBarcode} is ${carton.status} and cannot be moved to e-commerce`);
+    }
+
+    // All currently-packed child boxes in this carton
+    const mappings = await client.query(
+      `SELECT ccm.id AS mapping_id, ccm.child_box_id, cb.barcode
+       FROM carton_child_mapping ccm
+       JOIN child_boxes cb ON cb.id = ccm.child_box_id
+       WHERE ccm.master_carton_id = $1 AND ccm.is_active = true
+       FOR UPDATE OF ccm`,
+      [carton.id]
+    );
+    if (mappings.rows.length === 0) {
+      throw new BadRequestError(`Master carton ${cartonBarcode} has no packed child boxes to add`);
+    }
+
+    let added = 0;
+    for (const m of mappings.rows) {
+      // Unpack from carton
+      await client.query(
+        `UPDATE carton_child_mapping SET is_active = false, unpacked_at = NOW(), unpacked_by = $1 WHERE id = $2`,
+        [addedBy, m.mapping_id]
+      );
+      // Box -> ECOMMERCE
+      await client.query(
+        `UPDATE child_boxes SET status = $1, updated_at = NOW() WHERE id = $2`,
+        [CHILD_BOX_STATUS.ECOMMERCE, m.child_box_id]
+      );
+      // Map into the e-commerce record
+      await client.query(
+        `INSERT INTO ecommerce_box_mapping (ecommerce_record_id, child_box_id, mapped_by) VALUES ($1, $2, $3)`,
+        [ecommerceRecordId, m.child_box_id, addedBy]
+      );
+      // Trace both legs
+      await client.query(
+        `INSERT INTO inventory_transactions (transaction_type, child_box_id, master_carton_id, performed_by, notes)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [TRANSACTION_TYPES.CHILD_UNPACKED, m.child_box_id, carton.id, addedBy,
+         `Unpacked child box ${m.barcode} from carton ${carton.carton_barcode} (scan-to-e-commerce)`]
+      );
+      await client.query(
+        `INSERT INTO inventory_transactions (transaction_type, child_box_id, performed_by, notes)
+         VALUES ($1, $2, $3, $4)`,
+        [TRANSACTION_TYPES.CHILD_ECOMMERCED, m.child_box_id, addedBy,
+         `Added child box ${m.barcode} to e-commerce record ${record.ecommerce_barcode} (via carton ${carton.carton_barcode})`]
+      );
+      added++;
+    }
+
+    // Carton emptied by this scan
+    const newCartonCount = Math.max(0, carton.child_count - added);
+    const newCartonStatus = newCartonCount === 0 ? MASTER_CARTON_STATUS.CREATED : carton.status;
+    await client.query(
+      `UPDATE master_cartons SET child_count = $1, status = $2, updated_at = NOW() WHERE id = $3`,
+      [newCartonCount, newCartonStatus, carton.id]
+    );
+
+    // Grow the e-commerce record
+    const newRecordCount = record.child_count + added;
+    const newRecordStatus = record.status === ECOMMERCE_STATUS.CREATED ? ECOMMERCE_STATUS.ACTIVE : record.status;
+    const updatedRecord = await client.query(
+      `UPDATE ecommerce_records SET child_count = $1, status = $2, updated_at = NOW() WHERE id = $3 RETURNING *`,
+      [newRecordCount, newRecordStatus, ecommerceRecordId]
+    );
+
+    await client.query('COMMIT');
+
+    await createAuditLog({
+      userId: addedBy,
+      action: 'SCAN_CARTON_TO_ECOMMERCE',
+      entityType: 'ecommerce_record',
+      entityId: ecommerceRecordId,
+      newValues: { ecommerce_record_id: ecommerceRecordId, carton_barcode: carton.carton_barcode, boxes_added: added },
+    });
+
+    logger.info(`Scanned carton ${carton.carton_barcode} into e-commerce record ${record.ecommerce_barcode}: ${added} boxes moved`);
+
+    return { record: updatedRecord.rows[0], added, cartonBarcode: carton.carton_barcode };
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;
@@ -529,7 +674,7 @@ export async function closeEcommerce(
 export async function getEcommerceByBarcode(
   barcode: string
 ): Promise<Record<string, unknown>> {
-  const result = await query('SELECT * FROM ecommerce_records WHERE ecommerce_barcode = $1', [barcode]);
+  const result = await query('SELECT * FROM ecommerce_records WHERE ecommerce_barcode = UPPER($1)', [barcode]);
   if (result.rows.length === 0) {
     throw new NotFoundError('E-commerce record not found');
   }

@@ -38,6 +38,19 @@ export async function getEcommerceRecords(
   }
 }
 
+export async function getEcommerceStockSummary(
+  _req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const rows = await ecommerceService.getEcommerceStockSummary();
+    sendSuccess(res, rows, 'E-commerce stock summary retrieved successfully');
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function getEcommerceById(
   req: AuthenticatedRequest,
   res: Response,
@@ -72,6 +85,20 @@ export async function addBoxToEcommerce(
   try {
     const result = await ecommerceService.addBoxToEcommerce(req.body, req.user!.userId);
     sendSuccess(res, result, 'Child box added to e-commerce record successfully');
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function scanCartonToEcommerce(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const { ecommerce_record_id, carton_barcode } = req.body;
+    const result = await ecommerceService.scanCartonToEcommerce(ecommerce_record_id, carton_barcode, req.user!.userId);
+    sendSuccess(res, result, `${result.added} child box${result.added === 1 ? '' : 'es'} from carton ${result.cartonBarcode} added to e-commerce record`);
   } catch (error) {
     next(error);
   }

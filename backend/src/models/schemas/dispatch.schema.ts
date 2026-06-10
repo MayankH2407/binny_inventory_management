@@ -62,6 +62,18 @@ export const createDispatchSchema = z.object({
     message:
       'Exactly one dispatch source must be provided: master_carton_ids, sample_record_id, or ecommerce_record_id',
   }
+).refine(
+  (data) => {
+    // Only enforce for master-carton dispatch; sample + ecommerce remain optional
+    if (data.master_carton_ids !== undefined && data.master_carton_ids.length > 0) {
+      return !!data.customer_id;
+    }
+    return true;
+  },
+  {
+    message: 'Customer is required for master carton dispatch',
+    path: ['customer_id'],
+  }
 );
 
 export const dispatchIdParamSchema = z.object({

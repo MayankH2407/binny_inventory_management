@@ -33,13 +33,15 @@ export default function QRScanner({
 
   const handleScanSuccess = useCallback(
     (decodedText: string) => {
-      if (decodedText === lastScanned) {
+      // Normalize to match the backend (case-insensitive, uppercase-only alphabet).
+      const normalized = decodedText.trim().toUpperCase();
+      if (normalized === lastScanned) {
         triggerError();
         return;
       }
-      setLastScanned(decodedText);
+      setLastScanned(normalized);
       triggerSuccess();
-      onScanSuccess(decodedText);
+      onScanSuccess(normalized);
       setTimeout(() => setLastScanned(null), 2000);
     },
     [lastScanned, onScanSuccess, triggerSuccess, triggerError]

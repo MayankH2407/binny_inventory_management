@@ -42,7 +42,7 @@ export async function createMasterCarton(
       for (const barcode of barcodes) {
         // Look up child box by barcode
         const cbResult = await client.query(
-          'SELECT * FROM child_boxes WHERE barcode = $1 FOR UPDATE',
+          'SELECT * FROM child_boxes WHERE barcode = UPPER($1) FOR UPDATE',
           [barcode]
         );
         if (cbResult.rows.length === 0) {
@@ -168,13 +168,23 @@ export async function getMasterCartonById(id: string): Promise<MasterCarton & { 
 }
 
 export async function getMasterCartons(
-  filters: { status?: string; search?: string },
+  filters: { status?: string; search?: string; is_legacy?: boolean },
   page: number = 1,
   limit: number = 25
 ): Promise<{ data: MasterCarton[]; total: number }> {
   const conditions: string[] = [];
   const values: unknown[] = [];
   let paramIndex = 1;
+
+  // Default to excluding legacy cartons unless explicitly requested
+  if (filters.is_legacy === true) {
+    conditions.push(`mc.is_legacy = true`);
+  } else if (filters.is_legacy === false) {
+    conditions.push(`mc.is_legacy = false`);
+  } else {
+    // Default: hide legacy
+    conditions.push(`mc.is_legacy = false`);
+  }
 
   if (filters.status) {
     conditions.push(`mc.status = $${paramIndex++}`);
@@ -186,7 +196,7 @@ export async function getMasterCartons(
     paramIndex++;
   }
 
-  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  const whereClause = `WHERE ${conditions.join(' AND ')}`;
 
   const countResult = await query(`SELECT COUNT(*) FROM master_cartons mc ${whereClause}`, values);
   const total = parseInt(countResult.rows[0].count, 10);
@@ -306,7 +316,7 @@ export async function packChildBox(
       [masterCartonId, childBoxId, packedBy]
     );
 
-    // Update master carton child_count and status
+    // Update master carton child_count and status; clear unpacked marker (carton is being repacked/filled)
     const newChildCount = carton.child_count + 1;
     const newStatus = carton.status === MASTER_CARTON_STATUS.CREATED
       ? MASTER_CARTON_STATUS.ACTIVE
@@ -314,12 +324,12 @@ export async function packChildBox(
 
     const updatedCartonResult = await client.query(
       `UPDATE master_cartons
-       SET child_count = $1, status = $2, updated_at = NOW()
+       SET child_count = $1, status = $2, unpacked_at = NULL, unpacked_by = NULL, updated_at = NOW()
        WHERE id = $3 RETURNING *`,
       [newChildCount, newStatus, masterCartonId]
     );
 
-    // Log transaction
+    // Log CHILD_PACKED transaction
     await client.query(
       `INSERT INTO inventory_transactions (transaction_type, child_box_id, master_carton_id, performed_by, notes)
        VALUES ($1, $2, $3, $4, $5)`,
@@ -351,6 +361,46 @@ export async function packChildBox(
   } finally {
     client.release();
   }
+}
+
+/**
+ * Pack a child box into a carton by barcode, in ONE round-trip, idempotently.
+ * - 404 if the barcode is unknown.
+ * - If the box is ALREADY in this carton, returns a no-op success (alreadyPacked) so a
+ *   re-scan during rapid scanning never errors — this is what stops boxes appearing "skipped".
+ * - If it's packed in a DIFFERENT carton, returns a clear conflict error.
+ * Otherwise delegates to packChildBox (fully transactional + row-locked).
+ */
+export async function packChildBoxByBarcode(
+  barcode: string,
+  masterCartonId: string,
+  packedBy: string
+): Promise<{ carton: MasterCarton | null; alreadyPacked: boolean; childBoxBarcode: string }> {
+  const normalized = barcode.trim().toUpperCase();
+
+  const cbResult = await query('SELECT id, status FROM child_boxes WHERE barcode = $1', [normalized]);
+  if (cbResult.rows.length === 0) {
+    throw new NotFoundError(`No child box found with barcode ${normalized}`);
+  }
+  const childBox = cbResult.rows[0];
+
+  // Idempotent: already in THIS carton → no-op success (handles re-scans during rapid scanning)
+  const existing = await query(
+    `SELECT 1 FROM carton_child_mapping
+     WHERE child_box_id = $1 AND master_carton_id = $2 AND is_active = true`,
+    [childBox.id, masterCartonId]
+  );
+  if (existing.rows.length > 0) {
+    return { carton: null, alreadyPacked: true, childBoxBarcode: normalized };
+  }
+
+  // Packed elsewhere → clear conflict rather than the generic status error
+  if (childBox.status === CHILD_BOX_STATUS.PACKED) {
+    throw new BadRequestError(`Child box ${normalized} is already packed in another carton. Unpack it first.`);
+  }
+
+  const { carton } = await packChildBox(childBox.id, masterCartonId, packedBy);
+  return { carton, alreadyPacked: false, childBoxBarcode: normalized };
 }
 
 export async function unpackChildBox(
@@ -444,126 +494,6 @@ export async function unpackChildBox(
   }
 }
 
-export async function repackChildBox(
-  childBoxId: string,
-  sourceCartonId: string,
-  destinationCartonId: string,
-  repackedBy: string
-): Promise<{ sourceCarton: MasterCarton; destinationCarton: MasterCarton }> {
-  const client = await getClient();
-
-  try {
-    await client.query('BEGIN');
-
-    // Validate child box is in source carton
-    const mappingResult = await client.query(
-      `SELECT * FROM carton_child_mapping
-       WHERE child_box_id = $1 AND master_carton_id = $2 AND is_active = true
-       FOR UPDATE`,
-      [childBoxId, sourceCartonId]
-    );
-    if (mappingResult.rows.length === 0) {
-      throw new NotFoundError('Child box is not in the source carton');
-    }
-
-    const cbResult = await client.query(
-      'SELECT * FROM child_boxes WHERE id = $1 FOR UPDATE',
-      [childBoxId]
-    );
-    const childBox = cbResult.rows[0];
-
-    // Lock both cartons
-    const srcResult = await client.query(
-      'SELECT * FROM master_cartons WHERE id = $1 FOR UPDATE',
-      [sourceCartonId]
-    );
-    const sourceCarton = srcResult.rows[0];
-
-    const destResult = await client.query(
-      'SELECT * FROM master_cartons WHERE id = $1 FOR UPDATE',
-      [destinationCartonId]
-    );
-    if (destResult.rows.length === 0) {
-      throw new NotFoundError('Destination carton not found');
-    }
-    const destCarton = destResult.rows[0];
-
-    if (destCarton.status === MASTER_CARTON_STATUS.CLOSED || destCarton.status === MASTER_CARTON_STATUS.DISPATCHED) {
-      throw new BadRequestError(`Destination carton is ${destCarton.status} and cannot accept child boxes`);
-    }
-    if (destCarton.child_count >= destCarton.max_capacity) {
-      throw new BadRequestError(`Destination carton is full (${destCarton.child_count}/${destCarton.max_capacity})`);
-    }
-
-    // Deactivate old mapping
-    await client.query(
-      `UPDATE carton_child_mapping SET is_active = false, unpacked_at = NOW(), unpacked_by = $1 WHERE id = $2`,
-      [repackedBy, mappingResult.rows[0].id]
-    );
-
-    // Create new mapping
-    await client.query(
-      `INSERT INTO carton_child_mapping (master_carton_id, child_box_id, packed_by)
-       VALUES ($1, $2, $3)`,
-      [destinationCartonId, childBoxId, repackedBy]
-    );
-
-    // Update source carton
-    const srcNewCount = Math.max(0, sourceCarton.child_count - 1);
-    const srcNewStatus = srcNewCount === 0 ? MASTER_CARTON_STATUS.CREATED : sourceCarton.status;
-
-    const updatedSrcResult = await client.query(
-      `UPDATE master_cartons SET child_count = $1, status = $2, updated_at = NOW()
-       WHERE id = $3 RETURNING *`,
-      [srcNewCount, srcNewStatus, sourceCartonId]
-    );
-
-    // Update destination carton
-    const destNewCount = destCarton.child_count + 1;
-    const destNewStatus = destCarton.status === MASTER_CARTON_STATUS.CREATED
-      ? MASTER_CARTON_STATUS.ACTIVE
-      : destCarton.status;
-
-    const updatedDestResult = await client.query(
-      `UPDATE master_cartons SET child_count = $1, status = $2, updated_at = NOW()
-       WHERE id = $3 RETURNING *`,
-      [destNewCount, destNewStatus, destinationCartonId]
-    );
-
-    // Log transaction using metadata for source/destination info
-    await client.query(
-      `INSERT INTO inventory_transactions (transaction_type, child_box_id, master_carton_id, performed_by, notes, metadata)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [
-        TRANSACTION_TYPES.CHILD_REPACKED, childBoxId, destinationCartonId, repackedBy,
-        `Repacked child box ${childBox.barcode} from ${sourceCarton.carton_barcode} to ${destCarton.carton_barcode}`,
-        JSON.stringify({ source_carton_id: sourceCartonId, destination_carton_id: destinationCartonId }),
-      ]
-    );
-
-    await client.query('COMMIT');
-
-    await createAuditLog({
-      userId: repackedBy,
-      action: 'REPACK_CHILD_BOX',
-      entityType: 'carton_child_mapping',
-      newValues: { child_box_id: childBoxId, source_carton_id: sourceCartonId, destination_carton_id: destinationCartonId },
-    });
-
-    logger.info(`Repacked child box ${childBox.barcode} from ${sourceCarton.carton_barcode} to ${destCarton.carton_barcode}`);
-
-    return {
-      sourceCarton: updatedSrcResult.rows[0],
-      destinationCarton: updatedDestResult.rows[0],
-    };
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    client.release();
-  }
-}
-
 export async function closeMasterCarton(
   cartonId: string,
   closedBy: string
@@ -628,7 +558,7 @@ export async function closeMasterCarton(
 export async function getMasterCartonByBarcode(
   barcode: string
 ): Promise<MasterCarton & { child_boxes: CartonChildMapping[] }> {
-  const result = await query('SELECT * FROM master_cartons WHERE carton_barcode = $1', [barcode]);
+  const result = await query('SELECT * FROM master_cartons WHERE carton_barcode = UPPER($1)', [barcode]);
   if (result.rows.length === 0) {
     throw new NotFoundError('Master carton not found');
   }
@@ -698,11 +628,11 @@ export async function fullUnpackMasterCarton(
       );
     }
 
-    // Reset master carton
+    // Reset master carton and stamp unpacked tracking
     const updatedResult = await client.query(
-      `UPDATE master_cartons SET child_count = 0, status = $1, updated_at = NOW()
-       WHERE id = $2 RETURNING *`,
-      [MASTER_CARTON_STATUS.CREATED, cartonId]
+      `UPDATE master_cartons SET child_count = 0, status = $1, unpacked_at = NOW(), unpacked_by = $2, updated_at = NOW()
+       WHERE id = $3 RETURNING *`,
+      [MASTER_CARTON_STATUS.CREATED, unpackedBy, cartonId]
     );
 
     await client.query('COMMIT');
@@ -717,6 +647,68 @@ export async function fullUnpackMasterCarton(
 
     logger.info(`Full unpack of master carton ${carton.carton_barcode}: ${mappingsResult.rows.length} child boxes unpacked`);
     return updatedResult.rows[0];
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function openLegacyCarton(
+  cartonId: string,
+  openedBy: string
+): Promise<MasterCarton> {
+  const client = await getClient();
+
+  try {
+    await client.query('BEGIN');
+
+    const mcResult = await client.query(
+      'SELECT * FROM master_cartons WHERE id = $1 FOR UPDATE',
+      [cartonId]
+    );
+    if (mcResult.rows.length === 0) {
+      throw new NotFoundError('Master carton not found');
+    }
+    const carton = mcResult.rows[0];
+
+    if (!carton.is_legacy) {
+      throw new BadRequestError('Only legacy cartons can be opened for repacking');
+    }
+
+    // Convert the opaque legacy carton into a normal, empty, open carton.
+    // It keeps its barcode/label; section/category/article_group/size_group are
+    // retained for provenance but no longer drive inventory aggregation
+    // (which only counts is_legacy = true rows).
+    const updated = await client.query(
+      `UPDATE master_cartons
+       SET is_legacy = false, status = $1, child_count = 0, updated_at = NOW()
+       WHERE id = $2 RETURNING *`,
+      [MASTER_CARTON_STATUS.CREATED, cartonId]
+    );
+
+    await client.query(
+      `INSERT INTO inventory_transactions (transaction_type, master_carton_id, performed_by, notes)
+       VALUES ($1, $2, $3, $4)`,
+      [
+        TRANSACTION_TYPES.LEGACY_CARTON_OPENED, cartonId, openedBy,
+        `Legacy carton ${carton.carton_barcode} opened for repacking (now an empty trackable carton)`,
+      ]
+    );
+
+    await client.query('COMMIT');
+
+    await createAuditLog({
+      userId: openedBy,
+      action: 'OPEN_LEGACY_CARTON',
+      entityType: 'master_carton',
+      entityId: cartonId,
+      newValues: { is_legacy: false, status: MASTER_CARTON_STATUS.CREATED },
+    });
+
+    logger.info(`Legacy carton opened for repacking: ${carton.carton_barcode}`);
+    return updated.rows[0];
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;

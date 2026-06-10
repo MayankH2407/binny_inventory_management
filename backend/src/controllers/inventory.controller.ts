@@ -3,6 +3,7 @@ import { AuthenticatedRequest } from '../types/auth.types';
 import * as inventoryService from '../services/inventory.service';
 import * as csvExportService from '../services/csvExport.service';
 import { sendSuccess, sendPaginated } from '../utils/response';
+import { InventoryBreakdownInput } from '../models/schemas/inventory.schema';
 
 export async function traceByBarcode(
   req: AuthenticatedRequest,
@@ -131,6 +132,21 @@ export async function getTransactions(
       limit || 25
     );
     sendPaginated(res, result.data, result.total, page || 1, limit || 25, 'Transactions retrieved successfully');
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getInventoryBreakdown(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    // Query has already been validated + coerced by the validate middleware
+    const input = req.query as unknown as InventoryBreakdownInput;
+    const result = await inventoryService.getInventoryBreakdown(input);
+    sendSuccess(res, result, 'Inventory breakdown retrieved successfully');
   } catch (error) {
     next(error);
   }

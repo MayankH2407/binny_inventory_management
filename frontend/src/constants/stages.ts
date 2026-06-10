@@ -1,0 +1,2 @@
+export const MASTER_CARTON_STAGES = ['CREATED', 'ACTIVE', 'CLOSED', 'DISPATCHED'] as const;
+export const CHILD_BOX_STAGES = ['GENERATED', 'FREE', 'PACKED', 'SAMPLE', 'ECOMMERCE', 'DISPATCHED'] as const;

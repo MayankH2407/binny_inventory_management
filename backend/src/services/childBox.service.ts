@@ -8,7 +8,7 @@ import { createAuditLog } from './auditLog.service';
 import { CreateChildBoxInput, CreateBulkChildBoxInput, CreateBulkMultiSizeChildBoxInput, bulkUploadChildBoxRowSchema } from '../models/schemas/childBox.schema';
 import { logger } from '../utils/logger';
 import { parse } from 'csv-parse/sync';
-import { generateUniqueBarcode } from '../utils/barcodeGenerator';
+import { generateUniqueBarcode, generateUniqueBarcodes } from '../utils/barcodeGenerator';
 
 export async function createChildBox(
   input: CreateChildBoxInput,
@@ -170,8 +170,10 @@ export async function createBulkMultiSizeChildBoxes(
 
   // Calculate total count for validation
   const totalCount = input.sizes.reduce((sum, s) => sum + s.count, 0);
-  if (totalCount > 500) {
-    throw new BadRequestError('Total count across all sizes must not exceed 500');
+  // Env-driven cap: default 500 (test/local); live sets CHILD_BOX_MAX_PER_GENERATION=1500.
+  const maxLabels = Number(process.env.CHILD_BOX_MAX_PER_GENERATION) || 500;
+  if (totalCount > maxLabels) {
+    throw new BadRequestError(`Total count across all sizes must not exceed ${maxLabels}`);
   }
 
   const client = await getClient();
@@ -180,38 +182,55 @@ export async function createBulkMultiSizeChildBoxes(
   try {
     await client.query('BEGIN');
 
+    const flat: typeof siblingsResult.rows = [];
     for (const sizeEntry of input.sizes) {
       const product = productBySize.get(sizeEntry.size)!;
+      for (let i = 0; i < sizeEntry.count; i++) flat.push(product);
+    }
 
-      for (let i = 0; i < sizeEntry.count; i++) {
-        const id = uuidv4();
-        const barcode = await generateUniqueBarcode('CB', client);
-        const qrDataUri = await generateChildBoxQR(id);
+    const ids = flat.map(() => uuidv4());
+    const barcodes = await generateUniqueBarcodes('CB', flat.length, client);
 
-        const result = await client.query(
-          `INSERT INTO child_boxes (id, barcode, product_id, quantity, status, created_by)
-           VALUES ($1, $2, $3, $4, $5, $6)
-           RETURNING *`,
-          [id, barcode, product.id, input.quantity, CHILD_BOX_STATUS.GENERATED, createdBy]
-        );
+    const cbValues: unknown[] = [];
+    const cbPlaceholders = flat.map((product, idx) => {
+      const b = idx * 6;
+      cbValues.push(ids[idx], barcodes[idx], product.id, input.quantity, CHILD_BOX_STATUS.GENERATED, createdBy);
+      return `($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5}, $${b + 6})`;
+    });
+    const insertResult = await client.query(
+      `INSERT INTO child_boxes (id, barcode, product_id, quantity, status, created_by)
+       VALUES ${cbPlaceholders.join(', ')} RETURNING *`,
+      cbValues
+    );
+    const rowById = new Map<string, typeof insertResult.rows[0]>(
+      insertResult.rows.map((r: { id: string }) => [r.id, r])
+    );
 
-        await client.query(
-          `INSERT INTO inventory_transactions (transaction_type, child_box_id, performed_by, notes)
-           VALUES ($1, $2, $3, $4)`,
-          [TRANSACTION_TYPES.CHILD_CREATED, id, createdBy, `Multi-size bulk child box generated (label printed) with barcode ${barcode}`]
-        );
+    const txValues: unknown[] = [];
+    const txPlaceholders = flat.map((_product, idx) => {
+      const b = idx * 4;
+      txValues.push(TRANSACTION_TYPES.CHILD_CREATED, ids[idx], createdBy, `Multi-size bulk child box generated (label printed) with barcode ${barcodes[idx]}`);
+      return `($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4})`;
+    });
+    await client.query(
+      `INSERT INTO inventory_transactions (transaction_type, child_box_id, performed_by, notes)
+       VALUES ${txPlaceholders.join(', ')}`,
+      txValues
+    );
 
-        childBoxes.push({
-          ...result.rows[0],
-          qr_data_uri: qrDataUri,
-          article_name: product.article_name,
-          article_code: product.article_code,
-          product_sku: product.sku,
-          size: product.size,
-          colour: product.colour,
-          mrp: product.mrp,
-        });
-      }
+    for (let idx = 0; idx < flat.length; idx++) {
+      const product = flat[idx];
+      const row = rowById.get(ids[idx])!;
+      childBoxes.push({
+        ...row,
+        qr_data_uri: '',
+        article_name: product.article_name,
+        article_code: product.article_code,
+        product_sku: product.sku,
+        size: product.size,
+        colour: product.colour,
+        mrp: product.mrp,
+      });
     }
 
     await client.query('COMMIT');
@@ -254,10 +273,14 @@ export async function getChildBoxById(id: string): Promise<ChildBox & { product_
 
 export async function getChildBoxByQR(barcode: string): Promise<ChildBox & { product_name: string; product_sku: string; size: string; colour: string }> {
   const result = await query(
-    `SELECT cb.*, p.article_name, p.article_code, p.sku, p.size, p.colour, p.mrp
+    `SELECT cb.*, p.article_name, p.article_code, p.sku, p.size, p.colour, p.mrp,
+            COALESCE(ARRAY(
+              SELECT sbm.foot FROM sample_box_mapping sbm
+              WHERE sbm.child_box_id = cb.id AND sbm.is_active = true
+            ), '{}') AS active_sample_feet
      FROM child_boxes cb
      JOIN products p ON p.id = cb.product_id
-     WHERE cb.barcode = $1`,
+     WHERE cb.barcode = UPPER($1)`,
     [barcode]
   );
   if (result.rows.length === 0) {

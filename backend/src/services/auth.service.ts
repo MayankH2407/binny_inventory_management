@@ -7,6 +7,7 @@ import { User, UserSafe } from '../types';
 import { UnauthorizedError, NotFoundError } from '../utils/errors';
 import { logger } from '../utils/logger';
 import { createAuditLog } from './auditLog.service';
+import { PERMISSION_CATALOG } from '../config/permissions';
 
 const SALT_ROUNDS = 12;
 
@@ -24,6 +25,29 @@ function generateRefreshToken(userId: string): string {
     userId,
   };
   return jwt.sign(payload, env.JWT_REFRESH_SECRET as jwt.Secret, { expiresIn: env.JWT_REFRESH_EXPIRY } as jwt.SignOptions);
+}
+
+/**
+ * Shared helper: fetch the permission list for a given user row.
+ * Admin synthesises the full catalog; other roles query role_permissions.
+ */
+async function fetchPermissionsForUser(
+  roleId: string,
+  roleName: string
+): Promise<Array<{ permission: string; max_stage: string | null }>> {
+  if (roleName === 'Admin') {
+    return PERMISSION_CATALOG.flatMap((mod) =>
+      mod.actions.map((action) => ({
+        permission: `${mod.key}:${action.key}`,
+        max_stage: null,
+      }))
+    );
+  }
+  const permsResult = await query(
+    `SELECT permission, max_stage FROM role_permissions WHERE role_id = $1`,
+    [roleId]
+  );
+  return permsResult.rows as Array<{ permission: string; max_stage: string | null }>;
 }
 
 export async function login(
@@ -67,12 +91,15 @@ export async function login(
 
   logger.info(`User logged in: ${user.email}`);
 
+  const permissions = await fetchPermissionsForUser(user.role_id, user.role);
+
   return {
     user: {
       id: user.id,
       email: user.email,
       name: user.name,
       role: user.role,
+      permissions,
     },
     accessToken,
     refreshToken,
@@ -146,9 +173,9 @@ export async function changePassword(
   logger.info(`Password changed for user: ${user.email}`);
 }
 
-export async function getProfile(userId: string): Promise<UserSafe> {
+export async function getProfile(userId: string): Promise<UserSafe & { permissions: Array<{ permission: string; max_stage: string | null }> }> {
   const result = await query(
-    `SELECT u.id, u.email, u.name, r.name as role, u.is_active, u.last_login_at, u.created_at, u.updated_at
+    `SELECT u.id, u.email, u.name, r.name as role, r.id as role_id_val, u.is_active, u.last_login_at, u.created_at, u.updated_at
      FROM users u JOIN roles r ON u.role_id = r.id
      WHERE u.id = $1`,
     [userId]
@@ -158,7 +185,13 @@ export async function getProfile(userId: string): Promise<UserSafe> {
     throw new NotFoundError('User not found');
   }
 
-  return result.rows[0];
+  const row = result.rows[0];
+
+  const permissions = await fetchPermissionsForUser(row.role_id_val, row.role);
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { role_id_val, ...profile } = row;
+  return { ...profile, permissions };
 }
 
 export function hashPassword(password: string): Promise<string> {

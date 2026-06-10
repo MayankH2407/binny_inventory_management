@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { Plus, Search, Building2, UserCheck, UserX } from 'lucide-react';
+import { useState, useRef } from 'react';
+import { Plus, Search, Building2, UserCheck, UserX, Upload, Download, FileSpreadsheet, AlertCircle, CheckCircle } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import { Card } from '@/components/ui/Card';
@@ -10,10 +10,10 @@ import Badge from '@/components/ui/Badge';
 import Modal from '@/components/ui/Modal';
 import PageHeader from '@/components/layout/PageHeader';
 import { SkeletonTable } from '@/components/ui/Spinner';
-import { useAuth } from '@/hooks/useAuth';
 import { useApiQuery, useApiMutation } from '@/hooks/useApi';
+import { useCan } from '@/hooks/useCan';
 import { useDebounce } from '@/hooks/useDebounce';
-import { customerService } from '@/services/customer.service';
+import { customerService, type CustomerBulkRowError, type CustomerBulkUploadResult } from '@/services/customer.service';
 import type { Customer, CreateCustomerRequest } from '@/types';
 import toast from 'react-hot-toast';
 
@@ -36,7 +36,9 @@ const emptyForm: CustomerForm = {
 };
 
 export default function CustomersPage() {
-  const { isAdmin, isManager } = useAuth();
+  const canRead = useCan('customers:read');
+  const canCreate = useCan('customers:create');
+  const canUpdate = useCan('customers:update');
 
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -45,6 +47,11 @@ export default function CustomersPage() {
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
   const [form, setForm] = useState<CustomerForm>({ ...emptyForm });
   const [selectedPrimaryDealer, setSelectedPrimaryDealer] = useState<Customer | null>(null);
+  const [showBulkModal, setShowBulkModal] = useState(false);
+  const [bulkFile, setBulkFile] = useState<File | null>(null);
+  const [bulkUploading, setBulkUploading] = useState(false);
+  const [bulkResult, setBulkResult] = useState<CustomerBulkUploadResult | null>(null);
+  const bulkFileRef = useRef<HTMLInputElement>(null);
   const debouncedSearch = useDebounce(search);
 
   const { data, isLoading, refetch } = useApiQuery(
@@ -175,15 +182,58 @@ export default function CustomersPage() {
     }
   };
 
+  const handleBulkUpload = async () => {
+    if (!bulkFile) return;
+    setBulkUploading(true);
+    try {
+      const result = await customerService.bulkUpload(bulkFile);
+      setBulkResult(result);
+      if (result.created > 0) {
+        toast.success(`${result.created} customers created successfully`);
+        refetch();
+      }
+      if (result.errors.length > 0) {
+        toast.error(`${result.errors.length} rows had errors — see details below`);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Upload failed';
+      toast.error(message);
+    } finally {
+      setBulkUploading(false);
+    }
+  };
+
+  const handleDownloadSample = () => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('binny_token') : null;
+    const url = customerService.getSampleCsvUrl();
+    const a = document.createElement('a');
+    fetch(url, { headers: { Authorization: `Bearer ${token || ''}` } })
+      .then((r) => r.blob())
+      .then((blob) => {
+        a.href = URL.createObjectURL(blob);
+        a.download = 'customer_upload_sample.csv';
+        a.click();
+        URL.revokeObjectURL(a.href);
+      })
+      .catch(() => toast.error('Failed to download sample file'));
+  };
+
+  const closeBulkModal = () => {
+    setShowBulkModal(false);
+    setBulkFile(null);
+    setBulkResult(null);
+    if (bulkFileRef.current) bulkFileRef.current.value = '';
+  };
+
   const isSubDealer = form.customer_type === 'Sub Dealer';
   const autoFilledFields = isSubDealer && selectedPrimaryDealer != null;
 
-  if (!isManager) {
+  if (!canRead) {
     return (
       <div className="flex flex-col items-center justify-center py-20">
         <Building2 className="h-16 w-16 text-brand-text-muted/20 mb-4" />
         <h2 className="text-lg font-semibold text-brand-text-dark mb-2">Access Denied</h2>
-        <p className="text-brand-text-muted">Only administrators and supervisors can manage customers.</p>
+        <p className="text-brand-text-muted">You do not have permission to view customers.</p>
       </div>
     );
   }
@@ -194,10 +244,15 @@ export default function CustomersPage() {
         title="Customers"
         description="Manage customer master records"
         action={
-          isManager ? (
-            <Button leftIcon={<Plus className="h-4 w-4" />} onClick={() => setShowCreateModal(true)}>
-              Add Customer
-            </Button>
+          canCreate ? (
+            <div className="flex gap-2">
+              <Button variant="outline" leftIcon={<Upload className="h-4 w-4" />} onClick={() => setShowBulkModal(true)}>
+                Bulk Import
+              </Button>
+              <Button leftIcon={<Plus className="h-4 w-4" />} onClick={() => setShowCreateModal(true)}>
+                Add Customer
+              </Button>
+            </div>
           ) : undefined
         }
       />
@@ -251,7 +306,7 @@ export default function CustomersPage() {
                     <TableHeader>Contact Person</TableHeader>
                     <TableHeader>Mobile</TableHeader>
                     <TableHeader>Status</TableHeader>
-                    {isAdmin && <TableHeader>Actions</TableHeader>}
+                    {canUpdate && <TableHeader>Actions</TableHeader>}
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -273,7 +328,7 @@ export default function CustomersPage() {
                           {customer.is_active ? 'Active' : 'Inactive'}
                         </Badge>
                       </TableCell>
-                      {isAdmin && (
+                      {canUpdate && (
                         <TableCell>
                           <div className="flex items-center gap-2">
                             <Button size="sm" variant="outline" onClick={() => openEdit(customer)}>
@@ -327,7 +382,7 @@ export default function CustomersPage() {
                   {customer.gstin && (
                     <p className="text-xs font-mono text-brand-text-muted">GSTIN: {customer.gstin}</p>
                   )}
-                  {isAdmin && (
+                  {canUpdate && (
                     <div className="flex gap-2 pt-1">
                       <Button size="sm" variant="outline" onClick={() => openEdit(customer)}>Edit</Button>
                       <Button size="sm" variant="outline" onClick={() => toggleStatus(customer)}>
@@ -525,6 +580,112 @@ export default function CustomersPage() {
               {editingCustomer ? 'Update Customer' : 'Create Customer'}
             </Button>
           </div>
+        </div>
+      </Modal>
+
+      {/* Bulk Upload Modal */}
+      <Modal isOpen={showBulkModal} onClose={closeBulkModal} title="Bulk Import Customers">
+        <div className="space-y-4">
+          <p className="text-sm text-brand-text-muted">
+            Upload a CSV file with customer details. Each row creates one customer.
+          </p>
+
+          {/* Sample download */}
+          <div className="flex items-center gap-3 p-3 bg-blue-50 border border-blue-100 rounded-lg">
+            <FileSpreadsheet className="h-5 w-5 text-blue-600 flex-shrink-0" />
+            <div className="flex-1">
+              <p className="text-sm font-medium text-blue-900">Download sample CSV</p>
+              <p className="text-xs text-blue-700">Use this template to format your customer data correctly.</p>
+            </div>
+            <button
+              onClick={handleDownloadSample}
+              className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-blue-700 bg-white border border-blue-200 rounded-md hover:bg-blue-50"
+            >
+              <Download className="h-3 w-3" /> Download
+            </button>
+          </div>
+
+          {/* Columns info */}
+          <div className="text-xs text-brand-text-muted">
+            <p className="font-medium mb-1">Required column:</p>
+            <p>firm_name</p>
+            <p className="mt-1">Optional: address, delivery_location, gstin, private_marka, gr, contact_person_name, contact_person_mobile, customer_type, primary_dealer_name</p>
+            <p className="mt-1">customer_type is &quot;Primary Dealer&quot; (default) or &quot;Sub Dealer&quot;. A Sub Dealer must name an existing Primary Dealer via primary_dealer_name. Maximum 500 rows per upload.</p>
+          </div>
+
+          {/* File input */}
+          {!bulkResult && (
+            <>
+              <div className="border-2 border-dashed border-brand-border rounded-lg p-6 text-center">
+                <Upload className="h-8 w-8 text-brand-text-muted mx-auto mb-2" />
+                <input
+                  ref={bulkFileRef}
+                  type="file"
+                  accept=".csv"
+                  onChange={(e) => setBulkFile(e.target.files?.[0] || null)}
+                  className="block w-full text-sm text-brand-text-muted file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-binny-navy file:text-white hover:file:bg-binny-navy/90 mx-auto"
+                />
+                {bulkFile && (
+                  <p className="mt-2 text-sm text-brand-text-dark font-medium">{bulkFile.name}</p>
+                )}
+              </div>
+
+              <div className="flex justify-end gap-3">
+                <Button variant="secondary" onClick={closeBulkModal}>Cancel</Button>
+                <Button
+                  onClick={handleBulkUpload}
+                  isLoading={bulkUploading}
+                  disabled={!bulkFile || bulkUploading}
+                  leftIcon={<Upload className="h-4 w-4" />}
+                >
+                  Upload &amp; Create Customers
+                </Button>
+              </div>
+            </>
+          )}
+
+          {/* Results */}
+          {bulkResult && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+                <CheckCircle className="h-5 w-5 text-green-600 flex-shrink-0" />
+                <p className="text-sm font-medium text-green-900">{bulkResult.created} customers created successfully</p>
+              </div>
+
+              {bulkResult.errors.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-red-700">
+                    <AlertCircle className="h-4 w-4" />
+                    <p className="text-sm font-medium">{bulkResult.errors.length} rows failed</p>
+                  </div>
+                  <div className="max-h-48 overflow-y-auto border border-red-200 rounded-lg divide-y divide-red-100">
+                    {bulkResult.errors.map((err: CustomerBulkRowError, i: number) => (
+                      <div key={i} className="px-3 py-2 text-xs">
+                        <span className="font-medium text-red-800">Row {err.row}</span>
+                        {err.firm_name && <span className="text-red-600"> ({err.firm_name})</span>}
+                        <span className="text-red-600">: {err.error}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3">
+                <Button variant="secondary" onClick={closeBulkModal}>Close</Button>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setBulkResult(null);
+                    setBulkFile(null);
+                    if (bulkFileRef.current) bulkFileRef.current.value = '';
+                  }}
+                  leftIcon={<Upload className="h-4 w-4" />}
+                >
+                  Upload Another File
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       </Modal>
     </div>

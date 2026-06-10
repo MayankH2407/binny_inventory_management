@@ -13,12 +13,6 @@ export interface UnpackChildBoxRequest {
   master_carton_id: string;
 }
 
-export interface RepackChildBoxRequest {
-  child_box_id: string;
-  source_carton_id: string;
-  destination_carton_id: string;
-}
-
 export interface MasterCartonFilters {
   status?: string;
   search?: string;

@@ -17,6 +17,7 @@ import { childBoxService } from '@/services/childBox.service';
 import { useApiMutation, useApiQuery } from '@/hooks/useApi';
 import { useScanStore } from '@/store/scanStore';
 import { formatCurrency } from '@/lib/utils';
+import { checkFootAvailability } from '@/lib/sampleFoot';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
 import type { ChildBoxWithProduct } from '@/types';
@@ -33,6 +34,9 @@ export default function CreateSamplePage() {
   const [fullScreenScan, setFullScreenScan] = useState(false);
   const { scannedItems, addItem, removeItem, clearItems } = useScanStore();
   const [itemDetails, setItemDetails] = useState<Record<string, ChildBoxWithProduct>>({});
+  // Dispatch unit (foot) applied to the next scanned box; per-box value tracked in footByBarcode.
+  const [selectedFoot, setSelectedFoot] = useState<'PAIR' | 'LEFT' | 'RIGHT'>('PAIR');
+  const [footByBarcode, setFootByBarcode] = useState<Record<string, 'PAIR' | 'LEFT' | 'RIGHT'>>({});
 
   const { data: customersData } = useApiQuery(
     ['customers-list-for-sample'],
@@ -49,6 +53,7 @@ export default function CreateSamplePage() {
         sample_date: sampleDate || null,
         notes: notes.trim() || null,
         child_box_barcodes: scannedItems,
+        box_feet: footByBarcode,
       }),
     {
       successMessage: 'Sample created successfully',
@@ -56,6 +61,7 @@ export default function CreateSamplePage() {
       onSuccess: (data) => {
         clearItems();
         setItemDetails({});
+        setFootByBarcode({});
         router.replace(ROUTES.SAMPLE_DETAIL(data.id));
       },
     }
@@ -63,35 +69,51 @@ export default function CreateSamplePage() {
 
   const handleScan = useCallback(
     async (qrCode: string) => {
+      const normalized = qrCode.trim().toUpperCase();
       const added = addItem(qrCode);
       if (!added) {
         toast.error('Already scanned');
         return;
       }
 
-      toast.success(`Added: ${qrCode}`);
+      // Tag the box with the currently-selected foot for the next scan.
+      setFootByBarcode((prev) => ({ ...prev, [normalized]: selectedFoot }));
+      toast.success(
+        `Added: ${normalized}${selectedFoot !== 'PAIR' ? ` (${selectedFoot === 'LEFT' ? 'Left' : 'Right'} foot)` : ''}`
+      );
 
       // Fetch child box details in background
       try {
-        const details = await childBoxService.getByBarcode(qrCode);
-        // Guard: only FREE or GENERATED
-        if (details.status !== 'FREE' && details.status !== 'GENERATED') {
-          removeItem(qrCode);
-          toast.error(`Box ${qrCode} is ${details.status} — only FREE or GENERATED boxes can be added`);
+        const details = await childBoxService.getByBarcode(normalized);
+        // Foot-aware guard: a SAMPLE box is still addable for its other free foot.
+        const avail = checkFootAvailability(details, selectedFoot);
+        if (!avail.ok) {
+          removeItem(normalized);
+          setFootByBarcode((prev) => {
+            const next = { ...prev };
+            delete next[normalized];
+            return next;
+          });
+          toast.error(avail.reason);
           return;
         }
-        setItemDetails((prev) => ({ ...prev, [qrCode]: details }));
+        setItemDetails((prev) => ({ ...prev, [normalized]: details }));
       } catch {
         // Details fetch failed — barcode is still added, just no details shown
       }
     },
-    [addItem, removeItem]
+    [addItem, removeItem, selectedFoot]
   );
 
   const handleRemoveItem = useCallback(
     (barcode: string) => {
       removeItem(barcode);
       setItemDetails((prev) => {
+        const next = { ...prev };
+        delete next[barcode];
+        return next;
+      });
+      setFootByBarcode((prev) => {
         const next = { ...prev };
         delete next[barcode];
         return next;
@@ -103,6 +125,7 @@ export default function CreateSamplePage() {
   const handleClearAll = useCallback(() => {
     clearItems();
     setItemDetails({});
+    setFootByBarcode({});
   }, [clearItems]);
 
   const handleCreate = () => {
@@ -217,6 +240,27 @@ export default function CreateSamplePage() {
               <h3 className="font-semibold text-brand-text-dark">Scan Child Boxes</h3>
             </div>
 
+            {/* Dispatch unit applied to the next scanned box(es) */}
+            <div className="mb-4">
+              <p className="text-xs font-medium text-brand-text-muted mb-1.5">Dispatch unit for scanned boxes</p>
+              <div className="flex gap-2">
+                {(['PAIR', 'LEFT', 'RIGHT'] as const).map((f) => (
+                  <button
+                    key={f}
+                    type="button"
+                    onClick={() => setSelectedFoot(f)}
+                    className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                      selectedFoot === f
+                        ? 'bg-binny-navy text-white border-binny-navy'
+                        : 'bg-white text-brand-text-muted border-brand-border hover:bg-gray-50'
+                    }`}
+                  >
+                    {f === 'PAIR' ? 'Pair' : f === 'LEFT' ? 'Left foot' : 'Right foot'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <HIDScannerInput
               onScan={handleScan}
               placeholder="Scan or enter child box barcode..."
@@ -297,6 +341,24 @@ export default function CreateSamplePage() {
                               <span className="text-xs text-brand-text-muted">{formatCurrency(details.mrp)}</span>
                             </div>
                           )}
+                          <div className="flex gap-1 mt-1.5">
+                            {(['PAIR', 'LEFT', 'RIGHT'] as const).map((f) => (
+                              <button
+                                key={f}
+                                type="button"
+                                onClick={() =>
+                                  setFootByBarcode((prev) => ({ ...prev, [item]: f }))
+                                }
+                                className={`px-2 py-0.5 rounded text-[11px] font-medium border transition-colors ${
+                                  (footByBarcode[item] ?? 'PAIR') === f
+                                    ? 'bg-binny-navy text-white border-binny-navy'
+                                    : 'bg-white text-brand-text-muted border-brand-border hover:bg-gray-50'
+                                }`}
+                              >
+                                {f === 'PAIR' ? 'Pair' : f === 'LEFT' ? 'L' : 'R'}
+                              </button>
+                            ))}
+                          </div>
                         </div>
                       </div>
                       <button

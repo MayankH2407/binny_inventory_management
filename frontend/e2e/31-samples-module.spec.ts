@@ -456,18 +456,16 @@ test.describe('TC-SM-ROLE: Role Gates', () => {
     expect(res.status()).toBe(403);
   });
 
-  test('TC-SM-ROLE-002: Warehouse Operator can create and add/remove boxes', async ({ request }) => {
+  test('TC-SM-ROLE-002: Warehouse Operator cannot create sample (403)', async ({ request }) => {
+    // Samples are managerial-only (Admin/Supervisor). After the RBAC migration to
+    // permission-based guards (samples:create), Warehouse Operator — whose seeded
+    // permission set has no samples:* — is denied. Mirrors mobile (WH Op locked out).
     const adminToken = await loginAs(request, ADMIN_EMAIL, ADMIN_PASSWORD);
 
     await request.post(`${BASE_API}/users`, {
       headers: { Authorization: `Bearer ${adminToken}` },
       data: { email: USERS.warehouse.email, password: USERS.warehouse.password, name: 'SM WH', role: USERS.warehouse.role },
     });
-
-    // Do all admin setup BEFORE switching identity — Playwright shares cookies across calls
-    // and the auth middleware reads cookie before the Authorization header.
-    const productId = await createProduct(request, adminToken, `SMROLE${TS6}`);
-    const box = await createFreeBox(request, adminToken, productId);
 
     const loginRes = await request.post(`${BASE_API}/auth/login`, {
       data: { email: USERS.warehouse.email, password: USERS.warehouse.password },
@@ -482,20 +480,7 @@ test.describe('TC-SM-ROLE: Role Gates', () => {
       headers: { Authorization: `Bearer ${whToken}`, 'Content-Type': 'application/json' },
       data: { name: `WH Sample ${TS6}` },
     });
-    expect(sampleRes.status()).toBe(201);
-    const sample = (await sampleRes.json()).data;
-
-    const addRes = await request.post(`${BASE_API}/samples/add-box`, {
-      headers: { Authorization: `Bearer ${whToken}`, 'Content-Type': 'application/json' },
-      data: { sample_record_id: sample.id, child_box_id: box.id },
-    });
-    expect(addRes.ok()).toBeTruthy();
-
-    const removeRes = await request.post(`${BASE_API}/samples/remove-box`, {
-      headers: { Authorization: `Bearer ${whToken}`, 'Content-Type': 'application/json' },
-      data: { sample_record_id: sample.id, child_box_id: box.id },
-    });
-    expect(removeRes.ok()).toBeTruthy();
+    expect(sampleRes.status()).toBe(403);
   });
 
   test('TC-SM-ROLE-003: Warehouse Operator cannot close sample (403)', async ({ request }) => {
@@ -506,6 +491,11 @@ test.describe('TC-SM-ROLE: Role Gates', () => {
       data: { email: USERS.warehouse.email, password: USERS.warehouse.password, name: 'SM WH2', role: USERS.warehouse.role },
     });
 
+    // Create the sample as admin BEFORE switching identity — Playwright shares cookies
+    // across calls and the auth middleware reads the cookie before the Authorization
+    // header, so the WH login below would otherwise hijack this admin-token request.
+    const sample = await createSample(request, adminToken, `SM WH Close ${TS6}`);
+
     const loginRes = await request.post(`${BASE_API}/auth/login`, {
       data: { email: USERS.warehouse.email, password: USERS.warehouse.password },
     });
@@ -514,8 +504,6 @@ test.describe('TC-SM-ROLE: Role Gates', () => {
       return;
     }
     const whToken: string = (await loginRes.json()).data.accessToken;
-
-    const sample = await createSample(request, adminToken, `SM WH Close ${TS6}`);
 
     const res = await request.post(`${BASE_API}/samples/${sample.id}/close`, {
       headers: { Authorization: `Bearer ${whToken}` },

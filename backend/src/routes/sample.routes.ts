@@ -1,9 +1,8 @@
 import { Router } from 'express';
 import * as sampleController from '../controllers/sample.controller';
 import { authenticate } from '../middleware/auth.middleware';
-import { authorize } from '../middleware/rbac.middleware';
+import { authorizePermission } from '../middleware/rbac.middleware';
 import { validate } from '../middleware/validate.middleware';
-import { USER_ROLES } from '../config/constants';
 import {
   createSampleSchema,
   addBoxToSampleSchema,
@@ -19,7 +18,7 @@ router.use(authenticate);
 
 router.post(
   '/',
-  authorize(USER_ROLES.ADMIN, USER_ROLES.SUPERVISOR, USER_ROLES.WAREHOUSE_OPERATOR),
+  authorizePermission('samples:create'),
   validate({ body: createSampleSchema }),
   sampleController.createSample
 );
@@ -56,28 +55,28 @@ router.get(
 
 router.post(
   '/:id/full-unpack',
-  authorize(USER_ROLES.ADMIN, USER_ROLES.SUPERVISOR, USER_ROLES.WAREHOUSE_OPERATOR),
+  authorizePermission('samples:update'),
   validate({ params: sampleIdParamSchema }),
   sampleController.fullUnpackSample
 );
 
 router.post(
   '/add-box',
-  authorize(USER_ROLES.ADMIN, USER_ROLES.SUPERVISOR, USER_ROLES.WAREHOUSE_OPERATOR),
+  authorizePermission('samples:update'),
   validate({ body: addBoxToSampleSchema }),
   sampleController.addBoxToSample
 );
 
 router.post(
   '/remove-box',
-  authorize(USER_ROLES.ADMIN, USER_ROLES.SUPERVISOR, USER_ROLES.WAREHOUSE_OPERATOR),
+  authorizePermission('samples:update'),
   validate({ body: removeBoxFromSampleSchema }),
   sampleController.removeBoxFromSample
 );
 
 router.post(
   '/:id/close',
-  authorize(USER_ROLES.ADMIN, USER_ROLES.SUPERVISOR),
+  authorizePermission('samples:update'),
   validate({ params: sampleIdParamSchema }),
   sampleController.closeSample
 );

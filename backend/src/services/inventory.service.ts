@@ -2,6 +2,7 @@ import { query } from '../config/database';
 import { InventoryTransaction } from '../types';
 import { CHILD_BOX_STATUS, MASTER_CARTON_STATUS } from '../config/constants';
 import { NotFoundError } from '../utils/errors';
+import { BreakdownLevel, BreakdownPath } from '../models/schemas/inventory.schema';
 
 export interface InventoryDashboard {
   totalChildBoxes: number;
@@ -190,7 +191,7 @@ export async function traceByBarcode(barcode: string): Promise<Record<string, un
        p.mrp, p.description, p.category, p.section, p.location
      FROM child_boxes cb
      JOIN products p ON p.id = cb.product_id
-     WHERE cb.barcode = $1`,
+     WHERE cb.barcode = UPPER($1)`,
     [barcode]
   );
 
@@ -232,7 +233,7 @@ export async function traceByBarcode(barcode: string): Promise<Record<string, un
 
   // Try master carton
   const masterCartonResult = await query(
-    `SELECT * FROM master_cartons WHERE carton_barcode = $1`,
+    `SELECT * FROM master_cartons WHERE carton_barcode = UPPER($1)`,
     [barcode]
   );
 
@@ -768,4 +769,396 @@ export async function getStockSummary(): Promise<{
     sections: parseInt(row.sections, 10),
     articles: parseInt(row.articles, 10),
   };
+}
+
+// ─── Inventory Breakdown (7-level drill-down) ────────────────────────────────
+
+export interface BreakdownItem {
+  value: string;
+  pieces: number;
+  child_box_count: number;
+  master_carton_count: number;
+  loose_child_box_count: number;
+  legacy_carton_count: number;                                         // opaque legacy cartons (not pieces)
+  legacy_size_groups?: { size_group: string; carton_count: number }[]; // only populated at level 'group'
+}
+
+export interface SizeBreakdownEntry {
+  size: string;
+  pairs: number;
+  box_count: number;
+}
+
+export interface BreakdownLeafMasterCarton {
+  master_carton_id: string;
+  carton_barcode: string;
+  child_box_count: number;
+  pieces: number;
+  mrp: number;
+  status: string;
+  size_breakdown: SizeBreakdownEntry[];
+}
+
+export interface BreakdownLeafLooseStock {
+  child_box_id: string;
+  barcode: string;
+  pieces: number;
+  mrp: number;
+  size: string;
+}
+
+export type BreakdownResult =
+  | { items: BreakdownItem[] }
+  | { master_cartons: BreakdownLeafMasterCarton[]; loose_stock: BreakdownLeafLooseStock[] };
+
+/**
+ * Maps a drill-down level to the SQL expression it groups by.
+ *
+ * Note: the products table has size_from/size_to (not size_group — that column
+ * was dropped in migration 20260414100001). We reconstruct a "size_group" label
+ * as "size_from-size_to" for the drill-down grouping.
+ */
+const LEVEL_TO_COLUMN: Record<BreakdownLevel, string> = {
+  section:    'p.section',
+  category:   'p.category',
+  group:      'p.article_group',
+  article:    'p.article_name',
+  colour:     'p.colour',
+  // size_group column was dropped; reconstruct range label from size_from/size_to
+  size_group: "COALESCE(p.size_from, '') || CASE WHEN p.size_to IS NOT NULL AND p.size_to != p.size_from THEN '-' || p.size_to ELSE '' END",
+  leaf:       '', // handled separately
+};
+
+/**
+ * Maps each path key to its product column for WHERE filtering.
+ *
+ * For size_group we filter using BOTH size_from/size_to to reconstruct the
+ * original range string match (client sends "6-10" → we match size_from='6' AND size_to='10',
+ * or simply match the full reconstructed expression).
+ * We use a SQL expression equality for simplicity.
+ */
+const PATH_KEY_TO_COLUMN: Record<keyof BreakdownPath, string> = {
+  section:    'p.section',
+  category:   'p.category',
+  group:      'p.article_group',
+  article:    'p.article_name',
+  colour:     'p.colour',
+  // Match the same reconstructed expression used in grouping
+  size_group: "COALESCE(p.size_from, '') || CASE WHEN p.size_to IS NOT NULL AND p.size_to != p.size_from THEN '-' || p.size_to ELSE '' END",
+};
+
+/**
+ * "In-warehouse" child box definition used throughout the breakdown query:
+ *
+ *   PACKED boxes that have an active mapping to a non-DISPATCHED master carton
+ *   → counted in master_carton_count rollup, not loose.
+ *
+ *   FREE boxes with NO active carton_child_mapping row
+ *   → counted as loose stock.
+ *
+ *   GENERATED boxes are EXCLUDED.
+ *   Rationale: GENERATED = barcode printed but not yet validated/scanned into
+ *   stock. The pack flow in masterCarton.service.ts auto-activates GENERATED
+ *   boxes during pack (sets status → PACKED), so any box still GENERATED
+ *   has not been physically confirmed as in-stock. Including them would
+ *   inflate counts with speculative inventory.
+ *
+ *   SAMPLE, ECOMMERCE, DISPATCHED are also excluded (out of warehouse scope).
+ */
+export async function getInventoryBreakdown(input: {
+  level: BreakdownLevel;
+  path: BreakdownPath;
+}): Promise<BreakdownResult> {
+  const { level, path } = input;
+
+  // Build path filter conditions
+  const conditions: string[] = ['p.is_active = true'];
+  const values: unknown[] = [];
+  let paramIndex = 1;
+
+  for (const [key, col] of Object.entries(PATH_KEY_TO_COLUMN) as [keyof BreakdownPath, string][]) {
+    if (path[key] !== undefined && path[key] !== '') {
+      conditions.push(`${col} = $${paramIndex++}`);
+      values.push(path[key]);
+    }
+  }
+
+  const whereClause = conditions.join(' AND ');
+
+  // ── Leaf level ─────────────────────────────────────────────────────────────
+  if (level === 'leaf') {
+    // Master cartons with per-size breakdown.
+    // Inner subquery aggregates child boxes by (carton, size, mrp); outer rolls
+    // up to one row per carton and json_aggs the size buckets in numeric order.
+    const mcResult = await query(`
+      SELECT
+        mc.id                                  AS master_carton_id,
+        mc.carton_barcode,
+        SUM(bs.box_count)::int                 AS child_box_count,
+        SUM(bs.pairs)::int                     AS pieces,
+        MIN(bs.mrp)::numeric                   AS mrp,
+        mc.status,
+        json_agg(
+          json_build_object('size', bs.size, 'pairs', bs.pairs, 'box_count', bs.box_count)
+          ORDER BY
+            CASE WHEN bs.size ~ '^[0-9]+$' THEN bs.size::int ELSE 9999 END,
+            bs.size
+        )                                      AS size_breakdown
+      FROM master_cartons mc
+      JOIN (
+        SELECT
+          ccm.master_carton_id,
+          p.size,
+          p.mrp,
+          COUNT(cb.id)::int       AS box_count,
+          SUM(cb.quantity)::int   AS pairs
+        FROM carton_child_mapping ccm
+        JOIN child_boxes cb ON cb.id = ccm.child_box_id
+          AND ccm.is_active = true
+          -- GENERATED excluded: barcode printed but not confirmed in-stock;
+          -- SAMPLE, ECOMMERCE, DISPATCHED excluded: outside warehouse scope.
+          AND cb.status = 'PACKED'
+        JOIN products p ON p.id = cb.product_id
+        WHERE ${whereClause}
+        GROUP BY ccm.master_carton_id, p.size, p.mrp
+      ) AS bs ON bs.master_carton_id = mc.id
+      WHERE mc.status != 'DISPATCHED'
+      GROUP BY mc.id, mc.carton_barcode, mc.status, mc.created_at
+      ORDER BY mc.created_at DESC
+    `, values);
+
+    // Loose child boxes: FREE status with no active carton mapping.
+    // size column added so the UI can show per-box size.
+    const looseResult = await query(`
+      SELECT
+        cb.id        AS child_box_id,
+        cb.barcode,
+        cb.quantity  AS pieces,
+        p.mrp::numeric AS mrp,
+        p.size       AS size
+      FROM child_boxes cb
+      JOIN products p ON p.id = cb.product_id
+      WHERE cb.status = 'FREE'
+        AND NOT EXISTS (
+          SELECT 1 FROM carton_child_mapping ccm2
+          WHERE ccm2.child_box_id = cb.id AND ccm2.is_active = true
+        )
+        AND ${whereClause}
+      ORDER BY
+        CASE WHEN p.size ~ '^[0-9]+$' THEN p.size::int ELSE 9999 END,
+        p.size,
+        cb.created_at DESC
+    `, values);
+
+    return {
+      master_cartons: mcResult.rows.map(r => ({
+        master_carton_id: String(r.master_carton_id),
+        carton_barcode:   String(r.carton_barcode),
+        child_box_count:  parseInt(r.child_box_count, 10),
+        pieces:           parseInt(r.pieces, 10),
+        mrp:              parseFloat(r.mrp),
+        status:           String(r.status),
+        size_breakdown:   Array.isArray(r.size_breakdown) ? r.size_breakdown.map((sb: { size: string; pairs: number | string; box_count: number | string }) => ({
+          size:      String(sb.size ?? ''),
+          pairs:     typeof sb.pairs === 'number' ? sb.pairs : parseInt(String(sb.pairs), 10),
+          box_count: typeof sb.box_count === 'number' ? sb.box_count : parseInt(String(sb.box_count), 10),
+        })) : [],
+      })),
+      loose_stock: looseResult.rows.map(r => ({
+        child_box_id: String(r.child_box_id),
+        barcode:      String(r.barcode),
+        pieces:       parseInt(r.pieces, 10),
+        mrp:          parseFloat(r.mrp),
+        size:         String(r.size ?? ''),
+      })),
+    };
+  }
+
+  // ── Non-leaf levels ────────────────────────────────────────────────────────
+  const groupCol = LEVEL_TO_COLUMN[level];
+
+  const result = await query(`
+    SELECT
+      ${groupCol} AS value,
+
+      -- Pieces: sum quantity of all in-warehouse child boxes at this level.
+      -- Packed boxes inside non-DISPATCHED cartons + FREE loose boxes.
+      -- GENERATED excluded (pre-stock); SAMPLE/ECOMMERCE/DISPATCHED excluded.
+      COALESCE(SUM(cb.quantity) FILTER (
+        WHERE (
+          -- PACKED boxes in a non-DISPATCHED carton
+          (cb.status = 'PACKED'
+           AND EXISTS (
+             SELECT 1 FROM carton_child_mapping ccm2
+             JOIN master_cartons mc2 ON mc2.id = ccm2.master_carton_id
+             WHERE ccm2.child_box_id = cb.id
+               AND ccm2.is_active = true
+               AND mc2.status != 'DISPATCHED'
+           )
+          )
+          OR
+          -- FREE loose boxes with no active carton mapping
+          (cb.status = 'FREE'
+           AND NOT EXISTS (
+             SELECT 1 FROM carton_child_mapping ccm3
+             WHERE ccm3.child_box_id = cb.id AND ccm3.is_active = true
+           )
+          )
+        )
+      ), 0)::int AS pieces,
+
+      -- child_box_count: total in-warehouse boxes (packed + loose)
+      COUNT(cb.id) FILTER (
+        WHERE (
+          (cb.status = 'PACKED'
+           AND EXISTS (
+             SELECT 1 FROM carton_child_mapping ccm2
+             JOIN master_cartons mc2 ON mc2.id = ccm2.master_carton_id
+             WHERE ccm2.child_box_id = cb.id
+               AND ccm2.is_active = true
+               AND mc2.status != 'DISPATCHED'
+           )
+          )
+          OR
+          (cb.status = 'FREE'
+           AND NOT EXISTS (
+             SELECT 1 FROM carton_child_mapping ccm3
+             WHERE ccm3.child_box_id = cb.id AND ccm3.is_active = true
+           )
+          )
+        )
+      )::int AS child_box_count,
+
+      -- master_carton_count: distinct non-DISPATCHED cartons containing matching packed boxes
+      COUNT(DISTINCT CASE
+        WHEN cb.status = 'PACKED' THEN mc.id
+        ELSE NULL
+      END)::int AS master_carton_count,
+
+      -- loose_child_box_count: FREE boxes with no active mapping
+      COUNT(cb.id) FILTER (
+        WHERE cb.status = 'FREE'
+          AND NOT EXISTS (
+            SELECT 1 FROM carton_child_mapping ccm3
+            WHERE ccm3.child_box_id = cb.id AND ccm3.is_active = true
+          )
+      )::int AS loose_child_box_count
+
+    FROM products p
+    LEFT JOIN child_boxes cb ON cb.product_id = p.id
+    LEFT JOIN carton_child_mapping ccm ON ccm.child_box_id = cb.id AND ccm.is_active = true
+    LEFT JOIN master_cartons mc ON mc.id = ccm.master_carton_id AND mc.status != 'DISPATCHED'
+    WHERE ${whereClause}
+    GROUP BY ${groupCol}
+    ORDER BY pieces DESC NULLS LAST
+  `, values);
+
+  // ── Map product rows (legacy_carton_count starts at 0 for all) ───────────────
+  const items: BreakdownItem[] = result.rows.map(r => ({
+    value:                 String(r.value ?? ''),
+    pieces:                parseInt(r.pieces, 10),
+    child_box_count:       parseInt(r.child_box_count, 10),
+    master_carton_count:   parseInt(r.master_carton_count, 10),
+    loose_child_box_count: parseInt(r.loose_child_box_count, 10),
+    legacy_carton_count:   0,
+  }));
+
+  // ── Legacy aggregation (section / category / group only) ─────────────────────
+  // Skip for article / colour / size_group / leaf — legacy data can't reach those depths.
+  // Also skip if the path already drills into article or colour (no legacy match possible).
+  const legacyApplicableLevels: BreakdownLevel[] = ['section', 'category', 'group'];
+  const pathHasArticleOrColour = (path.article !== undefined && path.article !== '')
+    || (path.colour !== undefined && path.colour !== '');
+
+  if (legacyApplicableLevels.includes(level) && !pathHasArticleOrColour) {
+    // Build legacy WHERE conditions using only legacy-applicable path keys
+    const legacyConds: string[] = ['mc.is_legacy = true'];
+    const legacyVals: unknown[] = [];
+    let legacyParamIdx = 1;
+
+    if (path.section !== undefined && path.section !== '') {
+      legacyConds.push(`mc.section = $${legacyParamIdx++}`);
+      legacyVals.push(path.section);
+    }
+    if (path.category !== undefined && path.category !== '') {
+      legacyConds.push(`mc.category = $${legacyParamIdx++}`);
+      legacyVals.push(path.category);
+    }
+    if (path.group !== undefined && path.group !== '') {
+      legacyConds.push(`mc.article_group = $${legacyParamIdx++}`);
+      legacyVals.push(path.group);
+    }
+
+    const legacyWhere = legacyConds.join(' AND ');
+
+    // Determine which column to group by for the primary legacy aggregation
+    const legacyGroupCol =
+      level === 'section'  ? 'mc.section' :
+      level === 'category' ? 'mc.category' :
+      /* group */            'mc.article_group';
+
+    const legacyResult = await query(`
+      SELECT ${legacyGroupCol} AS value, COUNT(*)::int AS carton_count
+      FROM master_cartons mc
+      WHERE ${legacyWhere}
+      GROUP BY ${legacyGroupCol}
+    `, legacyVals);
+
+    // Build map: value → legacy_carton_count
+    const legacyMap = new Map<string, number>();
+    for (const row of legacyResult.rows) {
+      legacyMap.set(String(row.value ?? ''), parseInt(row.carton_count, 10));
+    }
+
+    // At group level, also fetch per size_group splits
+    let legacySizeGroupMap: Map<string, { size_group: string; carton_count: number }[]> | null = null;
+    if (level === 'group') {
+      const sgResult = await query(`
+        SELECT mc.article_group AS grp, mc.size_group, COUNT(*)::int AS carton_count
+        FROM master_cartons mc
+        WHERE ${legacyWhere}
+        GROUP BY mc.article_group, mc.size_group
+      `, legacyVals);
+
+      legacySizeGroupMap = new Map<string, { size_group: string; carton_count: number }[]>();
+      for (const row of sgResult.rows) {
+        const grp = String(row.grp ?? '');
+        if (!legacySizeGroupMap.has(grp)) legacySizeGroupMap.set(grp, []);
+        legacySizeGroupMap.get(grp)!.push({
+          size_group: String(row.size_group ?? ''),
+          carton_count: parseInt(row.carton_count, 10),
+        });
+      }
+    }
+
+    // Attach legacy counts to matching product rows
+    const seenValues = new Set<string>();
+    for (const item of items) {
+      seenValues.add(item.value);
+      const legacyCount = legacyMap.get(item.value) ?? 0;
+      item.legacy_carton_count = legacyCount;
+      if (level === 'group' && legacySizeGroupMap && legacyCount > 0) {
+        item.legacy_size_groups = legacySizeGroupMap.get(item.value) ?? [];
+      }
+    }
+
+    // Append synthetic items for legacy-only values (no product row at this level)
+    for (const [value, count] of legacyMap) {
+      if (seenValues.has(value)) continue;
+      const synthetic: BreakdownItem = {
+        value,
+        pieces: 0,
+        child_box_count: 0,
+        master_carton_count: 0,
+        loose_child_box_count: 0,
+        legacy_carton_count: count,
+      };
+      if (level === 'group' && legacySizeGroupMap) {
+        synthetic.legacy_size_groups = legacySizeGroupMap.get(value) ?? [];
+      }
+      items.push(synthetic);
+    }
+  }
+
+  return { items };
 }

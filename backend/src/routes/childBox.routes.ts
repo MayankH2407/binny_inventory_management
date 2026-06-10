@@ -1,9 +1,8 @@
 import { Router } from 'express';
 import * as childBoxController from '../controllers/childBox.controller';
 import { authenticate } from '../middleware/auth.middleware';
-import { authorize } from '../middleware/rbac.middleware';
+import { authorizePermission } from '../middleware/rbac.middleware';
 import { validate } from '../middleware/validate.middleware';
-import { USER_ROLES } from '../config/constants';
 import {
   createChildBoxSchema,
   createBulkChildBoxSchema,
@@ -19,34 +18,34 @@ router.use(authenticate);
 
 router.get(
   '/bulk-upload/sample',
-  authorize(USER_ROLES.ADMIN, USER_ROLES.SUPERVISOR),
+  authorizePermission('child_boxes:read'),
   childBoxController.getBulkUploadSample
 );
 
 router.post(
   '/bulk-upload',
-  authorize(USER_ROLES.ADMIN, USER_ROLES.SUPERVISOR),
+  authorizePermission('child_boxes:create'),
   csvUpload.single('file'),
   childBoxController.bulkUploadChildBoxes
 );
 
 router.post(
   '/',
-  authorize(USER_ROLES.ADMIN, USER_ROLES.SUPERVISOR, USER_ROLES.WAREHOUSE_OPERATOR),
+  authorizePermission('child_boxes:create'),
   validate({ body: createChildBoxSchema }),
   childBoxController.createChildBox
 );
 
 router.post(
   '/bulk',
-  authorize(USER_ROLES.ADMIN, USER_ROLES.SUPERVISOR, USER_ROLES.WAREHOUSE_OPERATOR),
+  authorizePermission('child_boxes:create'),
   validate({ body: createBulkChildBoxSchema }),
   childBoxController.createBulkChildBoxes
 );
 
 router.post(
   '/bulk-multi-size',
-  authorize(USER_ROLES.ADMIN, USER_ROLES.SUPERVISOR, USER_ROLES.WAREHOUSE_OPERATOR),
+  authorizePermission('child_boxes:create'),
   validate({ body: createBulkMultiSizeChildBoxSchema }),
   childBoxController.createBulkMultiSizeChildBoxes
 );
@@ -69,7 +68,7 @@ router.get(
 
 router.post(
   '/:id/activate',
-  authorize(USER_ROLES.ADMIN, USER_ROLES.SUPERVISOR, USER_ROLES.WAREHOUSE_OPERATOR, USER_ROLES.DISPATCH_OPERATOR),
+  authorizePermission('child_boxes:update'),
   childBoxController.activateChildBox
 );
 

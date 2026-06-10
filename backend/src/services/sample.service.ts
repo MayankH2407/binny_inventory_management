@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
+import type { PoolClient } from 'pg';
 import { query, getClient } from '../config/database';
 import { SAMPLE_STATUS, CHILD_BOX_STATUS, TRANSACTION_TYPES } from '../config/constants';
 import { generateUniqueBarcode } from '../utils/barcodeGenerator';
@@ -42,6 +43,58 @@ export interface SampleBoxMapping {
 }
 
 // ---------------------------------------------------------------------------
+// Foot-split helpers — a box (pair) may have its LEFT and RIGHT feet allocated to
+// different samples independently. We track allocation via active sample_box_mapping
+// rows (one per foot). The box-level child_boxes.status stays SAMPLE while ANY foot is
+// allocated, which keeps packing/e-commerce/dispatch (all of which require FREE/GENERATED)
+// correctly blocked without any change to those modules.
+// ---------------------------------------------------------------------------
+
+type Foot = 'LEFT' | 'RIGHT' | 'PAIR';
+
+// Feet of a box currently held by ACTIVE sample mappings (e.g. ['LEFT'] or ['LEFT','RIGHT']).
+async function getActiveSampleFeet(client: PoolClient, childBoxId: string): Promise<string[]> {
+  const r = await client.query(
+    `SELECT foot FROM sample_box_mapping WHERE child_box_id = $1 AND is_active = true`,
+    [childBoxId]
+  );
+  return r.rows.map((row: { foot: string }) => row.foot);
+}
+
+// Throws BadRequest/—unless the requested foot of this box is free to be sampled.
+function assertFootAvailable(
+  barcode: string,
+  status: string,
+  activeFeet: string[],
+  requestedFoot: Foot
+): void {
+  // Consumed by a non-sample flow — the whole box is unavailable.
+  if (
+    status === CHILD_BOX_STATUS.PACKED ||
+    status === CHILD_BOX_STATUS.ECOMMERCE ||
+    status === CHILD_BOX_STATUS.DISPATCHED
+  ) {
+    throw new BadRequestError(
+      `Child box ${barcode} is currently ${status} and cannot be added to a sample. Only FREE or GENERATED boxes (or a box with a free foot) can be sampled.`
+    );
+  }
+  if (activeFeet.includes('PAIR')) {
+    throw new BadRequestError(`Child box ${barcode} is already fully in a sample (as a pair).`);
+  }
+  if (requestedFoot === 'PAIR') {
+    if (activeFeet.length > 0) {
+      throw new BadRequestError(
+        `Child box ${barcode} already has its ${activeFeet.join('/').toLowerCase()} foot in a sample; cannot add the whole pair.`
+      );
+    }
+  } else if (activeFeet.includes(requestedFoot)) {
+    throw new BadRequestError(
+      `The ${requestedFoot.toLowerCase()} foot of child box ${barcode} is already in a sample.`
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // createSample
 // ---------------------------------------------------------------------------
 export async function createSample(
@@ -51,6 +104,14 @@ export async function createSample(
   const id = uuidv4();
   const sampleBarcode = await generateUniqueBarcode('SR');
   const barcodes = input.child_box_barcodes || [];
+
+  // Per-barcode foot, normalized to uppercase keys to match the uppercased barcodes. Missing → PAIR.
+  const footMap: Record<string, string> = {};
+  if (input.box_feet) {
+    for (const [bc, foot] of Object.entries(input.box_feet)) {
+      footMap[bc.trim().toUpperCase()] = foot;
+    }
+  }
 
   if (barcodes.length > 0) {
     const client = await getClient();
@@ -81,22 +142,18 @@ export async function createSample(
       let mappedCount = 0;
       for (const barcode of barcodes) {
         const cbResult = await client.query(
-          'SELECT * FROM child_boxes WHERE barcode = $1 FOR UPDATE',
+          'SELECT * FROM child_boxes WHERE barcode = UPPER($1) FOR UPDATE',
           [barcode]
         );
         if (cbResult.rows.length === 0) {
           throw new NotFoundError(`Child box with barcode ${barcode} not found`);
         }
         const childBox = cbResult.rows[0];
+        const requestedFoot = (footMap[barcode] ?? 'PAIR') as Foot;
 
-        if (
-          childBox.status !== CHILD_BOX_STATUS.FREE &&
-          childBox.status !== CHILD_BOX_STATUS.GENERATED
-        ) {
-          throw new BadRequestError(
-            `Child box ${barcode} is currently ${childBox.status} and cannot be added to a sample. Only FREE or GENERATED boxes can be sampled.`
-          );
-        }
+        // Foot-aware availability: a SAMPLE box is still addable for its OTHER free foot.
+        const activeFeet = await getActiveSampleFeet(client, childBox.id);
+        assertFootAvailable(barcode, childBox.status, activeFeet, requestedFoot);
 
         if (childBox.status === CHILD_BOX_STATUS.GENERATED) {
           await client.query(
@@ -115,9 +172,9 @@ export async function createSample(
         );
 
         await client.query(
-          `INSERT INTO sample_box_mapping (sample_record_id, child_box_id, mapped_by)
-           VALUES ($1, $2, $3)`,
-          [id, childBox.id, createdBy]
+          `INSERT INTO sample_box_mapping (sample_record_id, child_box_id, mapped_by, foot)
+           VALUES ($1, $2, $3, $4)`,
+          [id, childBox.id, createdBy, requestedFoot]
         );
 
         await client.query(
@@ -309,15 +366,11 @@ export async function addBoxToSample(
       throw new NotFoundError('Child box not found');
     }
     const childBox = cbResult.rows[0];
+    const requestedFoot = (input.foot ?? 'PAIR') as Foot;
 
-    if (
-      childBox.status !== CHILD_BOX_STATUS.FREE &&
-      childBox.status !== CHILD_BOX_STATUS.GENERATED
-    ) {
-      throw new BadRequestError(
-        `Child box is currently ${childBox.status} and cannot be added to a sample. Only FREE or GENERATED boxes can be sampled.`
-      );
-    }
+    // Foot-aware availability: a SAMPLE box is still addable for its OTHER free foot.
+    const activeFeet = await getActiveSampleFeet(client, childBox.id);
+    assertFootAvailable(childBox.barcode, childBox.status, activeFeet, requestedFoot);
 
     // Lock and fetch sample record
     const srResult = await client.query(
@@ -356,11 +409,11 @@ export async function addBoxToSample(
       [CHILD_BOX_STATUS.SAMPLE, input.child_box_id]
     );
 
-    // Create mapping
+    // Create mapping (foot defaults to PAIR; samples may be a single LEFT/RIGHT foot)
     const mappingResult = await client.query(
-      `INSERT INTO sample_box_mapping (sample_record_id, child_box_id, mapped_by)
-       VALUES ($1, $2, $3) RETURNING *`,
-      [input.sample_record_id, input.child_box_id, addedBy]
+      `INSERT INTO sample_box_mapping (sample_record_id, child_box_id, mapped_by, foot)
+       VALUES ($1, $2, $3, $4) RETURNING *`,
+      [input.sample_record_id, input.child_box_id, addedBy, requestedFoot]
     );
 
     // Update sample child_count and status
@@ -455,11 +508,14 @@ export async function removeBoxFromSample(
       [removedBy, mappingResult.rows[0].id]
     );
 
-    // Set child box back to FREE
-    await client.query(
-      `UPDATE child_boxes SET status = $1, updated_at = NOW() WHERE id = $2`,
-      [CHILD_BOX_STATUS.FREE, input.child_box_id]
-    );
+    // Set child box back to FREE only if no other foot of it is still in an active sample.
+    const remainingFeet = await getActiveSampleFeet(client, input.child_box_id);
+    if (remainingFeet.length === 0) {
+      await client.query(
+        `UPDATE child_boxes SET status = $1, updated_at = NOW() WHERE id = $2`,
+        [CHILD_BOX_STATUS.FREE, input.child_box_id]
+      );
+    }
 
     // Update sample child_count and status
     const newChildCount = Math.max(0, sample.child_count - 1);
@@ -591,7 +647,7 @@ export async function getSampleByBarcode(
   barcode: string
 ): Promise<SampleRecord & { child_boxes: SampleBoxMapping[] }> {
   const result = await query(
-    'SELECT * FROM sample_records WHERE sample_barcode = $1',
+    'SELECT * FROM sample_records WHERE sample_barcode = UPPER($1)',
     [barcode]
   );
   if (result.rows.length === 0) {
@@ -647,11 +703,14 @@ export async function fullUnpackSample(
         [performedBy, mapping.id]
       );
 
-      // Set child box back to FREE
-      await client.query(
-        `UPDATE child_boxes SET status = $1, updated_at = NOW() WHERE id = $2`,
-        [CHILD_BOX_STATUS.FREE, mapping.child_box_id]
-      );
+      // Set child box back to FREE only if no other foot of it is still in an active sample.
+      const remainingFeet = await getActiveSampleFeet(client, mapping.child_box_id);
+      if (remainingFeet.length === 0) {
+        await client.query(
+          `UPDATE child_boxes SET status = $1, updated_at = NOW() WHERE id = $2`,
+          [CHILD_BOX_STATUS.FREE, mapping.child_box_id]
+        );
+      }
 
       // Log CHILD_UNSAMPLED per box
       await client.query(

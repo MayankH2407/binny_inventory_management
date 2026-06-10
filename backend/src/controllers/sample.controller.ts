@@ -79,9 +79,9 @@ export async function addBoxToSample(
   next: NextFunction
 ): Promise<void> {
   try {
-    const { child_box_id, sample_record_id } = req.body;
+    const { child_box_id, sample_record_id, foot } = req.body;
     const result = await sampleService.addBoxToSample(
-      { child_box_id, sample_record_id },
+      { child_box_id, sample_record_id, foot: foot ?? 'PAIR' },
       req.user!.userId
     );
     sendSuccess(res, result, 'Child box added to sample record successfully');

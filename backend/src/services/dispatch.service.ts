@@ -213,35 +213,56 @@ async function _dispatchSample(
       [SAMPLE_STATUS.DISPATCHED, sampleRecordId]
     );
 
-    // Get all active SAMPLE child boxes in this record
-    const childBoxesResult = await client.query(
-      `SELECT cb.id FROM sample_box_mapping sbm
+    // All active foot allocations shipping with this sample (one row per foot — a box may
+    // contribute just its LEFT or RIGHT foot). Used for the shipped-unit count + per-foot audit.
+    const shippedFeetResult = await client.query(
+      `SELECT cb.id, sbm.foot FROM sample_box_mapping sbm
        JOIN child_boxes cb ON cb.id = sbm.child_box_id
        WHERE sbm.sample_record_id = $1 AND sbm.is_active = true AND cb.status = $2`,
       [sampleRecordId, CHILD_BOX_STATUS.SAMPLE]
     );
-    const childBoxIds = childBoxesResult.rows.map((cb: { id: string }) => cb.id);
+    const shippedFeet = shippedFeetResult.rows as { id: string; foot: string }[];
 
-    // Update child boxes to DISPATCHED
-    if (childBoxIds.length > 0) {
-      const cbPlaceholders = childBoxIds.map((_: string, i: number) => `$${i + 2}`).join(', ');
+    // Foot-split: only flip a box to DISPATCHED when this sample holds its LAST active foot.
+    // If the box's other foot is still in another live (non-dispatched) sample, leave it SAMPLE
+    // until that sample dispatches too.
+    const lastFootResult = await client.query(
+      `SELECT cb.id FROM sample_box_mapping sbm
+       JOIN child_boxes cb ON cb.id = sbm.child_box_id
+       WHERE sbm.sample_record_id = $1 AND sbm.is_active = true AND cb.status = $2
+       AND NOT EXISTS (
+         SELECT 1 FROM sample_box_mapping o
+         JOIN sample_records osr ON osr.id = o.sample_record_id
+         WHERE o.child_box_id = cb.id AND o.is_active = true
+           AND o.sample_record_id <> $1 AND osr.status <> $3
+       )`,
+      [sampleRecordId, CHILD_BOX_STATUS.SAMPLE, SAMPLE_STATUS.DISPATCHED]
+    );
+    const boxesToDispatch = lastFootResult.rows.map((cb: { id: string }) => cb.id);
+
+    // Update last-foot boxes to DISPATCHED
+    if (boxesToDispatch.length > 0) {
+      const cbPlaceholders = boxesToDispatch.map((_: string, i: number) => `$${i + 2}`).join(', ');
       await client.query(
         `UPDATE child_boxes SET status = $1, updated_at = NOW() WHERE id IN (${cbPlaceholders})`,
-        [CHILD_BOX_STATUS.DISPATCHED, ...childBoxIds]
+        [CHILD_BOX_STATUS.DISPATCHED, ...boxesToDispatch]
       );
-
-      for (const cbId of childBoxIds) {
-        await client.query(
-          `INSERT INTO inventory_transactions (transaction_type, child_box_id, performed_by, notes, metadata)
-           VALUES ($1, $2, $3, $4, $5)`,
-          [
-            TRANSACTION_TYPES.CHILD_DISPATCHED, cbId, dispatchedBy,
-            `Sample child box dispatched to ${destination || 'unknown'}`,
-            JSON.stringify({ sample_record_id: sampleRecordId, destination }),
-          ]
-        );
-      }
     }
+
+    // Log a CHILD_DISPATCHED per shipped foot (the foot physically left, even if the box
+    // stays SAMPLE because its other foot is still in another live sample).
+    for (const m of shippedFeet) {
+      await client.query(
+        `INSERT INTO inventory_transactions (transaction_type, child_box_id, performed_by, notes, metadata)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [
+          TRANSACTION_TYPES.CHILD_DISPATCHED, m.id, dispatchedBy,
+          `Sample child box (${m.foot.toLowerCase()}) dispatched to ${destination || 'unknown'}`,
+          JSON.stringify({ sample_record_id: sampleRecordId, destination, foot: m.foot }),
+        ]
+      );
+    }
+    const shippedCount = shippedFeet.length;
 
     // Create dispatch record
     const dispatchResult = await client.query(
@@ -259,7 +280,7 @@ async function _dispatchSample(
         input.vehicle_number || null,
         dispatchDate,
         input.notes || null,
-        JSON.stringify({ child_box_count: childBoxIds.length }),
+        JSON.stringify({ child_box_count: shippedCount }),
       ]
     );
 
@@ -284,7 +305,7 @@ async function _dispatchSample(
         source_type: 'sample',
         sample_record_id: sampleRecordId,
         destination,
-        child_box_count: childBoxIds.length,
+        child_box_count: shippedCount,
       },
     });
 

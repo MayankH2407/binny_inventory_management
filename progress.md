@@ -6,12 +6,1177 @@
 
 ---
 
-## Project Status: PHASE 1 COMPLETE — PHASE 1.5 COMPLETE — PHASE 2 (UI ENHANCEMENT) COMPLETE — PHASE 3 (PWA) COMPLETE — DEPLOYED TO PRODUCTION — PHASE 4 (MEETING FEEDBACK) COMPLETE — PHASE 5 (MOBILE APP) IN PROGRESS — PHASE 6 (POST-QA MODIFICATIONS) IN PROGRESS
+## Project Status: PHASE 1 COMPLETE — PHASE 1.5 COMPLETE — PHASE 2 (UI ENHANCEMENT) COMPLETE — PHASE 3 (PWA) COMPLETE — DEPLOYED TO PRODUCTION — PHASE 4 (MEETING FEEDBACK) COMPLETE — PHASE 5 (MOBILE APP) IN PROGRESS — PHASE 6 (POST-QA MODIFICATIONS) IN PROGRESS — **LIVE INFRA UP** at `binnyfootwear.basiq360.com` — **2026-05-31: Inventory drill-down + Role Manager + Legacy-inventory CSV upload ALL complete on localhost (tsc-clean both ends); combined test-box deploy queued for next session** — **2026-06-02: applied pending legacy migration to localhost (fixes inventory "Failed to load") + built legacy unpack/repack ("Open for Repacking") flow; tsc-clean both ends, endpoint smoke-tested** — **2026-06-03: combined bundle (Inventory drill-down + Role Manager + Legacy CSV/unpack-repack) DEPLOYED to TEST box — 3 pending migrations applied, `role_permissions` auto-backfilled (8 rows / 4 roles), portal + inventory verified HTTP 200, roles API 401 (auth-gated, wired); awaiting client UAT** — **2026-06-04: fixed child-box label generation ~120-cap (root cause = 30s axios timeout vs slow per-box loop, NOT the 500 rule); batched barcode gen + multi-row INSERTs, dropped wasted server-side QR PNG, raised timeout to 60s; tsc-clean both ends; DEPLOYED to TEST box — both images rebuilt + recreated, health 200, portal + generate page 200, batched code confirmed present in running backend image** — **2026-06-05: fixed Product CSV bulk-upload failure (client `ALIA PLUS 1.csv` — every row rejected on case-sensitive `category` "ladies"≠"Ladies"); category/location now matched case-insensitively + stored canonical, and name fields (article_name/colour/section/article_group) normalized to uniform Title Case across all four write paths (CSV/single/size-range/edit); codes stay uppercase, going-forward-only (no backfill); tsc-clean, held bundle; **DEPLOYED to TEST box backend-only ~06:32 UTC** (frontend untouched, no migrations; image-ID match + dist verified, health 200) — awaiting client retest of `ALIA PLUS 1.csv`** — **2026-06-05: audited the June-1 plant-meeting mod list (8 done / ~16 remaining, roadmap in Phase 6); per client, REMOVED the standalone Repack (A→B transfer) feature (redundant with unpack+pack) and FIXED the rapid-scan box-skipping (root cause client-side: serialized scan queue + idempotent `pack-by-barcode` endpoint + scan ledger); tsc+lint clean both ends, held bundle, NOT yet deployed (frontend-touching → needs full FE rebuild)** — **2026-06-05: Phase 6a done & held (K-size label font; child-box cap + product-CSV-2000 both ENV-GATED to live only [defaults stay 500/500]; product CSV bulk rewritten to batched insert; products Active/Inactive/All filter); tsc+lint clean; ⚠️ live deploy must set CHILD_BOX_MAX_PER_GENERATION=1500, PRODUCT_CSV_MAX_ROWS=2000 + NEXT_PUBLIC_ equivalents at FE build** — **2026-06-05: Phase 6b ALL done & held (customer CSV uploader; e-commerce carton-scan→auto-reflect [moves boxes carton→ecommerce]; e-commerce stock view [allocated vs available] at /ecommerce/stock; single-foot L/R on sample boxes); tsc+lint clean; ⚠️ adds migration `20260605100001_add-foot-to-sample-box-mapping` — run `migrate:up` on every deploy target; whole Phase 6 bundle still NOT deployed / NOT runtime-tested**
 
 ---
 
 
 ## Phase 6 — Post-QA Modifications (batched; testing deferred to after all mods)
+
+### June 10, 2026 — Label fixes from client meeting (3 concerns) (Opus plan / Sonnet execute) — built + localhost, NOT deployed; no migration
+
+Client meeting raised 3 label issues; all fixed frontend-only:
+1. **Responsive label text (auto-fit):** master-carton `.article-cell`/`.colour-cell`/`.size-summary-cell`/size-assortment cells and child-box `.article-row`/`.colour-row`/`.size-value` were truncating/overflowing (multi-product article names; suffixed sizes 10K/11K/13K). Added a vanilla-JS `fitText(sel,minPx)` routine injected into BOTH print windows — shrinks each field's font (0.5px steps, 9px floor) until content fits its width/height, then prints. `text-overflow:ellipsis` kept as last-resort. Child-box K-size heuristic kept as the starting size; auto-fit only shrinks further if needed. Print sequence reworked to fit-then-print (embedded `<script>` on `window.onload`).
+2. **Custom size sort (Kids vs Adult):** new shared `frontend/src/lib/sizeSort.ts` (`compareSizes`/`sortSizes`) — **Kids (trailing K) group sorts BEFORE Adult; ascending numeric within each** (so `13K` < `1`; order e.g. 5K,6K,13K,1,2,9). Applied to the master-carton label size assortment (`master-cartons/[id]/page.tsx`, replaces the old parseInt sort) and the child-box generate per-size list.
+3. **Child-box generate "Number of Labels per Size" duplicate:** `getSizes()` returns sibling products that can share a size (colour variants), so each size showed twice — now **deduped by size** (Map keep-first) then sorted via `compareSizes`. Generation still keyed by size string, unaffected.
+
+**Verification:** `sizeSort` logic confirmed (`parseFloat('13K')`→13, `/k$/i` match); `sortSizes(['1','13K','5K','2','9','6K'])` → `['5K','6K','13K','1','2','9']`. backend untouched; frontend `tsc` clean (src), `next lint` clean on touched files (1 pre-existing warning). Frontend (dev) restarted on localhost. NOT deployed.
+
+**Test cases + automated tests (Opus plan / Sonnet execute, same day):** markdown TCs added — `phase-09-childbox-labels.md` +16 (§11 auto-fit, §12 generate dedup+order), `phase-10-master-cartons.md` +21 (§19 label rendering: auto-fit, Kids-first assortment order, distinct-value aggregation). New Playwright spec **`frontend/e2e/43-label-rendering.spec.ts` — 13/13 green on localhost**: sizeSort pure-unit (relative import), generate per-size dedup + Kids-first order via UI, and master-carton + child-box **print-popup** assertions (capture `window.open` popup → after `fitText` settles assert `scrollWidth<=clientWidth+1` no-overflow + Kids-first column order `13K` before `1`). MASTER_TEST_PLAN status-log updated.
+
+**DEPLOYED to TEST ✅ 2026-06-10 (~13:34 UTC) — Unpack&Repack 2-tab redesign + label fixes together.** Synced backend/src+migrations+frontend/src; both images rebuilt (`BUILD_EXIT=0`, ~38min, host light), recreated, **running image IDs == `:latest` (MATCH)**; `migrate:up` applied **`20260610120001`** (`unpacked_at`/`unpacked_by` columns confirmed on test DB). Verified: health 200; `/unpack-repack` 200; `POST /master-cartons/repack/free-both` → **404 with token** (removed); `pack-by-barcode` 400 (alive); backend dist has `unpacked_at` stamping + `repackFreeBoth` absent; frontend bundle has `fitText`. Awaiting client UAT. LIVE still deferred (needs UAT + the 1500/2000 env vars + both new migrations `20260609120001`+`20260610120001`).
+
+### June 10, 2026 — Unpack & Repack REDESIGN: 3 modes → 2 tabs (Opus plan / Sonnet execute) — built + localhost-verified, NOT deployed; **NEW MIGRATION**
+
+Client redesign of `/unpack-repack`: collapse the 3 modes (Single Unpack / Single Repack / Repack-2-Cartons) into **2 tabs**. **Unpack** = scan carton → unpack (boxes→FREE). **Repack** = scan a carton → if it still has boxes, confirm "Unpack and repack?" (auto-unpacks, boxes→FREE), if already empty go straight in → scan child boxes back in (serialized queue/ledger, pack-by-barcode, capacity-enforced). The standalone **2-carton free-both** flow is **removed**. Decisions locked with client: auto-unpack-with-confirm on a non-empty scan; track unpacked cartons in the background (no UI list yet, but enables a future worklist).
+- **NEW MIGRATION `20260610120001_add-unpacked-tracking-to-master-cartons.js`** — adds nullable `unpacked_at timestamptz` + `unpacked_by uuid` (FK users, SET NULL) to `master_cartons`. **Run `migrate:up` on test AND live.**
+- **Backend:** `fullUnpackMasterCarton` now stamps `unpacked_at=NOW()/unpacked_by`; `packChildBox` clears them (so packing a box marks the carton repacked). Removed `repackFreeBoth` entirely (service + controller + `/repack/free-both` route + `repackFreeBothSchema`/`RepackFreeBothInput`); grep-clean. `openLegacyCarton` deliberately NOT stamped (legacy flow stays separate). tsc clean.
+- **Frontend:** rebuilt `unpack-repack/page.tsx` into `UnpackTab` + `RepackTab` (confirm modal on non-empty scan; box-scan phase reuses the serialized `queueRef`/`seenRef`/`scanLog` ledger; packed/capacity counter; "Done / Repack Another" reset). Page gated `packing:unpack`; Repack box-scan also needs `packing:pack`. Removed Single-Repack + free-both UI + the FE `repackFreeBoth` service method. tsc clean (src), `next lint` clean on the page.
+- **Localhost-verified (API + page):** migration applied; `POST /master-cartons/repack/free-both` → **404**; full-unpack → carton CREATED + `unpacked_at` SET; pack-by-barcode → carton ACTIVE + `unpacked_at` CLEARED; `/unpack-repack` serves 200. Backend restarted; frontend is dev-mode (`npm run dev`) so restarted to pick up the page.
+- **Tests/docs updated to the 2-tab design (Sonnet, same day):** `phase-34-unpack-repack.md` rewritten (78 TCs, was 123 for 3-mode); `42-carton-repack.spec.ts` rewritten (dropped free-both/single-repack; added free-both→404, `unpacked_at` lifecycle, 2-tab UI + confirm-modal) → **7/7 green** on localhost; `41-repack-removed.spec.ts` still valid → 4/4 green (**11/11 combined**). MASTER_TEST_PLAN A22 row updated.
+- **⚠️ FOLLOW-UP:** NOT deployed to TEST yet — frontend-touching + new migration `20260610120001` (run `migrate:up` on test AND live).
+
+### June 9, 2026 — Sample foot-SPLIT: one box's LEFT and RIGHT feet can go to DIFFERENT samples (client follow-up) — held locally, localhost-verified, NOT deployed; **NEW MIGRATION**
+
+Client tested single-foot and tried to put the LEFT foot of a box in one sample and the RIGHT foot of the **same box** in another → error (box already `SAMPLE`). They confirmed the intent is to **split a pair into two independently-allocatable feet**. Built it, scoped to the sample subsystem only (counts stay box-level, dispatch only the last foot — both client-approved simplifications).
+
+**Model:** keep `child_boxes.status` as the single box status. A box is `SAMPLE` while ANY foot is allocated → packing/e-commerce/dispatch-as-stock stay blocked with **zero changes** to those modules. Per-foot allocation is tracked via active `sample_box_mapping` rows (one per foot).
+
+- **NEW MIGRATION `20260609120001_sample-box-mapping-per-foot.js`** — drops the old `idx_unique_active_sample_mapping` (one active mapping per box) and creates `idx_unique_active_sample_foot` UNIQUE `(child_box_id, foot) WHERE is_active` (one active LEFT + one active RIGHT, never the same foot twice). The "no PAIR alongside a single foot" rule is enforced in the service layer.
+- **Backend `sample.service.ts`:** new `getActiveSampleFeet()` + `assertFootAvailable()` helpers replace the blunt FREE/GENERATED guard in `createSample` + `addBoxToSample` (a `SAMPLE` box is now addable for its other free foot; PAIR rejected if either foot taken; PACKED/ECOMMERCE/DISPATCHED still rejected). `removeBoxFromSample` + `fullUnpackSample` only return the box to FREE when **no** other active foot remains.
+- **Backend `dispatch.service.ts` `_dispatchSample`:** only flips a box to DISPATCHED when this sample holds its **last** active foot (others stay SAMPLE until their sample dispatches too); logs a `CHILD_DISPATCHED` per shipped foot; `child_box_count` now counts shipped feet.
+- **Backend `childBox.service.ts` `getChildBoxByQR`:** returns `active_sample_feet` so the UI can validate the chosen foot before adding.
+- **Frontend:** new shared `lib/sampleFoot.ts` `checkFootAvailability()` (mirrors the backend rule); both create + detail pages use it instead of the FREE/GENERATED-only check, so a partially-sampled box is scannable for its free foot. Type `ChildBoxWithProduct.active_sample_feet` added.
+- **Localhost-verified (API smoke):** box LEFT→sample A ✓, same box RIGHT→sample B ✓ (previously failed), LEFT-again ⛔, PAIR ⛔; dispatch A leaves box `SAMPLE`, dispatch B → `DISPATCHED`. Migration applied to localhost, backend restarted, frontend rebuilt. backend+frontend `tsc` clean; `next lint` clean on touched files.
+- **Known simplifications (client-approved):** inventory/report counts stay box-level (a one-foot-sampled box counts as 1 SAMPLE box, not half a pair); rare cross-sample partial-unpack-after-dispatch edge may leave a box `SAMPLE` — documented, acceptable for the display-sample use case.
+
+**⚠️ DEPLOY OBLIGATION:** new migration — `npm run migrate:up` on test AND live. Frontend-touching → full FE rebuild on deploy. NOT deployed.
+
+### June 9, 2026 — Sample single-foot (L/R) now also on the CREATE page (client follow-up) — held locally, NOT deployed; NO migration (SUPERSEDED by foot-split above)
+
+Client tested the June-5 single-foot feature on the test portal and reported the L/R field was missing — because it only lived on the sample **detail** page's "Add Box" flow, not on the **create** page where boxes are scanned at creation time (every box went in as `PAIR`). Closed the gap by mirroring the detail-page UX onto create.
+- **Backend:** `createSampleSchema` gains optional `box_feet` (`z.record(z.enum(['LEFT','RIGHT','PAIR']))`, keyed by barcode); `createSample` builds an uppercase-normalized foot map and now inserts `foot` into `sample_box_mapping` (was hard-defaulting PAIR). No new migration — the `foot` column already exists from `20260605100001`.
+- **Frontend:** `samples/create/page.tsx` got the Pair/Left foot/Right foot toggle above the scanner (applies to next scan) + a per-row L/R/Pair override in the scanned-items list; `footByBarcode` state submitted as `box_feet`; scan/remove/clear keep it in sync (keyed by the store's uppercased barcode). `sampleService.create` type gains `box_feet`.
+- **Verification:** backend `tsc --noEmit` clean; frontend `tsc` clean for `src/**` (only known e2e spec errors remain); `next lint` clean on the create page. NOT runtime-tested, NOT deployed. Frontend-touching → needs a full FE rebuild on deploy.
+
+### June 5, 2026 — Phase 6b: E-commerce stock view + single-foot (L/R) samples (DONE) — held locally, NOT deployed; **NEW MIGRATION**
+
+**(b) E-commerce stock-level view** (client: "dedicated e-commerce inventory"; clarified = allocated + available side-by-side). Backend `ecommerce.service.ts` `getEcommerceStockSummary()` — one grouped query per product with `FILTER` aggregates: allocated = boxes/pairs in `ECOMMERCE` status, available = boxes/pairs in `FREE`/`GENERATED`. Controller + `GET /ecommerce/stock-summary` (ecommerce:read, before `/:id`). Frontend: `getStockSummary()` + new page `app/(dashboard)/ecommerce/stock/page.tsx` (summary cards + per-product table) + `ROUTES.ECOMMERCE_STOCK` + a "Stock View" button on the e-commerce list header.
+
+**(c) Single-foot = Left/Right foot on sample box** (client chose: foot field L/R/Pair). **NEW MIGRATION `20260605100001_add-foot-to-sample-box-mapping.js`** — adds `foot varchar(10) NOT NULL DEFAULT 'PAIR' CHECK (foot IN ('LEFT','RIGHT','PAIR'))` to `sample_box_mapping`. Backend: `addBoxToSampleSchema` gains `foot` (enum, default PAIR); `addBoxToSample` inserts it; sample controller passes it through; `getSampleChildren` already returns `sbm.*` so foot flows to `getSampleById`→`child_boxes`. Frontend: sample detail page got a Pair/Left foot/Right foot selector above the scanner (applies to next scanned box) + a "Foot" column in the boxes table; `sampleService.addBox` accepts `foot`.
+
+**⚠️ DEPLOY FOLLOW-UP:** this batch adds a migration — `npm run migrate:up` must run on test AND live after deploy (the foot column). Local containers don't have it yet either (rebuilt earlier with only the repack changes).
+
+**Verification:** backend + frontend `tsc` clean; `next lint` clean on touched pages; migration file loads (exports up/down). Held; **nothing deployed**, not runtime-tested.
+
+### June 5, 2026 — Phase 6b: E-commerce master-carton scan → auto-reflect (DONE) — held locally, NOT deployed
+
+Client mod: "scan master cartons in e-commerce; all mapped child boxes auto-reflected." Since a child box can't be both PACKED (in a carton) and ECOMMERCE, this is an atomic **move**: one scan empties the carton's packed boxes into the e-commerce record.
+- **Backend:** `ecommerce.service.ts` `scanCartonToEcommerce(ecommerceRecordId, cartonBarcode, addedBy)` — one transaction: lock record (reject CLOSED/DISPATCHED) + lock carton by barcode (reject DISPATCHED) → for every active `carton_child_mapping` box: deactivate carton mapping, set box `ECOMMERCE`, insert `ecommerce_box_mapping`, log `CHILD_UNPACKED` + `CHILD_ECOMMERCED`; then decrement carton `child_count` (→ CREATED if emptied) and grow the record (`child_count += N`, → ACTIVE). Errors if carton has no packed boxes. Schema `scanCartonToEcommerceSchema` {ecommerce_record_id, carton_barcode}; controller `scanCartonToEcommerce`; route `POST /ecommerce/scan-carton` (ecommerce:update).
+- **Frontend:** `ecommerce.service.ts` `scanCarton()`; e-commerce detail page Scan-to-Add card got an "Or add a full carton" input (enter/scan a carton barcode → moves all its boxes, toasts the count, refetches).
+
+**Verification:** backend + frontend `tsc` clean; `next lint` clean. Held; **nothing deployed**. NOT runtime-tested — this moves inventory between carton↔e-commerce, so it needs a real localhost/test run before deploy.
+
+### June 5, 2026 — Phase 6b started: Customer CSV bulk uploader (DONE) — held locally, NOT deployed
+
+First 6b item. Mirrors the product bulk-upload pattern.
+- **Backend:** `customer.service.ts` `bulkCreateCustomers(csvBuffer, createdBy)` — parses CSV, validates per row (firm_name required; GSTIN regex; mobile 10-15 digits; customer_type canonical 'Primary Dealer'/'Sub Dealer' default Primary; Sub Dealer must name an EXISTING active Primary Dealer via `primary_dealer_name`, resolved from a prefetched map; duplicate firm_name rejected vs existing-active + intra-batch). Reuses `createCustomer` per valid row (keeps sub-dealer field inheritance + per-row audit; customer volumes are low so a loop is fine). Cap 500 rows. Controller `bulkUploadCustomers` + `downloadCustomerSampleCsv`; routes `POST /customers/bulk-upload` (customers:create, csvUpload) + `GET /customers/bulk-upload/sample` (customers:read, declared before `/:id`).
+- **Frontend:** `customer.service.ts` `bulkUpload()` + `getSampleCsvUrl()` + result types; customers page got a **Bulk Import** button (next to Add Customer) + a bulk modal (sample download, file picker, created/failed results with per-row errors) mirroring the products modal.
+- **Columns:** firm_name (req) + address, delivery_location, gstin, private_marka, gr, contact_person_name, contact_person_mobile, customer_type, primary_dealer_name.
+- **Scope note:** Sub Dealers can only reference a Primary Dealer that ALREADY exists (not one created earlier in the same file) — avoids in-file ordering/resolution complexity; documented in the modal help text.
+
+**Verification:** backend + frontend `tsc --noEmit` clean; `next lint` clean on the touched pages. Held locally; **nothing deployed**. Not runtime-tested.
+
+**Remaining 6b:** (a) scan master carton in e-commerce → auto-reflect mapped child boxes [concrete, buildable]; (b) **e-commerce stock-level view** [needs definition of "available/allocated for e-commerce"]; (c) **single-foot sample = track left/right foot** [schema change; needs the exact L/R behaviour + how a sample unit is constructed today].
+
+### June 5, 2026 — Phase 6a quick wins (K-size label font, child-cap env-gated, product status filter, product CSV→2000 batched+env-gated) — held locally, NOT deployed
+
+Started the agreed Phase 6a batch; client gave targeted scope corrections mid-way.
+
+- **K-suffix label font (DONE):** `frontend/src/lib/childBoxLabel.ts` — size value font now scales by length so `10K`/`11K` (K = Kids) don't overflow the fixed size cell: ≤2 chars → 38pt, 3 chars → 26pt, ≥4 → 20pt (inline `style` per box, overrides the 38pt class).
+- **Child-box label cap → ENV-GATED (DONE, per client "change limit on LIVE only, not test"):** NOT a flat 500→1500. Backend `childBox.service.ts` reads `CHILD_BOX_MAX_PER_GENERATION` (default **500**); frontend `child-boxes/generate/page.tsx` reads `NEXT_PUBLIC_CHILD_BOX_MAX` (default **500**) for both the validation message and the per-size input `max`. **⚠️ LIVE-DEPLOY FOLLOW-UP:** set `CHILD_BOX_MAX_PER_GENERATION=1500` in live backend env AND `NEXT_PUBLIC_CHILD_BOX_MAX=1500` in the live frontend build env (NEXT_PUBLIC is baked at build time). Test/local stay at 500 automatically. Param math at 1500 is safe (1500×6 = 9000 ≪ 65535) and the June-4 batching keeps it fast.
+- **Hide inactive products → Active/Inactive/All filter (DONE, per client "add a filter to separate active/inactive + an all view"):** `products/page.tsx` — replaced the initial show-inactive checkbox with a status `<select>` (Active only / Inactive only / All products) in the column-filters grid, **default `active`** (hides inactive). Query passes `is_active: all→undefined, active→true, inactive→false`. Backend already supported the `is_active` filter.
+- **Product CSV 500 → 2,000 (DONE — batching everywhere, cap ENV-GATED to live):** rewrote `bulkCreateProducts` (`product.service.ts`) — was ~4 sequential queries/row (SKU-COUNT + dup-SELECT + INSERT + audit), which at 2000 rows would blow the 60s timeout. Now: (1) Pass 1 validate+clean fully in-memory; (2) Pass 2 assign SKU serials from **ONE** grouped `GROUP BY` count query (combo = section|article|category|colour, mirrors generateSku; serials increment in-memory per combo — same result as the old per-row COUNT loop, incl. across old/new casing since SQL `UPPER(REPLACE(...))` matches); (3) Pass 3 **ONE** `sku = ANY($1)` DB dup-check + intra-batch Set → collisions reported as per-row errors (client-approved race handling); (4) Pass 4 chunked multi-row INSERT (500 rows/chunk = 7000 params ≪ 65535) per-chunk txn, **degrades to per-row insert if a chunk throws** so partial success + per-row errors survive; (5) Pass 5 **one summary audit log** (client-approved, vs a row per product). Per-row error report preserved (sorted by row). **The 2,000 cap is env-gated** like the child cap: backend `PRODUCT_CSV_MAX_ROWS` (default 500), frontend `NEXT_PUBLIC_PRODUCT_CSV_MAX` (default 500) drives the modal text.
+
+**⚠️ LIVE-DEPLOY FOLLOW-UP (env vars — all default to the safe lower value, so test/local need NOTHING):**
+- backend live env: `CHILD_BOX_MAX_PER_GENERATION=1500`, `PRODUCT_CSV_MAX_ROWS=2000`
+- frontend live BUILD env (NEXT_PUBLIC baked at build): `NEXT_PUBLIC_CHILD_BOX_MAX=1500`, `NEXT_PUBLIC_PRODUCT_CSV_MAX=2000`
+
+**Verification:** backend + frontend `tsc --noEmit` clean; `next lint` clean (no Error-level; only pre-existing `<img>`/useMemo warnings). Held in the local bundle; **nothing deployed** (client still running the local repack test). CSV batching is NOT yet runtime-tested.
+
+### June 5, 2026 — Removed standalone Repack feature + fixed rapid-scan box-skipping (client-confirmed) — folded into held bundle, localhost-verified
+
+**Client decision:** their labour workflow is unpack-carton → repack the loose stock as needed, so the standalone **Repack** (direct A→B box transfer) page is redundant with unpack+pack. Remove it. (Two distinct things were called "repack": the standalone **transfer feature** = removed; the **"Open for Repacking"** legacy unpack→scan-in flow = KEPT — it's their core workflow.)
+
+**Part 1 — Removed the standalone Repack feature (clean, no dead refs):**
+- Frontend: deleted `app/(dashboard)/repack/page.tsx`, removed `ROUTES.REPACK` + the "Repack" sidebar item (`constants/index.ts`), removed `masterCartonService.repack`.
+- Backend: removed `/master-cartons/repack` route, `repackChildBox` controller + service (~119-line fn), `repackChildBoxSchema` + `RepackChildBoxInput`, `RepackChildBoxRequest` type, the `packing:repack` permission from the catalog (`config/permissions.ts`) and from seeded roles (`autoSeed.ts` ×3, `seeds/001_roles.ts` ×3).
+- **Kept** the `CHILD_REPACKED` transaction-type enum + `REPACK_CHILD_BOX` audit value (historical rows reference them — dropping a PG enum value is destructive). Minor follow-up (optional): stale `packing:repack` strings may linger on existing role rows in test/live DB — harmless (no route/catalog entry references it; drops naturally on next role save).
+
+**Part 2 — Fixed rapid-scan "skipped boxes" (root cause was CLIENT-SIDE, not the DB):** the scan→pack handler fired fire-and-forget with no in-flight guard, each pack did **2 round-trips** (`getByBarcode`→`pack`), and failures only flashed a toast → overlapping requests + silent drops under rapid scanning.
+- **Backend:** new idempotent single-round-trip endpoint `POST /master-cartons/pack-by-barcode` (`packByBarcodeSchema` + controller + `packChildBoxByBarcode` service): looks up by barcode, **no-ops with `alreadyPacked:true` if the box is already in THIS carton** (so a re-scan never errors), clear conflict if packed elsewhere, else delegates to the existing transactional `packChildBox`.
+- **Frontend** (`master-cartons/[id]/page.tsx`): replaced the handler with a **serialized scan queue** drained by a single worker (one pack at a time → no overlap/lock contention), a **recent-set dedupe** (re-scan → "already scanned" toast), and a **persistent scan ledger** (✅ packed / no-op / ❌ failed-with-Retry, + Clear) so nothing disappears silently. **Stopped disabling the HID input while packing** (disabling mid-burst itself dropped scanner keystrokes); queue absorbs the burst instead. Header shows a processing spinner.
+
+**Verification:** backend `tsc --noEmit` clean; frontend `tsc --noEmit` clean for `src/**` (only known e2e spec errors remain); `next lint` clean (no Error-level; only pre-existing `<img>` warnings). **NOT yet runtime-tested** (no localhost app run / no physical scanner) and **NOT yet deployed** — this touches the frontend, so deploying needs the full frontend rebuild (~40 min on the loaded VPS) + the `:latest` stale-image verification dance. Awaiting go-ahead to deploy to test + client UAT of large-batch scanning.
+
+### June 5, 2026 — Audited the June-1 plant-meeting client mod list (`Binny_Modifications_0106.md`) + built the implementation roadmap
+
+Cross-referenced all client mods from the June 1 plant meeting against the codebase (3 parallel read-only Explore passes). Result: **8 items already done, ~16 remaining.**
+
+**Already implemented (verified):** legacy manual upload does NOT auto-add child counts (`legacyCarton.service.ts`); unpack does NOT auto-add (`masterCarton.service.ts openLegacyCarton`); manual add-box + label print; sample inventory shown separately; **Role Master / RBAC fully functional** (`/admin/roles`, `role_permissions`); e-commerce *records* module exists; product listing has 5 filters + search.
+
+**Remaining (grouped into a roadmap):**
+- **Repack rapid-scan skip (PRIORITY — client-chosen first):** ROOT CAUSE FOUND = **client-side**, not the DB (backend `repackChildBox`/`pack` are transactional w/ `FOR UPDATE`). In `QRScanner.tsx:34-48` + `master-cartons/[id]/page.tsx:95-128`: scans are **fire-and-forget (not awaited), no in-flight guard**, each pack is **2 sequential round-trips** (`getByBarcode`→`pack`) → overlapping requests + lock contention under rapid scan; **single-slot `lastScanned` dedupe** (auto-cleared 2s) too weak; **failures only shown as a transient toast** with no scanned-vs-packed reconciliation → boxes silently appear "skipped." **Proposed fix:** serialize scans through a queue (await each), collapse getByBarcode+pack into one idempotent endpoint (re-scan = no-op success), recent-set dedupe, + persistent scan ledger (✅/❌+retry) in the UI. *Awaiting go-ahead before touching the scan UX.*
+- **6a quick wins + capacity:** hide-inactive products (backend `is_active` ready, only FE toggle missing); label font shrink for K-suffix sizes (10K/11K — `childBoxLabel.ts:130` fixed 38pt); child-box label cap 500→1,500 (`childBox.service.ts:173`; perf OK post-June-4 batching, params 1500×6 ≪ 65535); product CSV 500→2,000 (`product.service.ts:422`; **needs batching** — 2000×~4 seq queries would blow the 60s timeout).
+- **6b new features:** customer CSV bulk uploader (none exists — mirror product bulk-upload); scan master carton in e-commerce → auto-reflect mapped child boxes (today one-by-one only); **e-commerce stock-level view** (client clarified they want an inventory/availability view, NOT the records module — new work); **single-foot sample = track left/right foot** (client clarified L/R, not just qty-in-feet — schema change, larger).
+- **6c reports (0/8 done):** Dead Stock, Free & Unpacked Carton, Most/Least Selling (dispatch), Party-wise, Category-wise, Section-wise, Monthly Trend (per article), Monthly Purchase Pattern (party-wise). Existing reports: 6 operational ones (stock, carton inv, dispatch summary, daily activity, sample, ecommerce). **Client decisions (June 5):** build all on **dispatch data**; "purchase pattern" = dispatch volume per party/month; "dead stock" default **N=90 days, adjustable**; "free & unpacked carton" = CREATED/unpacked, not yet dispatched.
+
+**Decisions captured this session (via clarifying Qs):** reports interpreted from dispatch data; single-foot = L/R tracking; e-commerce inventory = stock-level view (new); **sequencing = repack bug first.** Casing-fix gaps decided earlier same day (Title-case names only, codes uppercase, going-forward-only).
+
+### June 5, 2026 — Product CSV bulk-upload casing fix + uniform Title-Case storage (folded into the held bundle)
+
+**Symptom (client report):** uploading `ALIA PLUS 1.csv` under Products on the test portal failed every row (`error.jpeg`). All 24 rows show **"category must be one of: Gents, Ladies, Boys, Girls"** → 0 created.
+
+**Root cause:** the bulk-upload validator compared `category` with a **case-sensitive** `VALID_CATEGORIES.includes(row.category.trim())` (`backend/src/services/product.service.ts`). The client's CSV uses `ladies` (lowercase) for every row, so none matched the canonical `Ladies`. The file parsed fine, headers were all present, and `VKIA` location was valid — it was purely the category casing. (Same case-sensitivity also affected `location`.)
+
+**Fix (user-approved scope — Title Case for names, codes stay uppercase, description as-typed, going-forward only / no migration of existing rows):**
+- New shared helpers in `product.service.ts`: `toTitleCase()` (name fields → `"ALIA PLUS"`/`"alia plus"` → `"Alia Plus"`, collapses whitespace), `canonicalCategory()` / `canonicalLocation()` (case-insensitive match → canonical casing).
+- **CSV path (`bulkCreateProducts`)** — category/location now matched case-insensitively and stored canonical (`ladies`→`Ladies`, `vkia`→`VKIA`); `article_name`/`colour`/`section`/`article_group` Title-Cased; `article_code` uppercased; `description` left as typed.
+- Same normalization applied to the **other three write paths for uniformity**: `createProduct` (single), `bulkCreateProductsBySizeRange` (size-range), and `updateProduct` (edits) — so casing can't drift back regardless of entry route.
+- **Codes deliberately NOT title-cased** (`article_code`, `location`, `hsn_code`) — would corrupt `VKIA`→`Vkia` (also breaks the location enum) and `HWI-L-049`→`Hwi-L-049`. SKU generation already uppercases internally, so display casing doesn't change SKUs or break dedup.
+
+**Known gaps (surfaced to user, accepted):** (1) acronym sections like `PU` become `Pu` — naive title-case can't tell acronyms from words; (2) **existing DB rows keep their old casing** (going-forward-only, no migration) so old/new records may display inconsistently until re-saved; this also means `getSiblingProducts`/`getColoursByProduct` exact `=` matches won't group an old `ALIA PLUS` with a new `Alia Plus`.
+
+**Verification:** backend `tsc --noEmit` clean; helper outputs spot-checked against the actual CSV values (`ladies`→`Ladies`, `BLUE`→`Blue`, `hwi-l-049`→`HWI-L-049`). No new migrations. Still uncommitted locally (held bundle).
+
+**DEPLOYED to TEST box (2026-06-05 ~06:32 UTC) — backend-only:** fix is purely `backend/src/services/product.service.ts` (no frontend/migration/dep changes), so scoped the deploy to `binny-backend` only — tar-synced `backend/src` + `progress.md`, rebuilt + recreated **only** the backend container, **frontend left untouched** (still the June-4 image) → skipped the ~40-min frontend rebuild and the frontend stale-`:latest` race entirely. Backend `tsc`/build ran ~5.5 min (loaded host). **Stale-image race avoided** (verified per the June-4 lesson): running container image ID == `binny-binny-backend:latest` (`d9406aa…`), and the fix is present in the running container's compiled `dist/services/product.service.js` (17 refs to `canonicalCategory`/`toTitleCase`). `/api/v1/health` → 200 `{status:ok}`, `binny-backend` healthy. **Awaiting client retest** of `ALIA PLUS 1.csv` on the test portal.
+
+### June 4, 2026 — Child-box label generation perf fix — ~120-label ceiling eliminated (Opus plan / Sonnet execute); folded into the held bundle
+
+**Symptom (client report):** unable to generate more than ~120 child labels in one go on the test portal, despite the UI/server cap being 500.
+
+**Root cause (NOT a validation rule):** the frontend axios client (`frontend/src/services/api.ts`) has a **30 000 ms timeout**, and `createBulkMultiSizeChildBoxes` (`backend/src/services/childBox.service.ts`) generated every box **sequentially inside one transaction** — per box: a barcode-uniqueness `SELECT`, a **300px PNG QR generation** (`generateChildBoxQR`, CPU-bound), an `INSERT` into `child_boxes`, and an `INSERT` into `inventory_transactions`. On the loaded shared test VPS that's ~250 ms/box → ~120 boxes is all that completes inside 30 s, so larger batches abort **client-side** (the 500 cap was never the limiter). Barcode collisions are NOT a factor (32⁶ ≈ 1e9 combos).
+
+**Key realization:** the per-box server QR PNG is **entirely wasted** — the label printer (`frontend/src/lib/childBoxLabel.ts:26`) regenerates the QR **client-side** from `box.barcode` via `QRCodeSVG`. The returned `qr_data_uri` is never consumed in the generate→print flow.
+
+**Fix (full 1+2+3, user-approved):**
+- `backend/src/utils/barcodeGenerator.ts` — new exported `generateUniqueBarcodes(type, count, client?)`: batch-generates N unique barcodes with **one** `WHERE col = ANY($1::text[])` collision check per round (in-memory dedup + DB-collision regen, `MAX_ATTEMPTS` round guard). Singular `generateUniqueBarcode` left intact.
+- `backend/src/services/childBox.service.ts` › `createBulkMultiSizeChildBoxes` — rewrote only the `BEGIN`…`COMMIT` body: flatten size×count → one batched barcode gen → **one multi-row `INSERT … child_boxes RETURNING *`** (rows mapped back by id so ordering is safe) → **one multi-row `INSERT … inventory_transactions`**. Dropped `generateChildBoxQR` (returns `qr_data_uri: ''`). Collapses ~4×N sequential round-trips + N PNG generations into ~3 queries total. All pre-`BEGIN` logic (product/sibling/size validation, `>500` `BadRequestError` guard) and the single summary audit log unchanged. `createChildBox`/`createBulkChildBoxes`/CSV-upload untouched; `generateChildBoxQR` import retained (still used by those).
+- `frontend/src/services/api.ts` — axios `timeout` 30000 → **60000** (now a backstop; with the batching even 500 finishes in seconds).
+
+**Param-limit check:** 500 boxes × 6 cols = 3000 bind params, well under PG's 65535.
+
+**Verification:** backend `tsc --noEmit` clean; frontend `tsc --noEmit` clean for `src/**` (only the known pre-existing `e2e/*.spec.ts` errors — 03/27/31 — remain). **NOT run:** runtime/Docker smoke + jest (prod image has no devDeps; same separately-tracked item).
+
+**DEPLOYED to TEST box (2026-06-04 ~07:50 UTC):** tar-synced `backend/src` + `frontend/src` + `progress.md`, rebuilt both images. Frontend `next build` ran **~44 min** (loaded host — far longer than the old ~15-18 min note; the detached chain's `up -d`/marker step didn't fire after the long build, so `up -d` was run manually afterward). **Gotcha (stale-image race — caught via a client "products upload: timeout of 30000ms exceeded" report):** the frontend `binny-binny-frontend:latest` tag wasn't re-tagged until ~17 min after `#18 DONE` (buildkit export lag). Both the initial `up -d` and a `--force-recreate` ran inside that window, so the frontend container adopted the **old June-3 image still serving the 30000ms-timeout bundle** — deploy looked done but shipped stale frontend code. Confirmed by `docker exec binny-frontend grep 'timeout:Ne4' .next/static` → `3e4` (30000) while the new `:latest` image (26c97) had `6e4` (60000), and a container-vs-`:latest` image-ID mismatch. **Re-recreated frontend at 08:06 UTC once `:latest` was current → running container now serves `timeout:6e4` (60000).** Backend was fine throughout (recreated 07:46, `generateUniqueBarcodes` confirmed in running `dist/`). Lesson recorded in [[deployment-server-details]] memory: always verify the running container's image ID == `:latest` AND grep the served artifact before declaring a frontend deploy done. Verified: `/api/v1/health` → 200 `{status:ok}`, portal root → 200 (after 308 basePath redirect), `/binny/child-boxes/generate` → 200, and `generateUniqueBarcodes` confirmed present in the running backend image's compiled `dist/`. No migrations in this fix. Still uncommitted locally (held bundle). **Awaiting client retest** of large-batch label generation on the test portal.
+
+**Parallel opportunity (not done, scope kept tight):** `createBulkChildBoxes` (single-size bulk) and `bulkUploadChildBoxesFromCSV` carry the same wasted-QR + per-box-loop pattern; could get the same treatment later if those paths ever slow down.
+
+### June 3, 2026 — Combined bundle DEPLOYED to TEST box (Inventory drill-down + Role Manager + Legacy CSV/unpack-repack)
+
+Pushed the full in-flight working tree to the test portal (`srv1409601.hstgr.cloud`, `/opt/binny`, container set `binny-backend`/`binny-frontend`/`binny-db`). Per the standard recipe: tar-over-SSH of `backend/src` + `backend/migrations` + `frontend/src` + `progress.md`, then `docker compose build` + `up -d`, then `npm run migrate:up`.
+
+**Scope decision (user-confirmed):** deploy all three in-flight features together (they share `routes/index.ts`, `Sidebar`, `constants` and can't be cleanly separated). Deliberately did **not** sync `backend/package.json`/lockfile (the only changes were test-only devDeps — jest/supertest/ts-jest — and the prod image runs `npm ci --omit=dev` + `tsc` over `src/**` only, so they're irrelevant and would only churn the lockfile), nor `backend/tests`, `seeds`, or `docker-compose.prod.yml` (its only diff is the unrelated `binny-frontend-root` live-domain service).
+
+**Build snag fixed:** first frontend `next build` failed — Next runs ESLint during prod build and treats errors as fatal. Exactly one real **Error** (rest were non-fatal warnings): `react/no-unescaped-entities` at `master-cartons/[id]/page.tsx:663` (raw `'` in "you'll"). Escaped to `you&apos;ll`, re-ran `next lint` locally to confirm 0 errors before the (~18 min, VPS under load) rebuild. (An earlier rebuild's SSH session dropped with "connection reset" *after* the images had already built — re-checked the server-side build log to confirm both images were `Built` before proceeding.)
+
+**Migrations applied on test (node-pg-migrate, db `binny_inventory`/user `binny_admin`):**
+- `20260529100001_create-role-permissions-table` — creates `role_permissions` and **auto-backfills from existing `roles.permissions` jsonb** → no seed run needed (prod image lacks ts-node anyway). Verified **8 rows across 4 roles**.
+- `20260531100001_add-legacy-carton-fields` — `is_legacy/section/category/article_group/size_group` (+2 partial indexes) on `master_cartons`. Columns verified present.
+- `20260602100001_add-legacy-carton-opened-transaction-type` — `ALTER TYPE transaction_type ADD VALUE 'LEGACY_CARTON_OPENED'`.
+- (The risky `enforce-uppercase-barcode-constraints` had already run on 2026-05-27 — not re-applied.)
+
+**Verification:** backend `/api/v1/health` → ok; portal root → 200 (after Next basePath redirect); `/binny/inventory` → 200; `/api/v1/roles` → 401 (route live, auth-gated). All three binny containers healthy.
+
+**Next:** client UAT on the test portal → then (on sign-off) live deploy to `binnyfootwear.basiq360.com`. Bundle still uncommitted locally (held per the combined-commit plan).
+
+### June 2, 2026 — Inventory "Failed to load" FIX + Client mod #5: LEGACY CARTON UNPACK/REPACK ("Open for Repacking") — locally complete & smoke-tested (Opus plan / Sonnet execute); folded into the held bundle
+
+**Part A — Inventory module "Failed to load" bug (localhost) — ROOT CAUSE = unrun migration, FIXED.**
+The `/api/v1/inventory/breakdown` endpoint was 500-ing with `column mc.section does not exist`. The May-31 legacy-carton work added `mc.section` aggregation in `inventory.service.ts`, but its migration `20260531100001_add-legacy-carton-fields` had **never been applied to the local DB** (Docker was down that session — it was the explicitly-flagged PENDING item). This stack uses **node-pg-migrate** (`pgmigrations` table), DB user `binny_admin`, db `binny_inventory`. Ran `docker compose exec backend npm run migrate:up` → added `is_legacy/section/category/article_group/size_group` (+2 partial indexes) to `master_cartons`. Breakdown now returns 200. **Deploy note:** this same migration must run on test + live as part of the bundle (it already was going to).
+
+**Part B — Legacy unpack/repack flow (the "open concern" from mod #4, now built).**
+Client model (confirmed by user): a legacy master carton is opaque (no child-box records ever existed). On **unpack** it must become empty with **no** child boxes added to the free list (we never had their codes). The operator then **manually creates** the child boxes (article/colour/MRP/size), **generates & prints labels**, pastes them, and **scans them back into the same master carton** per packing needs, then closes it. After repack it shows as real tracked pieces and no longer counts as legacy.
+
+**Design realization:** once a legacy carton becomes a normal empty `CREATED` carton, the **entire repack flow already exists** (carton detail page already has Add-Boxes scan-to-pack, Close, label print; child-box generate page already exists). So the only genuinely new operation is **"Open for Repacking"**, which flips the carton `is_legacy=true, CLOSED, child_count=0` → `is_legacy=false, status=CREATED` (keeps barcode + section/etc. for provenance), creating/freeing **zero** child boxes. No code needed for the repack itself.
+
+**Gotcha hit during verification:** `inventory_transactions.transaction_type` is a Postgres **ENUM type** (not a CHECK constraint — `pg_constraint` showed none, which misled the initial plan). Adding the new `LEGACY_CARTON_OPENED` type therefore required a migration. In PG16 `ALTER TYPE ... ADD VALUE` runs fine inside node-pg-migrate's txn since we only add (don't use) it.
+
+**Files (uncommitted, folded into the held Inventory + Role Manager + Legacy bundle):**
+
+Backend (new):
+- `backend/migrations/20260602100001_add-legacy-carton-opened-transaction-type.js` — `ALTER TYPE transaction_type ADD VALUE IF NOT EXISTS 'LEGACY_CARTON_OPENED'`; down is a no-op (PG can't drop enum values)
+
+Backend (modified):
+- `config/constants.ts` — `LEGACY_CARTON_OPENED` added to `TRANSACTION_TYPES`
+- `services/masterCarton.service.ts` — new `openLegacyCarton(id, userId)`: locks carton, guards `is_legacy=true` (else 400 "Only legacy cartons can be opened for repacking"), sets `is_legacy=false, status=CREATED, child_count=0`, logs `LEGACY_CARTON_OPENED` txn + `OPEN_LEGACY_CARTON` audit
+- `controllers/masterCarton.controller.ts` — `openLegacyCarton` handler
+- `routes/masterCarton.routes.ts` — `POST /:id/open-legacy` (gated `packing:unpack`), after `/:id/full-unpack`
+
+Frontend (modified):
+- `types/index.ts` — `MasterCarton` gains `is_legacy?`, `section?`, `category?`, `article_group?`, `size_group?`
+- `services/masterCarton.service.ts` — `openLegacy(id)` → `POST /master-cartons/:id/open-legacy`
+- `app/(dashboard)/master-cartons/[id]/page.tsx` — amber "legacy carton" banner; **"Open for Repacking"** button (gated `useCan('packing:unpack')`, shown only when `is_legacy`); Full-Unpack hidden for legacy; confirm modal. After opening, the existing Add-Boxes flow takes over.
+- `app/(dashboard)/master-cartons/page.tsx` — small amber "Legacy" pill next to barcode (visible under the existing "Show legacy" toggle)
+
+**Verification (localhost):**
+- TypeScript: backend `tsc --noEmit` clean; frontend `tsc --noEmit` clean (zero errors, incl. e2e).
+- Live endpoint smoke (inserted a test legacy carton via SQL): `POST /open-legacy` → 200, `is_legacy=false`/`status=CREATED`/`child_count=0`, barcode + provenance retained; re-call → 400 guard; `LEGACY_CARTON_OPENED` txn row written; Hawaii/Ladies `legacy_carton_count` dropped 1→0 in the breakdown; breakdown still 200. Test carton + its txn deleted afterward (clean DB).
+- **Reload note:** nodemon does NOT hot-reload on this Windows→container bind mount (fs events don't propagate) — backend (and frontend) containers were **restarted** to pick up changes. Remember this for future local edits.
+- **NOT run:** backend jest suite — the `binny_backend` image is production-only (no devDependencies/jest installed), so `npm test` can't run in-container. This remains the same separately-tracked pending verification item; the change is small + smoke-verified.
+
+**Deploy implication:** the held bundle now carries **two** migrations to run on test + live: `20260531100001_add-legacy-carton-fields` (the one we applied to localhost today) and `20260602100001_add-legacy-carton-opened-transaction-type`.
+
+**Out of scope (unchanged):** wiring legacy cartons into the dispatch scan flow before repack; enriching the CSV with colour/MRP/pieces. (Both moot once a carton is opened + repacked — it's a normal carton from then on.)
+
+---
+
+### May 31, 2026 — Client mod #4: LEGACY (PRE-GO-LIVE) INVENTORY — CSV UPLOAD — locally complete (Opus plan / Sonnet execute); deploy held with the bundle
+
+**Problem:** the client has existing finished-goods stock already **packed & sealed in master cartons before go-live, with NO QR labels**. The system's whole model is *generate label → scan → pack → dispatch*, so this stock has no records and can't be tracked. Client's confirmed plan: upload a CSV of master-carton counts per article group → generate that many master-carton records with unique barcodes → at dispatch reprint the master label (no per-child-box stickers). Reference file `HAWAI INVENTORY.xlsx` (kept at repo root, gitignored-ish/untracked) has exactly 4 columns: `SECTION`, `CATEGORY`, `ARTICLE GROUP (SIZE GROUP)`, `MASTER CARTON QUANTITY` (e.g. `ALIA PLUS (4-8) = 16`).
+
+**Key data fact driving the design:** the upload is **count-level, not contents-level**. A generated legacy carton knows section / category / article_group / size_group only — **no colour, MRP, article-name, exact sizes, or per-carton pieces**, and no inner child-box records. So legacy cartons are *opaque, fungible* units counted in **cartons**, not pieces.
+
+**Spec locked with user (2 Q&A rounds):**
+- Scope this step = **ingest + generate AND surface in the Inventory drill-down** (not just ingest). Legacy stock shown as a **separate, clearly-labelled carton measure** that never mixes with piece counts of labelled stock.
+- Re-upload = **additive with warning** (no dedupe, no block) — if a section already has legacy cartons, the result lists a warning.
+- Decisions made in-plan: casing normalized via case-insensitive lookup (CSV `HAWAII`→`product_sections` canonical `Hawaii`; category vs `Gents/Ladies/Boys/Girls`) so legacy annotates the *same* drill-down cards (acronym sections like PU/EVA would break naive Title-case, hence lookup); drill-down depth = legacy reaches **section → category → article-group** only (+ size-group split shown on the article-group card), since it lacks the colour/article/MRP levels deeper in the hierarchy; carton shape = `status=CLOSED, child_count=0, is_legacy=true`; one txn + one audit row per CSV row (no per-carton inventory_transactions); upload cap 20 000 cartons/file; **Master Cartons list hides legacy by default** with a "Show legacy" toggle so it isn't flooded.
+
+**Plan file:** `C:\Users\Admin\.claude\plans\hazy-doodling-brook.md` (approved).
+
+**Files (uncommitted, folded into the held Inventory + Role Manager bundle):**
+
+Backend (new):
+- `backend/migrations/20260531100001_add-legacy-carton-fields.js` — adds `is_legacy bool`, `section`, `category`, `article_group(200)`, `size_group` to `master_cartons` + two partial indexes (`WHERE is_legacy=true`)
+- `backend/src/services/legacyCarton.service.ts` — `parseArticleGroup()` (last-balanced-paren extractor; handles messy `MOGLI (6-8)K`, `ROMEX - N (4 -5)`, `MOGLI PLUS 01-10(2-5)`), section/category normalizers, `bulkCreateLegacyCartons()` (csv-parse, header validation, 20k cap, dup-section warnings, per-row txn, `generateUniqueBarcode('MC', client)`, one `BULK_CREATE_LEGACY_CARTONS` audit/row)
+
+Backend (modified):
+- `masterCarton.controller.ts` — `bulkUploadLegacyCartons` + `downloadLegacySampleCsv` handlers; `getMasterCartons` threads `includeLegacy`
+- `masterCarton.routes.ts` — `GET /legacy-upload/sample` (cartons:read) + `POST /legacy-upload` (cartons:create, `csvUpload.single('file')`), mounted **before** `/:id`
+- `masterCarton.service.ts` — `getMasterCartons` takes optional `is_legacy?` filter; **defaults to excluding legacy**
+- `models/schemas/masterCarton.schema.ts` — `includeLegacy` added to list query schema
+- `services/inventory.service.ts` — `BreakdownItem` gains `legacy_carton_count` (+ optional `legacy_size_groups` at group level); separate legacy aggregation merged in TS for section/category/group levels only (skips article/colour/size/leaf). **Original piece-counting SQL untouched.**
+
+Frontend (new): `frontend/src/components/inventory/LegacyUploadButton.tsx` — "Upload Existing Stock" button (gated `useCan('cartons:create')`) + modal mirroring the products Bulk-Import modal (sample download, file picker, result panel w/ cartons_created / rows_skipped_zero / amber warnings banner / errors list).
+
+Frontend (modified):
+- `services/masterCarton.service.ts` — `bulkUploadLegacy(file)`, `getLegacySampleCsvUrl()`, `LegacyUploadResult` type, `includeLegacy` on `getAll()`
+- `components/inventory/InventoryCardGrid.tsx` — `legacy_carton_count`/`legacy_size_groups` on item type; amber "N legacy cartons" pill (distinct from pieces) + size-group split at article-group level
+- `components/inventory/InventoryDrillView.tsx` — legacy total appended to count line
+- `app/(dashboard)/inventory/page.tsx` — renders `LegacyUploadButton` in PageHeader action slot
+- `app/(dashboard)/master-cartons/page.tsx` — "Show legacy" toggle → `includeLegacy=true`
+
+**Verification status:**
+- TypeScript: backend `tsc --noEmit` clean; frontend `tsc` clean for all `src/` (only pre-existing `e2e/*.spec.ts` errors remain — 03, 27, 31).
+- Drill-down merge logic + migration + service reviewed by hand — correct; contract reconciled between the two execution agents (both use `includeLegacy`).
+- **PENDING (Docker Desktop was down this session):** run migration up, backend test suite (was 9/9), and a manual upload smoke (sample CSV → upload incl. a 0-qty + duplicate-section re-upload → drill-down check). To finish: start Docker Desktop, `docker compose up -d postgres`, run the backend migrate + `npm test`, then upload the real `HAWAI INVENTORY` exported to CSV.
+
+**Out of scope (designed conceptually, not built):** the "Open/break a legacy carton" reassortment flow (decompose opaque carton → tracked stock — this is what the user flagged as the open concern re: unpack/repack/reassortment); wiring legacy cartons into the dispatch scan flow; enriching the CSV with colour/MRP/pieces for deeper drill-down.
+
+---
+
+### May 31, 2026 — Client mod #3: ROLE MANAGER (RBAC admin UI) — 5 sessions, locally complete; deploy held for next session
+
+Client requested 2026-05-29: *"Role manager for access management of the admin portal for other system users, where the admin can decide which user can view, edit, add, delete in what module, till what stage, implement that on local host, use opus to plan and sonnet for execution, also please keep the progress.md updated"*.
+
+**Discovery at planning time:** the system already had a **half-built RBAC infrastructure**. `roles` table had a `permissions` jsonb column (migration `20260312100001`), seed `001_roles.ts` populated 4 roles (Admin / Supervisor / Warehouse Operator / Dispatch Operator) with detailed `module:action` permission strings (`cartons:close`, `packing:pack`, etc.), but `rbac.middleware.ts → authorize(...roleNames)` only checked role *name*, never reading the permissions column. **44 `authorize()` call sites across 11 route files were all role-name-gated.** The Role Manager build is the work to finish the wiring + add the admin UI.
+
+**Spec locked with client (single Q+A round 2026-05-29):**
+- Permissions model = **transition perms + per-(role, perm) `max_stage` constraint** (chose "Both" from the 3 options). E.g., a role can have `cartons:update` with `max_stage='CLOSED'` meaning edit is allowed only while status ∈ {CREATED, ACTIVE, CLOSED} — not DISPATCHED.
+- Schema: new normalised `role_permissions` table (id, role_id FK, permission text, max_stage text NULL). Backfill from existing jsonb. Keep jsonb column for now.
+- Admin role is hard-coded super-admin (cannot be edited or deleted to prevent lockout).
+- Default roles (Supervisor / Warehouse Op / Dispatch Op) — permissions editable, name + delete locked.
+- User→role mapping stays 1:1 (existing `users.role_id` FK).
+- **Ship together with the held Inventory drill-down feature** — one combined test→UAT→live cycle.
+
+**Execution — 5 Sonnet sessions of build + 3 Opus-driven side-fixes:**
+
+| Session | Owner | Deliverable | Outcome |
+|---|---|---|---|
+| 7 (Phase 1A) | Sonnet | Migration `20260529100001_create-role-permissions-table.js` + backfill from jsonb; `authorizePermission(perm, opts?)` middleware (with optional stageCheck); GET/POST/PATCH/DELETE `/api/v1/roles` with Admin lockout-prevention; `GET /api/v1/permissions` catalog endpoint (15 modules); updated seed to populate the new table | Done. Backfill counts: Admin 29 perms, Supervisor 20, Warehouse Op 10, Dispatch Op 7 |
+| 8 (Phase 1B) | Sonnet | **Mechanical migration of all 46 `authorize(USER_ROLES.X)` call sites → `authorizePermission('module:action')`** across 11 route files (+ 2 new route files from Phase 1A). 0 `authorize(` calls remain in `backend/src/routes/`. Verified admin smoke tests across products/cartons/users/inventory. | Done. Ambiguous mappings flagged: `ecommerce`/`sample` close/unpack/add-box/remove-box → mapped to `module:update` (no dedicated `:close` perm in catalog) |
+| Mid-session fix | Opus | **Backend test suite green again** — `inventory.service.test.ts` had a broken conditional-type cast (size_breakdown change exposed it) + lowercase UUID hex in test barcodes violated the May 27 uppercase CHECK constraint + colliding section names ('PU', 'Hawaii') with seeded prod data. Fixed: explicit `BreakdownItem[]` cast + `.toUpperCase()` on test barcodes + section literals renamed to `'TEST_SECTION_PU'` / `'TEST_SECTION_HAWAII'` so test data lives in unique buckets. | 9/9 tests pass cleanly |
+| 9 (Phase 2A) | Sonnet | New `/admin/roles` page — card list with create/edit/view/delete buttons (Admin row = read-only, default roles = name-locked); modal with **permission matrix UI** (flex-wrap rows per module, checkbox per action, inline `max_stage` dropdown next to stage-aware action checkboxes); delete confirm modal with 409 handling for assigned users; sidebar entry added with ShieldCheck icon | Done. /admin/roles → HTTP 200, all CRUD flows working |
+| 10 (Phase 2B) | Sonnet | (1) Backend: `/api/v1/auth/profile` extended to JOIN `role_permissions` and return the user's effective `permissions: [{ permission, max_stage }]` array; Admin gets synthetic full-catalog array. (2) Frontend: `useCan('module:action', opts?)` hook over the auth store with optional stage-aware gating via canonical `MASTER_CARTON_STAGES` / `CHILD_BOX_STAGES` constants. (3) `NAV_ITEMS` extended with `requiresPermission`; sidebar filtered by user permissions (14 nav items gated). (4) 17 `useCan` button gates across 11 existing pages — Add Product, Bulk Import, Edit per row, Create Carton, Add Boxes, Full Unpack, Close Carton, Add Sample, etc. **Hide-don't-disable** UX choice. | Done |
+| Mid-session fix | Opus | Phase 2B agent's `auth.service.ts` edit had two TS errors that crashed nodemon: unused `_userId` param + the `LoginResponse` user type literal was missing `permissions`. Fixed by removing the unused param across 3 call sites + the type was already correct on disk but needed a container restart to pick up. Login response now includes the user's permissions array directly (avoiding the brief unrestricted-sidebar flicker between login and first /profile call). | Backend back up, login + /profile both return 48 perms for Admin |
+| 11 (E2E + lockout tests) | Sonnet (2 retries) | E2E spec at `frontend/e2e/31-role-manager.spec.ts` — 555 lines, 16 test cases: 4 setup (admin login, role-id lookup, idempotent test-user creation, login each test user) + 11 RBAC tests (admin sidebar, gated subsets per role, backend 403/200 on disallowed/allowed endpoints, stage-aware perm gate, Admin role lockout-prevention, default-role-delete protection, users-still-assigned 409) + 1 cleanup. **12/16 passing** on localhost; 3 skipped, 1 cleanup-failed (see Known issues below). | Done with caveats |
+
+**Files in working tree (uncommitted, still bundled per `[[feedback_combined_commit_test_authoring]]` — combined inventory + role manager bundle now):**
+
+Backend (new):
+- `backend/migrations/20260529100001_create-role-permissions-table.js`
+- `backend/src/config/permissions.ts` (catalog of 15 modules × actions, with `stage_aware` + canonical `stages` arrays)
+- `backend/src/services/role.service.ts`
+- `backend/src/controllers/role.controller.ts`
+- `backend/src/routes/role.routes.ts`
+- `backend/src/routes/permission.routes.ts`
+- `backend/src/models/schemas/role.schema.ts`
+
+Backend (modified):
+- `backend/src/middleware/rbac.middleware.ts` — added `authorizePermission()` (existing `authorize()` kept exported but unused)
+- `backend/src/routes/index.ts` — mounted `/roles` and `/permissions`
+- `backend/src/services/auth.service.ts` — added `fetchPermissionsForUser()` helper; login + getProfile both call it and return `permissions` in the user payload
+- `backend/seeds/001_roles.ts` — also seeds the new `role_permissions` table
+- All 11 route files in `backend/src/routes/` — 46 `authorize(USER_ROLES.X)` sites migrated to `authorizePermission(perm)`
+- `backend/tests/services/inventory.service.test.ts` — test cleanup fixes (cast, uppercase, unique section)
+- `backend/tests/integration/inventory.routes.test.ts` — uppercase fixes
+
+Frontend (new):
+- `frontend/src/app/(dashboard)/admin/roles/page.tsx`
+- `frontend/src/app/(dashboard)/admin/roles/RoleEditModal.tsx`
+- `frontend/src/app/(dashboard)/admin/roles/DeleteRoleModal.tsx`
+- `frontend/src/app/(dashboard)/admin/roles/PermissionMatrix.tsx`
+- `frontend/src/hooks/useCan.ts`
+- `frontend/src/constants/stages.ts` — `MASTER_CARTON_STAGES`, `CHILD_BOX_STAGES`
+- `frontend/src/types/role.ts`
+- `frontend/e2e/31-role-manager.spec.ts`
+
+Frontend (modified):
+- `frontend/src/types/index.ts` — added `UserPermission` + `permissions?: UserPermission[]` on User
+- `frontend/src/constants/index.ts` — `NAV_ITEMS` extended with `requiresPermission`; added Role Manager nav entry
+- `frontend/src/components/layout/Sidebar.tsx` — filters by user permissions; added ShieldCheck to iconMap
+- 11 page files — added `useCan` gates around Create/Edit/Delete/module-specific action buttons
+
+**Verification status:**
+- TypeScript: both ends `tsc --noEmit` clean.
+- Backend tests: 9/9 pass.
+- Endpoint smokes: `/api/v1/auth/profile` returns 48 perms for Admin; non-admin users get their seeded subset; `/api/v1/roles` + `/api/v1/permissions` working; Admin role 403 on PATCH/DELETE; default roles 403 on DELETE.
+- Browser: `/admin/roles` renders the matrix UI; all CRUD flows manually clicked through.
+- E2E: 12/16 passing. The 3 skips + 1 cleanup-fail are documented below — none indicate feature bugs.
+
+**Known issues / caveats (will resolve naturally at test-box deploy):**
+
+1. **Dev env `NEXT_PUBLIC_API_URL` stale.** `docker-compose.yml` line 52 has `NEXT_PUBLIC_API_URL: http://192.168.100.68:3001/api/v1` — that IP is no longer reachable from the host (`curl 192.168.100.68:3001 → HTTP 000`). The localhost frontend works because the auth store falls back to cached user on getProfile failure, but the Playwright test browser hits the network failure faster than the UI assertions complete, causing a /login redirect race. **The 2 skipped UI tests (TC-RBAC-002 "warehouse sees gated subset", TC-RBAC-003 "dispatch operator sees relevant pages") will pass on the test-box where `NEXT_PUBLIC_API_URL` is set correctly.** Feature itself verified working via direct curl of /auth/profile for each role.
+2. **TC-RBAC-007 (stage-aware cartons:update gate) skipped** because no `PATCH /master-cartons/:id` route exists today — the carton-edit flow goes through dedicated endpoints (`/close`, `/reopen`, etc.). Phase 1B agent flagged this; stage-aware perm enforcement is wired and ready for the day a generic carton-update route gets added.
+3. **CLEANUP-001 fails** (deleting the 3 e2e test users at the end of the spec) — harmless; leaves 3 known-password users in the DB. They have valid roles (Supervisor/Warehouse Op/Dispatch Op) so they don't break anything; they'll be wiped at the next DB reset or test-box fresh deploy.
+
+**Decision: deploy held for the next session per user direction.** Combined Inventory + Role Manager bundle will ship to the test box in the next session (after a few more changes the user has queued). Single test → UAT → live cycle.
+
+**Next session candidates:**
+1. **User has additional changes queued** before the bundle deploy — they'll specify at session start.
+2. Combined Inventory + Role Manager test-box deploy. Build is the long pole — was 54 min on 2026-05-28; current test-box load was 2.74 at last check (2026-05-29), should be faster than the May 28 build.
+3. Hand UAT URL to client.
+4. Live deploy after client UAT signoff.
+5. Standalone-commit-vs-bundle decision (still open since 2026-05-27).
+6. CLEANUP-001 e2e-test-user delete fix (low priority; can fold into a polish PR).
+
+---
+
+### May 29, 2026 — Client mod #2: 7-LEVEL INVENTORY DRILL-DOWN — localhost complete; test-box deploy aborted mid-build to pivot to Role Manager
+
+Client request (verbatim): *"Sections: PU, Hawai, EVA, Fabrication, etc · Category: Gents, Ladies, etc · Article group: City 1-10, jerry1-10 etc · Article Name: City 01, 02, 03... · Colour: Red, Blue, Black etc · Size group: 6 to 10, 7 to 9 etc · Prices: 299, 399 etc"* — a 7-tier card-grid drill-down replacing the previous `/inventory` view.
+
+**Spec locked with client (single round of Q&A):**
+- 7 levels: Section → Category → Article Group → Article Name → Colour → Size Group → master-carton leaf table.
+- Count unit at every level = **pieces** (pairs).
+- "In-warehouse" = `master_cartons.status != 'DISPATCHED'`.
+- **Loose stock (FREE/unpacked child boxes) IS counted into upper-level rollups** + surfaced as a separate "Loose Stock" sub-section at the leaf.
+- Same Article+Colour+Size-Group with different MRPs = separate master-carton rows at the leaf (price baked into row, not separate level).
+- Empty / partially-empty cartons still visible at leaf with remaining count.
+- All 6 grouping fields already existed on `products` — **no DB schema changes needed**. Just a new aggregation endpoint + new pages.
+- Location field (VKIA / MIA / F540) excluded — client confirmed they don't run multi-warehouse.
+- `/products` (admin CRUD) and `/inventory` (browse) coexist; products page kept as-is.
+
+**Execution — 4 sessions of Opus-plan / Sonnet-execute, plus 2 in-session UAT fixes:**
+
+| Session | Deliverable | Outcome |
+|---|---|---|
+| 1 | Backend endpoint `GET /api/v1/inventory/breakdown` + Zod schema with path-completeness `.refine()` + service with single parametric SQL + tests | Built, curl-verified against real DB |
+| 2 | Frontend catch-all route `/inventory/[...path]/page.tsx` + `InventoryCardGrid` + `InventoryBreadcrumb` + `InventoryDrillView` | Built, 3 levels click-tested |
+| Sub-task | **Backend test runner setup** — added jest, ts-jest, @types/jest, supertest, @types/supertest to `backend/package.json` + `jest.config.ts` + `tests/setup.ts` | 5 tests pass; one pg-pool teardown hygiene warning to fix later |
+| 3 | Leaf table (`InventoryLeafTable`) + search bar (`InventorySearchBar`) + filter chips (`InventoryFilters`) + summary cards (`InventorySummaryCards`) + per-card stock bars (`InventoryStockBar`) + CSV export at leaf | Built. **Important deviation logged**: previous-session agent destructively replaced a 998-line predecessor `/inventory/page.tsx`. User approved replacement on condition we port the lost features into the new view — stock summary cards, per-card stock bars, and CSV export were all ported as part of session 3. See `[[feedback_check_routes_before_naming]]` memory for the lesson. |
+| Sub-task | **UAT feedback #1 — per-size breakdown at leaf** — user observed at `/inventory/Hawaii/Gents/Premium/Test Product E2E/Black/6-10`: master carton rows show total pieces but not per-size split. Required backend (json_agg per `(carton, size, mrp)` → `size_breakdown` array, sorted numerically) + frontend (Sizes column with blue pills like `[7×1]` on cartons, Size column with amber pills on loose stock, CSV updated with proper quoting). | Built + verified end-to-end |
+| 4 | E2E spec (`frontend/e2e/30-inventory-drilldown.spec.ts`) — 7 tests written, 11 ran via parameterization, **all 11 passing**, ~66s runtime | Done |
+| 4 (cont) | Bug discovered by the E2E agent: `InventoryBreadcrumb.buildHref()` double-encoded already-encoded URL segments → broke back-nav for paths containing spaces (e.g., "Test Product E2E"). | Fixed inline via idempotent `encodeURIComponent(decodeURIComponent(s))` pattern. tsc clean both ends. |
+| 4 (deploy) | Test-box deploy: pre-flight done (load 2.74, disk 78%, all 3 binny containers healthy — calmer than May 28's 1.2-2.6 load), files streamed in 5s, container build kicked off in background, **aborted at ~10 minutes by user direction to pivot to Role Manager feature first**. Killed `docker-buildx bake` + `docker-compose build` + bash-wrapper PIDs via SSH. Containers untouched (the `&& up -d` short-circuited cleanly). | Aborted cleanly |
+
+**Files in working tree (uncommitted, still bundled per `[[feedback_combined_commit_test_authoring]]`):**
+
+Backend (new):
+- `backend/src/services/inventory.service.ts` — added `getInventoryBreakdown()` (the leaf branch uses a derived subquery aggregating per `(carton, size, mrp)` then `json_agg`'d into `size_breakdown` with numeric sort)
+- `backend/src/controllers/inventory.controller.ts` — `getInventoryBreakdown` handler
+- `backend/src/routes/inventory.routes.ts` — `GET /breakdown` route
+- `backend/src/models/schemas/inventory.schema.ts` — `inventoryBreakdownQuerySchema` with the path-completeness `.refine()`
+- `backend/package.json` + `backend/jest.config.ts` + `backend/tests/setup.ts` + `backend/tests/services/inventory.service.test.ts` + `backend/tests/integration/inventory.routes.test.ts`
+
+Frontend (new):
+- `frontend/src/app/(dashboard)/inventory/[...path]/page.tsx`
+- `frontend/src/components/inventory/InventoryBreadcrumb.tsx`
+- `frontend/src/components/inventory/InventoryCardGrid.tsx`
+- `frontend/src/components/inventory/InventoryDrillView.tsx`
+- `frontend/src/components/inventory/InventoryFilters.tsx`
+- `frontend/src/components/inventory/InventoryLeafTable.tsx`
+- `frontend/src/components/inventory/InventorySearchBar.tsx`
+- `frontend/src/components/inventory/InventoryStockBar.tsx`
+- `frontend/src/components/inventory/InventorySummaryCards.tsx`
+- `frontend/e2e/30-inventory-drilldown.spec.ts`
+
+Frontend (modified):
+- `frontend/src/app/(dashboard)/inventory/page.tsx` — was a 998-line page (child-box hierarchy + master-carton hierarchy + stock summary + CSV); replaced with a 20-line wrapper rendering the new drill-down (legacy features ported as listed above).
+
+**Pivot — Role Manager feature requested by user this session:**
+
+After UAT #1 was deployed-to-localhost successfully and the test-box deploy was kicked off, user requested: *"do not deploy it yet on the UAT Server, we also have to implement a Role manager for access management of the admin portal for other system users, where the admin can decide which user can view, edit, add, delete in what module, till what stage, implement that on local host, use opus to plan and sonnet for execution, also please keep the progress.md updated"*.
+
+Decision: **finish Role Manager on localhost first, then ship Inventory + Role Manager together as a single test-box deploy + UAT round**. No code reverted; the inventory drill-down remains complete and locally verified.
+
+**Discovery on the existing RBAC infrastructure:** the `roles` table already has a `permissions` jsonb column; the seed (`backend/seeds/001_roles.ts`) defines four roles (Admin, Supervisor, Warehouse Operator, Dispatch Operator) with detailed `module:action` permission lists (`users:create`, `cartons:close`, `packing:pack`, etc.). **BUT** `rbac.middleware.ts → authorize()` only checks role *name*, never the permissions column. 44 `authorize()` call sites across 11 route files all use role-name gating. So: the granular permissions are stored-but-unused — half-built RBAC waiting to be finished. The Role Manager feature is the work to finish it + add an admin UI.
+
+**Next session candidates:**
+1. **Role Manager Phase 1 (backend)**: finish wiring the permission-based middleware; migrate 44 `authorize(USER_ROLES.X)` call sites to `authorizePermission('module:action')`; add roles CRUD + permission catalog endpoints.
+2. **Role Manager Phase 2 (frontend)**: new `/admin/roles` page with matrix UI; `useCan()` React hook; sidebar + button gating.
+3. **Role Manager Phase 3 (testing + polish)**: E2E permission enforcement tests; verify existing `/users` page lets admin assign roles.
+4. Inventory drill-down test-box deploy (held).
+5. UAT + live deploy of both features (held).
+6. Backend hygiene fixes: pg-pool teardown in tests; standalone-commit decision still open.
+
+---
+
+### May 28, 2026 — Client mod #1: Child-box label REPRINT (per-row + multi-select bulk) — deployed to LIVE + TEST
+
+Client request: add a provision to reprint child-box labels, parallel to the existing single-label reprint on master cartons. Initial scope chosen: **per-row only** to mirror master-carton parity. After localhost verification of per-row, user expanded scope: **multi-select bulk reprint** added in the same session.
+
+**Implementation (frontend-only — no backend/DB changes):**
+
+1. **New shared util `frontend/src/lib/childBoxLabel.ts`** — extracts the existing 120-line label HTML/CSS template from `generate/page.tsx#handlePrint` into `printChildBoxLabels(boxes: ChildBoxWithProduct[])`. Template byte-identical to the original (TSC printer tuned to it). Single behavioural delta: `packedOn` is derived per-box from `box.created_at` instead of always-today — correct for reprints, no-op for the generate-time flow.
+2. **`generate/page.tsx` refactor** — `handlePrint` body replaced with a one-liner call to the shared util; the three rendering imports (`qrcode.react`, `react-dom/server`, `createElement`) removed.
+3. **`child-boxes/page.tsx` — per-row Print:** new "Actions" column on the desktop table + a `Print Label` button bottom-right of each mobile card. Both call `printChildBoxLabels([box])`. `e.stopPropagation()` on the click so the row's `toggleExpand` doesn't fire.
+4. **`child-boxes/page.tsx` — multi-select bulk:**
+   - New `selectedIds: Set<string>` state.
+   - Desktop: first-column checkbox per row + header checkbox with full all-selected/indeterminate/none tri-state (wired via a `ref` + `useEffect` that sets `headerCheckboxRef.current.indeterminate`).
+   - Mobile: checkbox top-left of each card beside the barcode.
+   - `Print Selected (N)` button in the page-action area (left of `Bulk Import`), rendered only when `selectedIds.size > 0`. Clears the set after firing the print.
+   - Selection resets on any of: search input change, status filter change, product filter change, pagination prev/next.
+   - All checkboxes stop event propagation so they don't accidentally toggle row-expand.
+   - No row-count cap (operator self-limits via what they tick on a `PAGE_SIZE`-bounded page).
+
+**Sonnet executed in two passes (per [[feedback_opus_sonnet_workflow]]); Opus planned + verified the diffs.** Agents were told NOT to modify `progress.md` (per [[feedback_agents_progress_scope]]) — this entry is orchestrator-written.
+
+**Localhost verification (HMR via the dev docker stack):**
+- Frontend container source is volume-mounted with `WATCHPACK_POLLING` — no rebuild needed; HMR recompiled cleanly twice (per-row pass, then bulk pass).
+- `tsc --noEmit` clean for our diff (only the two pre-existing `e2e/03-child-boxes.spec.ts` + `e2e/27-edge-cases.spec.ts` errors remain).
+- User clicked through both phases in the browser and signed off: per-row works, multi-select works, indeterminate state correct, propagation suppressed.
+
+**Deviation from [[feedback_deployment_workflow]] (deliberate, one-off):** User directed pushing to **LIVE first, then TEST**, mirroring the May 27 reasoning — live DB still empty, no real client traffic, frontend-only additive change ⇒ test-first ceremony cost > insurance value. Test deploy followed for consistency / future UAT continuity.
+
+**Live deploy (`187.127.130.99` → `binnyfootwear.basiq360.com` + `srv1689976.hstgr.cloud/binny/`):**
+- Streamed `frontend/src/` only (incl. the new `childBoxLabel.ts`). Backend + db untouched.
+- Built `binny-frontend` + `binny-frontend-root`. **82 seconds total** — most layers cached because May 27 build was recent.
+- Recreated both frontend containers. `binny-backend` (21 h) + `binny-db` (4 d) + surveydesk stack untouched.
+- Smoke: `binnyfootwear.basiq360.com/` 200, `srv1689976.hstgr.cloud/binny/` 308 (basePath redirect), API `/health` 200, surveydesk root 200 ⇒ coexistence intact.
+
+**Test deploy (`srv1409601.hstgr.cloud/binny/`):**
+- Same source stream. Built only `binny-frontend` (test box has one frontend container, not two).
+- Build took **54 minutes** (07:11 → 08:05 UTC). Build itself was fast; the `unpacking to binny-binny-frontend:latest` step alone took **87 s**. The bulk of the wall-clock was disk I/O — test box has busier neighbour load (1.2/1.9/2.6) than the calm live box (0.04). Far better than the 17-min build on 2026-05-27 (which itself was the *post*-cleanup baseline), so the regression here is real and worth watching.
+- Recreated `binny-frontend`. Smoke: `srv1409601.hstgr.cloud/binny/` 308, API `/health` 200.
+
+**Files in working tree (all uncommitted, still bundled per [[feedback_combined_commit_test_authoring]]):**
+- `frontend/src/lib/childBoxLabel.ts` (NEW)
+- `frontend/src/app/(dashboard)/child-boxes/page.tsx`
+- `frontend/src/app/(dashboard)/child-boxes/generate/page.tsx`
+
+**Next session candidates:**
+1. Hand UAT URL to client — both `binnyfootwear.basiq360.com/child-boxes` and `srv1409601.hstgr.cloud/binny/child-boxes` are serving the new code.
+2. Next client mod (queued).
+3. Pre-existing carry-overs from 2026-05-27: standalone-commit-vs-bundle decision, May 23 session-timeout hotfix test-box deploy.
+4. Investigate the test-box build slowdown (~54 min today vs ~17 min on 2026-05-27). May be related to the 1.2-2.6 load avg and accumulated build cache — `docker builder prune` could help if it recurs.
+
+---
+
+
+
+### May 27, 2026 — Barcode case-sensitivity hotfix (root cause + defense-in-depth fix + deployed to test)
+
+Client reported intermittent "barcode does not exist" errors when scanning child-box labels during master-carton creation on the test portal. Hypothesised it was case-related — manual entry in caps worked, lowercase didn't.
+
+**Root cause confirmed via backend logs.** Every barcode lookup in the backend uses case-sensitive SQL `WHERE col = $1`. DB stores barcodes uppercase exclusively (14618/14618 audited). Client browser was POSTing lowercase values (e.g., `cb9qr5xf`) → 404. The bizarre intermittency (`MCXWR2XE` succeeded at 05:32, then failures at 07:23+) is explained by HID barcode scanners + Windows Caps Lock interaction: scanners that emit uppercase via Shift+letter get flipped to lowercase when Caps Lock is ON. Same scanner, same machine, same operator — just a stray Caps Lock toggle between sessions.
+
+**Also discovered while in the logs:** the `/unpack` page Input doesn't clear after a lookup, so repeat scans concatenate into URLs like `/master-cartons/qr/mcxwr2xemcxwr2xe`. Separate bug, fixed in the same batch.
+
+**Defense-in-depth fix (4 layers) — Opus planned, 4 Sonnet agents executed in parallel:**
+
+1. **Frontend scanner normalization** — `HIDScannerInput.submit()`, `QRScanner.handleScanSuccess()`, and `scanStore.addItem`/`removeItem` all `.trim().toUpperCase()` before storing or forwarding. Catches both scanner-borne and direct-caller paths.
+2. **Backend SQL** — all 9 barcode `WHERE` clauses across `masterCarton.service.ts`, `inventory.service.ts`, `childBox.service.ts`, `sample.service.ts`, `ecommerce.service.ts` changed to `WHERE col = UPPER($1)`. Case-insensitive at the query layer.
+3. **Zod schema input transforms** — 6 fields across `masterCarton.schema.ts`, `sample.schema.ts`, `ecommerce.schema.ts` normalize via `.transform((s) => s.trim().toUpperCase())`. Belt-and-braces.
+4. **CHECK constraints (new migration `20260527120001_enforce-uppercase-barcode-constraints.js`)** — `CHECK (col = UPPER(col))` on `child_boxes`, `master_cartons`, `sample_records`, `ecommerce_records`. Any future code path that tries to insert lowercase will be rejected at the DB layer; prevents silent regressions.
+5. **`/unpack` URL-concat fix** — `setCartonQR('')` at the start of `lookupCarton` to clear the controlled Input before the next scan can append.
+
+**Deployed to test box (`srv1409601.hstgr.cloud`).** Code streamed, backend + frontend rebuilt (~17 min build vs the 40+ min earlier this month — the May 26 zombie-process cleanup helped), containers recreated, migration applied successfully. New `MCHD6TC5` master carton created via a lowercase POST body as the end-to-end proof.
+
+**Smoke tests (all from local, against test portal):**
+
+| Test | Before | After |
+|---|---|---|
+| `GET /child-boxes/qr/cb309m3y` (lowercase) | 404 | **200** |
+| `GET /child-boxes/qr/CB309M3Y` (uppercase, sanity) | 200 | 200 |
+| `GET /master-cartons/qr/mcxwr2xe` (lowercase) | 404 | **200** |
+| `GET /child-boxes/qr/Cb309M3y` (mixed) | 404 | **200** |
+| `POST /master-cartons` with `["cb59ceg2"]` body (full E2E) | 404 | **201** (`MCHD6TC5` created) |
+| `INSERT … VALUES ('mc_lower_test', …)` direct SQL | succeeded | **rejected** by `chk_master_cartons_carton_barcode_upper` |
+
+**Files changed (all uncommitted, still bundled per [[feedback_combined_commit_test_authoring]]):**
+- `frontend/src/components/scanning/HIDScannerInput.tsx`
+- `frontend/src/components/scanning/QRScanner.tsx`
+- `frontend/src/store/scanStore.ts`
+- `frontend/src/app/(dashboard)/unpack/page.tsx`
+- `backend/src/services/masterCarton.service.ts`
+- `backend/src/services/inventory.service.ts`
+- `backend/src/services/childBox.service.ts`
+- `backend/src/services/sample.service.ts`
+- `backend/src/services/ecommerce.service.ts`
+- `backend/src/models/schemas/masterCarton.schema.ts`
+- `backend/src/models/schemas/sample.schema.ts`
+- `backend/src/models/schemas/ecommerce.schema.ts`
+- `backend/migrations/20260527120001_enforce-uppercase-barcode-constraints.js` (NEW)
+
+**Live deploy — done same session (user directed to ship without waiting for test UAT, since the live DB is empty and any real client usage would hit the same bug).** Same code streamed to `/opt/binny/` on `187.127.130.99`. Live box load was 0.23 vs the test box's 5+ — build was much faster (~10 min vs test's ~17 min). Rebuilt **all three** containers: `binny-backend`, `binny-frontend` (hstgr fallback), `binny-frontend-root` (binnyfootwear canonical). Migration applied cleanly. Live verification limited to:
+- CHECK constraint rejected a direct lowercase INSERT into `master_cartons` → proves migration applied on live DB.
+- Both URLs (`srv1689976.hstgr.cloud/binny/` and `binnyfootwear.basiq360.com`) returned 200 on auth + reached the master-carton POST route on the new container.
+- Surveydesk `/health` → 200 (coexistence undisturbed across the 3-container recreate).
+- Full case-insensitive lookup proof not possible — live DB is empty (0 products, 0 child boxes, 0 master cartons). Will be exercised when the client loads their first data.
+
+Code on live is byte-identical to what was exhaustively proved on test box.
+
+**Operator-level workaround communicated to client:** check Caps Lock state before scanning — quick fix while they UAT. Also worth a 30-second Notepad test ("scan one barcode into Notepad; if it shows up lowercase, Caps Lock is on") to give the client a self-diagnostic.
+
+**Next session candidates:**
+1. Deploy this hotfix to live (after test UAT sign-off).
+2. Standalone hotfix commit vs folding into the held bundle — open question for the user.
+3. Resume the May 23 session-timeout hotfix test-box deploy (still pending — and the test box just had a successful build, so it's a calmer moment to try again).
+
+---
+
+### May 26, 2026 — RCA document drafted for Surveydesk coexistence issues
+
+User asked for a Root Cause Analysis covering the server-conflict issues we've hit with Surveydesk (the other Basiq360 client app coexisting on both the test and live Hostinger VPSes). Wrote `docs/RCA-surveydesk-coexistence-2026-05.md` covering both incidents in one document:
+
+- **Incident A (2026-05-23, LIVE box):** Surveydesk owned 80/443; first pivot to 8080/8443 with `binny-edge` was blocked by Hostinger's upstream network filter (not the host-level UFW/iptables we had open); second pivot landed the shared-edge architecture currently in production.
+- **Incident B (2026-05-26, TEST box):** 11 stuck `docker compose logs --tail=N` processes from Surveydesk operator(s) had been accumulating since May 20-21, slowed `dockerd`, drove the test box into 1.3 GiB swap, caused the client-reported "test portal feels slow during bulk print" issue.
+
+RCA includes: per-incident timeline, root causes, impact assessment, the `pkill` self-footgun lesson, contributing factors (shared-tenancy without isolation contract, no monitoring, no operator runbook), and 17 prioritised preventative actions across architecture / ops / monitoring / process. Cumulative effort to close the action list estimated at 1-2 engineering days.
+
+Top-of-list next steps from §7 of the RCA: write the new-VPS pre-flight checklist, stand up host + uptime + zombie-process monitoring on both VPSes, draft the shared-host operator runbook, set up the LE auto-renew before mid-August.
+
+Not committed — local working-tree bundle rule still applies (RCA folds into the held batch unless user wants a standalone commit).
+
+---
+
+### May 26, 2026 — Test portal "slow" root-caused + cleared (11 stuck `docker compose logs` from sibling project)
+
+Client reported the test portal running extremely slowly — printing 50-60 child-box labels at once taking ~4× normal time. Investigated end-to-end. **Root cause was not in Binny code, DB, or the label-v2 / session-timeout changes**:
+
+- Binny containers all healthy: `binny-frontend` 0 % CPU / 44 MiB, `binny-backend` 0 % CPU / 29 MiB, `binny-db` 0 % CPU / 72 MiB.
+- Binny DB is **17 MB** total — no query/data growth issue.
+- Print code itself is client-side from already-loaded data (`generatedBoxes` in React state) — server load doesn't slow the print job directly; what stretches is everything *around* it (page navigation, bulk-create API call, asset fetches when the print window opens).
+- The host (`srv1409601.hstgr.cloud`) was overloaded: 5/15-min load 5.64 / 5.77 on a small VPS, **1.3 GiB swap actively in use**.
+
+**Confirmed root cause:** the **11 stuck `docker compose logs --tail=N` processes from sibling `/opt/surveydesk`**, already flagged as a TODO in the May 23 entry. Started May 20-21, parented to init, holding open log streams against `dockerd` — which is why `dockerd` itself was the #5 CPU consumer (`9.2 %` lifetime average; the instantaneous draw was higher with 11 stale streams attached). These were one-shot invocations (no `-f`), should have exited immediately, but got stuck; likely fired from a watcher loop in an SSH session that disconnected without reaping.
+
+**Cleared with:**
+```bash
+ssh -i ~/.ssh/id_ed25519 root@srv1409601.hstgr.cloud "pkill -f 'docker compose logs --tail='"
+```
+
+**Self-foot-shoot to avoid:** the *first* attempt used pattern `'docker compose logs --tail'` without the `=`. That literal string also appeared in the argv of the bash command running pkill itself, so pkill killed its own SSH session mid-loop. The `--tail=` anchor avoids it because the real stuck procs all had `--tail=30` or `--tail=50` (with `=`), but the bash wrapper didn't. All 11 procs were already signalled before the bash exited, so the cleanup succeeded despite the SSH drop — but the next attacker of this should use the safe pattern from the start.
+
+**Verification after cleanup:**
+- Stuck procs: 0 (was 11).
+- Binny API health: 200 in **0.71 s**; portal root: 308 in 1.0 s.
+- 5/15-min load: 7.88 / 4.92 (trending down).
+- 1-min load spiked to 12-13 *right after* cleanup, but unrelated: `python3 unattended-upgrade --download-only` (PID 25605, started 08:40) was running at 51 % CPU. That's Ubuntu's daily security-update job; finishes on its own.
+
+**Deliberately did NOT do this session:**
+- `docker system prune -af` — box is at 77 % disk (23 GB free), not urgent. Better to prune *after* the next successful deploy, when fresh image layers are already in cache (pruning right before a rebuild just makes the rebuild slower).
+- Deferred session-timeout hotfix deploy to test box (item #4 in May 25 carry-overs). Now a viable retry candidate — box should be calm enough for the build to complete this time.
+
+**Memory updated:** [[deployment-server-details]] gained a "Test box health / known noisy-neighbor" section so future sessions don't re-diagnose this from scratch.
+
+**Client comms:** ask them to retry the 50-60 label print after ~10 minutes (letting `unattended-upgrade` finish). Should feel materially faster.
+
+---
+
+### May 25, 2026 — **Brand-URL cutover to `binnyfootwear.basiq360.com`** (dual-frontend architecture; hstgr `/binny/` retained as fallback)
+
+**Plan agreed with user this session.** Domain locked in as `binnyfootwear.basiq360.com` (changed from earlier `binny.basiq360.com` in [[project_go_live_infra]] / [[project_next_session_live_deploy]]). Basiq360 server team confirmed DNS A record `binnyfootwear.basiq360.com → 187.127.130.99` is live; `nslookup` resolves cleanly from local. User explicitly requested the old `srv1689976.hstgr.cloud/binny/` URL **stay independently serving as a fallback** while the new domain stabilises (not a redirect — both URLs serve in parallel).
+
+**Architecture: dual-frontend, single backend.**
+
+| URL | nginx server block | Container | Build flags |
+|---|---|---|---|
+| `https://srv1689976.hstgr.cloud/binny/` (fallback, existing) | existing | `binny-frontend` (unchanged) | `NEXT_PUBLIC_BASE_PATH=/binny`, `NEXT_PUBLIC_API_URL=https://srv1689976.hstgr.cloud/binny/api/v1` |
+| `https://binnyfootwear.basiq360.com/` (new canonical) | NEW | `binny-frontend-root` (new) | no basePath, `NEXT_PUBLIC_API_URL=https://binnyfootwear.basiq360.com/api/v1` |
+
+Both share `binny-backend` (which doesn't care about path prefix — nginx strips `/binny` before forwarding). Two containers because `NEXT_PUBLIC_*` and `basePath` are bake-time constants in Next.js — one binary cannot serve both URL shapes cleanly. RAM cost ~150 MB extra on a 7.7 GiB box (negligible).
+
+**Backend CORS** already supports comma-separated origins (`backend/src/app.ts:22`: `env.CORS_ORIGIN.split(',').map(o => o.trim())`). No code change — just widen `/opt/binny/.env`:
+```
+CORS_ORIGIN=https://srv1689976.hstgr.cloud,https://binnyfootwear.basiq360.com
+```
+
+**Cutover sequence:**
+1. Add `binny-frontend-root` service to `docker-compose.prod.yml` in repo.
+2. Stream updated compose to live box, widen `.env` CORS_ORIGIN.
+3. Issue LE cert for `binnyfootwear.basiq360.com` via certbot webroot (surveydesk's nginx already serves ACME challenges via `_` fallback on port 80).
+4. Append new `server { server_name binnyfootwear.basiq360.com; ... }` block to `/opt/surveydesk/nginx.frontend.conf` — routes `/` → `binny-frontend-root:3000`, `/api/` → `binny-backend:3001`. Back up the pre-edit config.
+5. `docker compose build binny-frontend-root && up -d binny-frontend-root binny-backend` (backend recreate to pick up new CORS_ORIGIN).
+6. `docker exec surveydesk-frontend nginx -t && nginx -s reload`.
+7. Smoke test BOTH URLs + verify surveydesk unaffected.
+
+**Critical do-not-touch:** the existing `binny-frontend` container, the existing hstgr server block, and the existing `/opt/binny/.env` secrets stay as-is. This is purely additive.
+
+---
+
+#### Cutover outcome — COMPLETE (2026-05-25, ~12:43 UTC)
+
+All seven steps executed cleanly in one session, ~10 minutes wall-clock. No surveydesk downtime (nginx reload, not container restart).
+
+**LE cert:** `/etc/letsencrypt/live/binnyfootwear.basiq360.com/` — issued via `certbot/certbot` docker image with `--webroot -w /var/www/certbot` (same flow as the 2026-05-23 hstgr cert). Expires **2026-08-23**. ACME challenge auto-served by surveydesk's existing port-80 `_` server_name block; no nginx changes needed for issuance.
+
+**Nginx patch:** new 443 ssl `server { server_name binnyfootwear.basiq360.com; ... }` block appended to `/opt/surveydesk/nginx.frontend.conf` (lines 205-256). Routes `/api/` → `binny-backend:3001` (no prefix strip — this hostname serves at root), `/` → `binny-frontend-root:3000` with WebSocket upgrade headers. Backup of pre-patch config at `/opt/surveydesk/nginx.frontend.conf.bak.before-binnyfootwear`. `nginx -t` validated, `nginx -s reload` succeeded with zero surveydesk-frontend downtime.
+
+**Containers:**
+- `binny-frontend-root` (NEW) — built once via `docker compose --env-file .env build binny-frontend-root` with bake-time args `NEXT_PUBLIC_API_URL=https://binnyfootwear.basiq360.com/api/v1`, `NEXT_PUBLIC_BASE_PATH=""`. Verified image contents: `grep` shows only `binnyfootwear.basiq360.com` baked in, no stale hstgr references. Joined to `edge-network`; surveydesk-frontend resolves it at `172.19.0.5`.
+- `binny-backend` — recreated to pick up the new `CORS_ORIGIN=https://srv1689976.hstgr.cloud,https://binnyfootwear.basiq360.com`. Healthy in 30s.
+- `binny-frontend` (fallback) — UNTOUCHED. Still serving `srv1689976.hstgr.cloud/binny/` with `/binny/_next/...` asset paths exactly as before.
+- `binny-db` — untouched.
+- `surveydesk-*` — untouched.
+
+**Env state on live box (2026-05-25):**
+- `/opt/binny/.env` — `CORS_ORIGIN` widened. Backup at `/opt/binny/.env.bak.before-binnyfootwear`.
+- `/opt/binny/docker-compose.prod.yml` — replaced with the new repo version (adds `binny-frontend-root` service alongside existing `binny-frontend`). This file is the prior version of the held local working-tree change — i.e., the repo file is now ahead of the file on disk on the live box by exactly this addition, which is also reflected in the local working tree (uncommitted).
+
+**Smoke tests (all from local dev machine, real network path):**
+
+| URL | Path | Result |
+|---|---|---|
+| `binnyfootwear.basiq360.com` | `GET /` | 200 (`<title>Binny Inventory</title>`) |
+| `binnyfootwear.basiq360.com` | `GET /api/v1/health` | 200 `{"status":"ok","timestamp":"…"}` |
+| `binnyfootwear.basiq360.com` | `POST /api/v1/auth/login` | 200, JWT issued, admin role |
+| `binnyfootwear.basiq360.com` | asset paths in HTML | `/_next/...` (clean, no prefix) |
+| `srv1689976.hstgr.cloud` | `GET /binny/` | 308 → `/binny` → 200 (Next.js trailing-slash normalisation; browser follows transparently — long-standing behavior, unchanged today) |
+| `srv1689976.hstgr.cloud` | `GET /binny/api/v1/health` | 200 |
+| `srv1689976.hstgr.cloud` | asset paths in HTML | `/binny/_next/...` (basePath intact) |
+| `surveydesk.basiq360.com` | `GET /health` | 200 (unaffected) |
+
+**TLS:** new cert subject `CN=binnyfootwear.basiq360.com`, valid 2026-05-25 → 2026-08-23. Hstgr cert (subject `CN=srv1689976.hstgr.cloud`, expires 2026-08-21) untouched.
+
+**Repo working tree delta (uncommitted, still bundled per [[feedback_combined_commit_test_authoring]]):**
+- `docker-compose.prod.yml` — adds `binny-frontend-root` service.
+- (Carries forward: session-timeout hotfix 3 files + mobile test-case authoring batch from prior sessions.)
+
+**Rollback playbook (still applies if the new URL needs to be pulled later):**
+```bash
+ssh -i ~/.ssh/id_ed25519 root@187.127.130.99
+cd /opt/surveydesk
+cp nginx.frontend.conf.bak.before-binnyfootwear nginx.frontend.conf
+docker exec surveydesk-surveydesk-frontend-1 nginx -t && \
+  docker exec surveydesk-surveydesk-frontend-1 nginx -s reload
+# Optionally stop the new container (cert + DNS stay; just no nginx route to it):
+cd /opt/binny && docker compose -f docker-compose.prod.yml stop binny-frontend-root
+```
+Hstgr URL stays serving throughout; binnyfootwear goes silent (no 502 since the server block is removed). LE cert remains valid for re-attachment.
+
+**Updated follow-ups for next session(s):**
+1. **Mobile APK rebuild** against `https://binnyfootwear.basiq360.com/api/v1` via EAS per [[reference_eas_auth]]. Currently the test-portal APK points at `srv1409601.hstgr.cloud` (test box). Live APK has never been built.
+2. **LE cert auto-renewal** — STILL not set up on the live box. Now TWO certs need renewal: `srv1689976.hstgr.cloud` (2026-08-21) and `binnyfootwear.basiq360.com` (2026-08-23). Both via same certbot webroot flow. Set up a cron or long-running container before August.
+3. **JWT secret rotation on live** — outstanding from May 23 session. Plaintext was leaked to a prior chat transcript. Rotate via `openssl rand -hex 32`, update `/opt/binny/.env`, `docker compose up -d binny-backend`. All sessions invalidate (clients re-login once).
+4. **Session-timeout hotfix deploy to TEST box** — still pending from May 23. Containers on test box still on old images even though code + env are streamed.
+5. **Standalone commit for session-timeout hotfix** — three files (`frontend/src/services/api.ts`, `backend/src/controllers/auth.controller.ts`, `docker-compose.yml`). NOT folded into the held mobile-test-authoring bundle per [[feedback_combined_commit_test_authoring]].
+6. **Consider whether to drop the hstgr fallback** after a stabilisation period (e.g., 2–4 weeks). Once confident the new URL is solid, can either keep both indefinitely (~150MB extra RAM is trivial) or stop `binny-frontend` to free the slot.
+
+---
+
+### May 23, 2026 — **Session timeout hotfix** — refresh-token round-trip wired into the frontend; JWT_EXPIRY 15m → 1h. **LIVE deployed; TEST carried over to next session.**
+
+Client reported "session out happens too frequently" on both the test and live portals — users being kicked to the login screen mid-task. Root-caused, fixed locally + on live; test box deferred because its build hung at ~19 min in (host load avg 24 — known-bad box).
+
+**Root cause:** `frontend/src/services/api.ts` had an axios response interceptor that caught any 401 and immediately cleared localStorage + hard-redirected to `/login`. The backend has had a fully-working `POST /auth/refresh` route this whole time, with a 7-day refresh JWT issued as an httpOnly cookie at login. The frontend just never called it. So **every 15 minutes (the access-token TTL), the next API request 401'd and bounced the user**. The 7-day refresh window was effectively dead weight.
+
+**Additional ugly finding:** the **test box's `/opt/binny/.env` had the variable misnamed** — `JWT_ACCESS_EXPIRY=15m` instead of `JWT_EXPIRY=15m`. Since the env-validation schema (`backend/src/config/env.ts:29-31`) only knows `JWT_EXPIRY`, the misnamed var has been silently ignored on the test portal since deploy — every test-portal session has been 15m for weeks. Fixed in this hotfix.
+
+**Fix landed in three places:**
+
+1. **`frontend/src/services/api.ts`** — rewrote the response interceptor. On a 401 that isn't already a retry and isn't to `/auth/login` or `/auth/refresh` itself, call `refreshAccessToken()`, update localStorage with the new access token, then retry the original request. Single-flight: an in-flight refresh promise is reused for concurrent 401s so we don't fire N refreshes simultaneously across tabs/parallel calls. Only clear-and-redirect to `/login` if the refresh itself fails (refresh-token expired or invalid). The original direct-clear path stays for non-recoverable cases. Falls back gracefully when `window` is undefined (SSR contexts).
+
+2. **`backend/src/controllers/auth.controller.ts`** — the access-token httpOnly cookie's `maxAge` was hardcoded to `15 * 60 * 1000` ms (15m) in BOTH the `login` and `refreshToken` handlers, independent of the env-driven JWT TTL. Extracted to two module-level constants `ACCESS_COOKIE_MAX_AGE_MS = 60 * 60 * 1000` and `REFRESH_COOKIE_MAX_AGE_MS = 7d`, replaced both usages. Comments now flag that the access-cookie TTL must stay aligned with `env.JWT_EXPIRY` (still a manual sync — no string parser added; small enough surface that hardcoding is fine).
+
+3. **`docker-compose.yml`** (root, local dev) — added `JWT_EXPIRY: ${JWT_EXPIRY:-1h}` and `JWT_REFRESH_EXPIRY: ${JWT_REFRESH_EXPIRY:-7d}` to the `backend` service env. Local dev was previously inheriting the 15m default from the zod schema; this aligns local with prod and lets developers override via env var if needed.
+
+**Server-side env edits (no code, just `.env`):**
+- **Live (`srv1689976.hstgr.cloud`, `/opt/binny/.env`):** `JWT_EXPIRY=1h` updated in place. The var name was already correct from this morning's live-infra setup.
+- **Test (`srv1409601.hstgr.cloud`, `/opt/binny/.env`):** renamed `JWT_ACCESS_EXPIRY → JWT_EXPIRY` and bumped to `1h` (sed `s/^JWT_ACCESS_EXPIRY=.*/JWT_EXPIRY=1h/`). `.env.bak.before-session-fix` saved as backup. **Note: test backend not restarted yet** — env change is on disk but the running container is still on the old image and would need a rebuild + recreate to pick up the new JWT_EXPIRY anyway.
+
+**Local + live verification:**
+- Local: `docker compose up -d backend` (recreate to pick up new env). Login → JWT TTL **3600s = 60min** (was 900s). ✅
+- Live: streamed both files via tar-over-SSH, `docker compose build binny-backend binny-frontend` (~45s, clean), `up -d binny-backend binny-frontend` recreated both. Verified: JWT TTL **3600s** on live; `/auth/refresh` round-trip returns new accessToken cleanly with the captured login cookie jar. ✅
+- Surveydesk (the coexisting tenant on the live box) still 200 on `/health` after the binny container recreate. ✅
+- **Browser-side interceptor change NOT manually exercised** — verified only via curl-level backend correctness + TypeScript type-check pass. Real-world test = a logged-in client should now stay signed in for 60 min, then experience a seamless refresh on the next API call. If they're disconnected, they'd see a brief delay (one extra round-trip on the refresh) but no kick to login.
+
+**Test box deferred because of host health:**
+The test box (`srv1409601.hstgr.cloud`) is sick — load avg was 17 going up to 24 during the build. After ~19 min the Next.js build was still running and the box was hammering. Pkill'd the build and the two background watchers. Code is streamed onto the box (`/opt/binny/frontend/src/services/api.ts` + `/opt/binny/backend/src/controllers/auth.controller.ts` are the patched versions), `.env` is updated, but **containers are still on the old images**. Carry-over to the next session:
+```
+ssh -i ~/.ssh/id_ed25519 root@srv1409601.hstgr.cloud \
+  "cd /opt/binny && docker compose -f docker-compose.prod.yml build binny-backend binny-frontend \
+   && docker compose -f docker-compose.prod.yml up -d binny-backend binny-frontend"
+```
+Try this when the box is calmer (load < 5). Pre-`docker builder prune -af` might help. The unrelated zombie `docker compose logs` processes from sibling `/opt/surveydesk` are still slowing it down — see May 23 entry above for that ops cleanup TODO.
+
+**NOT committed yet** — local working tree carries the three changes (api.ts + auth.controller.ts + docker-compose.yml). User asked to defer commit to the next session along with the test redeploy. Commit will be a clean standalone fix-commit, NOT folded into the still-held mobile-test-authoring batch per [[feedback_combined_commit_test_authoring]].
+
+**Security artifact from this session — flag for rotation:** during the JWT_EXPIRY edit on live, a `grep ^JWT /opt/binny/.env` output the **plaintext JWT_SECRET + JWT_REFRESH_SECRET** to the chat transcript. The secrets are still the originals generated at live-deploy time this morning (4 hours ago). Operationally low-risk because (a) the transcript is local-only and (b) the secrets aren't widely shared, but the right move next session is to rotate both via `openssl rand -hex 32`, update `/opt/binny/.env`, recreate `binny-backend`. All active sessions will be invalidated (users re-login once).
+
+**Also flagged on the test box during the env inspection (NOT fixing in this hotfix — out of scope):**
+- `NODE_ENV=development` — should be `production` for the test portal. Means morgan logs in dev format, less efficient. Cosmetic.
+- `CORS_ORIGIN=http://localhost:3000` — wrong for the test portal's real URL `https://srv1409601.hstgr.cloud`. Works only because browser falls back to the Bearer header for auth (cookie-cors-blocked silently). Should be fixed for hygiene.
+- `JWT_SECRET=binny_jwt_secret_change_in_production` — **placeholder still in use on test**. Anyone who's read the env.example knows the signing key. Lower-stakes than the live secret leak above because test isn't real data, but should be rotated for the test box too.
+
+These all fall under "test box hygiene sweep" — non-blocking; carry as known low-priority debt.
+
+---
+
+### May 23, 2026 — **LIVE INFRASTRUCTURE STOOD UP** at `srv1689976.hstgr.cloud/binny/` (interim URL; cuts to `binny.basiq360.com` later)
+
+Client UAT signed off on the master-carton label v2. Built out the live production environment per [[project_next_session_live_deploy]], using a different host than the original AWS plan in [[project_go_live_infra]].
+
+**Final URL (interim):** `https://srv1689976.hstgr.cloud/binny/` — real Let's Encrypt cert, expires 2026-08-21.
+**Final URL (eventual):** `binny.basiq360.com` — pending DNS in basiq360.com zone.
+
+**Deviation from the May 23 plan:** the original plan was AWS under Basiq360's account. Client redirected during this session to **a new Hostinger VPS** (187.127.130.99 / `srv1689976.hstgr.cloud`, Ubuntu 26.04 LTS, 96G disk, 7.7Gi RAM, Docker 29.5.2 pre-installed). The domain swap to `binny.basiq360.com` is now a follow-up DNS change rather than a host migration.
+
+**Coexistence with surveydesk (Basiq360's other Hostinger client app):**
+The new "prod" Hostinger box already had **`surveydesk`** running, with `surveydesk-frontend` bound to ports **80 and 443**. Initial attempt: bind Binny to **8080/8443** with our own self-signed cert + nginx-in-container (`binny-edge`). **Blocked by Hostinger's network-level firewall** — non-standard ports filtered upstream (host UFW + iptables open, yet external connectivity fails). Pivoted to coexisting on 80/443 via surveydesk's existing nginx as the shared edge:
+
+1. **Issued a real Let's Encrypt cert** for `srv1689976.hstgr.cloud` via `certbot/certbot` docker image, `--webroot -w /var/www/certbot`. Surveydesk's port-80 server block matches arbitrary hostnames via `_` fallback and already serves the ACME challenge, so the cert request validated cleanly without touching anything.
+2. **Patched `/opt/surveydesk/nginx.frontend.conf`** (the real source-of-truth — `.https.conf` sibling file is unused) to append a `server { listen 443 ssl; server_name srv1689976.hstgr.cloud 187.127.130.99; ... }` block routing `/binny/api/` → `binny-backend:3001` (strip `/binny` prefix) and `/binny/` → `binny-frontend:3000`. Block lifted near-verbatim from the test-box edge-nginx config (`/opt/edge/nginx.conf`).
+3. **Wrote `/opt/surveydesk/docker-compose.override.yml`** to (a) mount the patched `nginx.frontend.conf` as `/etc/nginx/nginx.conf:ro` (since the original was baked into the surveydesk image, not host-mounted) and (b) join surveydesk-frontend to the new `edge-network` docker bridge so it can resolve `binny-frontend` / `binny-backend` by container name.
+4. **Pre-created `edge-network`** docker bridge on the new box (no shared edge existed; this network now hosts binny-frontend + binny-backend + surveydesk-frontend).
+5. **Recreated surveydesk-frontend** (~4s downtime for surveydesk users). Nginx -T now shows both server blocks. Surveydesk health endpoint still 200; binny endpoints serve cleanly.
+
+**Binny stack deployed:**
+- `/opt/binny/` on server, layout identical to test-portal `/opt/binny/`.
+- Code streamed via tar-over-SSH (no node_modules, no .next, no test artifacts).
+- `docker-compose.prod.yml` from repo, unchanged. Added `docker-compose.edge.yml` initially for the `binny-edge` container (now stopped + removed after the surveydesk-frontend pivot — file remains in `/opt/binny/` as a vestigial artifact, harmless).
+- Containers running: `binny-db` (postgres:16-alpine), `binny-backend`, `binny-frontend`. All on internal `binny_binny-internal` network; backend + frontend additionally on `edge-network`.
+- **Fresh secrets** generated server-side via `openssl rand`: separate `DB_PASSWORD`, `JWT_SECRET`, `JWT_REFRESH_SECRET` from the test-box values. Stored in `/opt/binny/.env` (mode 600). Not in git, not in this file.
+- **Fresh DB** — empty postgres schema. Ran migrations via `docker compose exec binny-backend npx node-pg-migrate up -m migrations` after manually installing the `uuid-ossp` + `pg_trgm` extensions (the prod compose doesn't mount `backend/init.sql` into the postgres container, so first-startup auto-init didn't run — flagged for future cleanup).
+- **Seeds:** ran roles + admin only via a one-off `_bootstrap_prod.ts` (since `seeds/003_products.ts` references a `category` column that's NOT NULL in the current schema but absent from the seed data — would fail and roll back the whole transaction). Admin user: `admin@binny.com` / `Admin@123` (seed defaults — client should rotate). Products will be loaded via UI or CSV import.
+
+**Smoke tests passed (from local machine, real network path):**
+- `https://srv1689976.hstgr.cloud/binny/api/v1/health` → 200 `{"status":"ok"}`
+- `https://srv1689976.hstgr.cloud/binny/` → 200 HTML (Binny Inventory page, correct theme, assetPrefix `/binny`)
+- `POST /binny/api/v1/auth/login` → 200 with valid JWT (291-char token, admin role)
+- `GET /binny/api/v1/products` (authed) → 200 `{"data": [], "meta": {"total": 0, ...}}` (fresh DB confirmed)
+- `GET /binny/api/v1/master-cartons` (authed) → 200 with empty data
+- `https://surveydesk.basiq360.com/health` → 200 (coexisting tenant unaffected)
+- Cert: `subject=CN=srv1689976.hstgr.cloud`, `issuer=C=US, O=Let's Encrypt, CN=E8`, valid 2026-05-23 → 2026-08-21
+
+**Known follow-ups (NOT blocking go-live; carry into the next session):**
+1. **DNS:** add `binny.basiq360.com` A record → `187.127.130.99` in the basiq360.com zone. Then issue a second cert for that hostname (same webroot ACME flow), add another `server_name binny.basiq360.com` block to surveydesk's nginx (or replace the hstgr block), update `/opt/binny/.env` CORS_ORIGIN + NEXT_PUBLIC_API_URL, rebuild + recreate binny-frontend. Final cutover to the brand URL.
+2. **LE cert auto-renewal:** no certbot cron/timer set up on this box (the test box had a dedicated `certbot/certbot` long-running container; this box doesn't). Cert expires 2026-08-21 — need to add `certbot renew` cron OR a long-running container before then.
+3. **Mobile APK rebuild:** Expo APK still points at the test portal URL. After step 1, rebuild against `https://binny.basiq360.com/binny/api/v1` (or root path if dropping the prefix) via EAS. Per [[reference_eas_auth]].
+4. **uuid-ossp extension auto-install:** add a `volumes: - ./backend/init.sql:/docker-entrypoint-initdb.d/init.sql:ro` mount on `binny-db` in `docker-compose.prod.yml` so a future DB recreation doesn't need the manual `CREATE EXTENSION` step. Worth fixing in the repo file (would benefit test box too).
+5. **Seeds 003_products.ts is broken** — references obsolete schema (missing `category` column). Either fix it or delete it; either way the prod bootstrap path now uses a `_bootstrap_prod.ts` workaround that should be removed and replaced with a proper "roles + admin only" production-seed entrypoint.
+6. **Vestigial files on prod box:** `/opt/binny/docker-compose.edge.yml`, `/opt/binny/edge/` (cert + nginx.conf for the abandoned binny-edge approach). Harmless but should be cleaned up.
+7. **Push deploy bundle:** the held local working tree (master-carton label v2 + child-box label v2 + held mobile-test-authoring docs batch) is already streamed onto the prod box in this deploy. Combined commit per [[feedback_combined_commit_test_authoring]] still pending — do it next session.
+
+**Deployment workflow status per [[feedback_deployment_workflow]]:** localhost ✅ → test server ✅ (UAT signed off) → **live server ✅ (this entry)**. Phase 1 production cutover effectively achieved on the interim hstgr URL. Brand-URL cutover is the remaining cosmetic step.
+
+**Active workstream:** Phase 6 wrap-up → Phase 1 production cutover complete. Next session focuses on the `binny.basiq360.com` DNS cutover (follow-up #1) and the combined commit (#7).
+
+---
+
+### May 23, 2026 — **Deployment workflow rule established** (localhost → test → client UAT → live)
+
+Per client direction, **all future code changes follow this order, no exceptions**:
+
+1. **Local verification first.** We test every change ourselves on localhost (the Docker stack via `docker compose up -d`) before anything else. If it doesn't work locally, it doesn't leave the machine.
+2. **Push to testing server** (currently `srv1409601.hstgr.cloud` Hostinger VPS, under `[[project_deployment]]`). Use the documented `tar | ssh` recipe from the May 20 entry.
+3. **Client UAT on the testing server.** Wait for explicit client approval/sign-off on the testing portal before any further movement.
+4. **Push to live server** (once `[[project_go_live_infra]]` is set up at `binny.basiq360.com` under Basiq360 ops). **Only after step 3 approval.**
+
+**Until the live server exists**, the workflow effectively ends at step 3 — client sign-off on the testing server is the current finish line. **After go-live**, the live deploy becomes a separate, gated step that happens only after the client has UAT'd the same change on the test server.
+
+This is now the standing rule for the rest of the project. Logged separately to [[feedback_deployment_workflow]] so it survives across sessions.
+
+---
+
+### May 23, 2026 — Deploy completed (after slow build) + next-session plan: move to live
+
+**Deploy outcome:** new `binny-frontend` image built and container recreated successfully on `srv1409601.hstgr.cloud`. Endpoints verified:
+- `https://srv1409601.hstgr.cloud/binny/master-cartons` → HTTP 200
+- `https://srv1409601.hstgr.cloud/binny/api/v1/health` → 200 (`{"status":"ok"}`)
+- Container: fresh recreate (`Up <seconds>` immediately after deploy).
+
+**Server health concerns surfaced during this deploy:**
+- `next build` took **~40 minutes** (2362s) vs the usual ~57s on past deploys. File-copy step (`COPY --from=build /app/.next/standalone`) took another 5.5 min. Image-finalize step (`chown -R` for non-root user, #15) took 174s.
+- Server load average: 3.11 (high but not catastrophic).
+- Disk: 77% full (23G free on /).
+- Lots of stale zombie `docker compose logs --tail=…` processes from a sibling `/opt/surveydesk` project — running for 2+ days. Not cleaned up this session; flagged for a future ops sweep.
+
+**Next session — move to live process per [[feedback_deployment_workflow]]:**
+1. Wait for **client UAT sign-off** on the master-carton label v2 (and any other held mods) on the test portal. Without that, live deploy is blocked per the workflow rule.
+2. Set up the live infrastructure per [[project_go_live_infra]] — domain `binny.basiq360.com`, Basiq360-owned ops, leaving Hostinger. (Likely requires a fresh VPS / hosting setup, DNS pointing, SSL, prod docker compose, env config.)
+3. First live deploy of everything currently held + signed-off on the test server.
+
+Saved a forward-looking project memory ([[project_next_session_live_deploy]]) so the next session resumes on this thread.
+
+**Status:** Today's work — master-carton label v2 — is **live on the testing portal**. Awaiting client UAT. No further test-server pushes until UAT feedback returns. Local working tree still uncommitted (master-carton change + docker-compose.yml LAN-IP fix + held mobile-test-authoring batch) per the standing bundle rule.
+
+---
+
+### May 23, 2026 — Deployed master-carton label v2 to Hostinger VPS testing portal
+
+Pushed today's master-carton label rewrite + font-size pass to the test server per the standing recipe in `[[project_deployment]]`. Only `frontend/src` + `progress.md` were tar'd — `docker-compose.yml` (with today's stale-LAN-IP fix `192.168.100.229 → .68`) was intentionally **excluded** since the LAN IP is local-dev only and irrelevant to prod compose.
+
+```
+tar cf - backend/src frontend/src progress.md docs/test-cases-v2-phases-*.md \
+  | ssh -i ~/.ssh/id_ed25519 root@srv1409601.hstgr.cloud "cd /opt/binny && tar xf -"
+ssh root@srv1409601.hstgr.cloud "cd /opt/binny && \
+  docker compose -f docker-compose.prod.yml build binny-frontend && \
+  docker compose -f docker-compose.prod.yml up -d binny-frontend"
+```
+
+**Held bundle still protected:** mobile test-case authoring under `docs/test-cases-v3/` is outside the tar glob (the `docs/test-cases-v2-phases-*.md` pattern matches zero files). Per [[feedback_combined_commit_test_authoring]] that batch stays undeployed.
+
+**What landed on the test server in this deploy:**
+- New master-carton label (146×96mm, 3-col 55/55/36mm grid, dynamic-N size assortment, period-separated colours, size range `min - max`, "QR Code Number" label under QR, Arial-bold barcode matching article, MRP/Packed/Sizes bumped to fill whitespace).
+- Logo + logo-pre-fetch removed (no longer in spec).
+- Page size `@page` 150×100mm → 146×96mm — **TSC driver media-size on the test print machine must be updated to 146×96mm before the next print test** (open carry-over from May 20).
+
+**Status:** Live on testing portal. **Awaiting client UAT** on `srv1409601.hstgr.cloud` per the new workflow rule above. No live-server deploy until client signs off (and live server is set up).
+
+---
+
+### May 23, 2026 — Master-carton label v2 implemented (146×96mm, 3-col grid, dynamic-N size assortment)
+
+Client returned the 4 open answers from the May 21 spec read:
+1. **Sizes** → dynamic N (split 110mm equally regardless of count).
+2. **`6 × 9`** → **size range** `min - max` (hyphen, not multiplication sign).
+3. **QR Code Number** → confirmed = master-carton barcode (`MC…`).
+4. **Colour separator** → period+space (`BLUE. GREEN. RED`).
+
+**Single-file change: `frontend/src/app/(dashboard)/master-cartons/[id]/page.tsx`** (replaced the body of `handlePrintLabel`, ~lines 117-284).
+
+**Data computations added:**
+- `colourLabel` join `, ` → **`. `** (per ask 4).
+- `sizeRangeLabel`: `min - max` after numeric sort; collapses to single value when N=1; renders `-` when assortment empty.
+- `totalPairs`: sum of `sizeMap` values (replaces the outer-scope `totalAssortmentQty` reference in the template — kept the outer one for on-screen UI which is unchanged).
+- `sizeColgroup`: `(110/N).toFixed(3)` mm per size col + fixed 36mm Total col. Dynamic-N support: 1 size → one 110mm cell + 36mm Total; 6 sizes → six ~18.3mm cells + 36mm Total.
+
+**HTML structure replaced** — two stacked tables inside `.label`:
+- **`table.main-grid`** (3-col: 55/55/36mm × 5 rows: 5+15+15+15+15 = 65mm):
+  1. Top-margin row — `colspan="3"` blank (5mm).
+  2. Article — `colspan="2"` across L+M (110mm), QR right `rowspan="3"`.
+  3. Colour — `colspan="2"` across L+M.
+  4. Size range (55mm L) + MRP block (55mm M). MRP has `.mrp-main` line + `.mrp-sub` "(incl. of all taxes)" smaller below.
+  5. Packed On (55mm L) + Mfg address (55mm M) + QR Code Number (36mm R).
+- **`table.assortment-grid`** (N+1 cols × 3 rows: 10+10+11 = 31mm):
+  1. `SIZE ASSORTMENT` header, `colspan="${N+1}"`.
+  2. Size value headers + `Total` cell.
+  3. Size qty cells + `${totalPairs} Pairs` cell.
+
+Total: 65 + 31 = 96mm ✓ Width: 55+55+36 = 146mm ✓
+
+**Styling notes:**
+- `border-collapse: collapse` + `table-layout: fixed` on both tables — column widths immune to content variance.
+- 0.5px borders throughout (matches child-box v2 style, [[feedback_combined_commit_test_authoring]] bundle).
+- `table.main-grid tr:last-child td { border-bottom: none }` — prevents double-border at the main-grid/assortment-grid junction (assortment-grid's first row top border becomes the dividing line).
+- Article 20pt bold, Colour 15pt bold, Size range 16pt bold, MRP main 13pt bold + sub 6pt italic, QR Code Number 11pt Courier bold with 0.3mm tracking, Size qtys 16pt bold, Total qty 12pt bold.
+- QR enlarged from current 22mm → **32mm** in the 36mm column (1mm padding × 2 + 0.5px border × 2 = ~33mm usable; 32mm leaves ~0.5mm clearance per side).
+
+**Removed:**
+- Logo `<img>` block (article is the hero now — sketch has no logo).
+- Logo pre-fetch / base64 conversion code (~12 lines of dead async code).
+
+**Mfg address copy:** reused the child-box footer verbatim (`Mahavir Polymers Pvt Ltd` / `FE 16-17 MIA Jaipur - 302017 Raj (India)` / `Customer Care: 0141 2751684`) rather than the sketch's shorthand (`FE 16/17 Malviya Ind. Area Jaipur` / `CC: 0141-2751684`) — keeps the two label families consistent. Easy one-line change if client wants the sketch wording specifically.
+
+**Page geometry:** `@page` 150×100mm 4mm margin → **146×96mm margin 0**. TSC driver media size will need updating (same caveat as the child-box 100×50mm switch — `docs/tsc-printer-setup-guide.html:319` not yet edited; pending hardware test print).
+
+**Status:** edit live in working tree, polling-HMR picks up in local Docker stack. **Not committed** — still bundled with the held mobile-test-authoring batch per [[feedback_combined_commit_test_authoring]]. Awaiting client test print to verify font sizes, the size-range derivation, and the 32mm QR scan reliability at the new density.
+
+---
+
+### May 21, 2026 — Analysed client's new master label spec (no code changes yet — awaiting answers on 4 open items)
+
+**Source:** client photo `Master label layout.jpeg` — hand-drawn master-carton label with full dimensions annotated. Received this afternoon; user asked for a layout breakdown before any code change.
+
+**Spec read from sketch:**
+- **Outer:** 146mm × 96mm (down from current 150×100mm landscape).
+- **3-column grid:** 55mm | 55mm | 36mm = 146mm.
+- **8-row vertical stack:** 5 + 15 + 15 + 15 + 15 + 10 + 10 + 11 = 96mm.
+
+**Row-by-row content map:**
+
+| Row | Height | Left (55mm) | Middle (55mm) | Right (36mm) |
+|---|---|---|---|---|
+| Top margin | 5mm | blank | blank | blank |
+| Article | 15mm | `CITY 05` (spans L+M, large bold, centred) | ↑ | QR top third |
+| Colour | 15mm | `BLUE. GREEN. RED` (spans L+M, bold, centred) | ↑ | QR middle third |
+| Size+MRP | 15mm | `6 × 9` (size summary) | `MRP: ₹ 159.00` + tiny `(incl. of all taxes)` | QR bottom third |
+| Packed+Mfg | 15mm | `Packed On: 19 May 2026` | `Mfg & Mktd by:` Mahavir Polymers Pvt Ltd / FE 16/17 Malviya Ind. Area Jaipur / CC: 0141-2751684 | `QR Code Number` label |
+| Size Assort hdr | 10mm | "SIZE ASSORTMENT" — centred, spans **full 146mm** ||| 
+| Size headers | 10mm | 4 size cells (6 / 7 / 8 / 9) — equal split across 110mm | | "Total" header — 36mm right col |
+| Size quantities | 11mm | 4 quantity cells (12 / 12 / 12 / 12) | | "48 Pairs" total |
+
+**QR block:** the QR occupies the right column for 45mm vertically (rows 2-4, i.e. Article + Colour + Size+MRP). Row 5 (Packed+Mfg) holds "QR Code Number" — the human-readable master-carton barcode (e.g., `MC4F2B9X`).
+
+**Key deltas vs current `frontend/src/app/(dashboard)/master-cartons/[id]/page.tsx`:**
+1. **Outer dimensions** 150×100 → 146×96mm.
+2. **Binny logo dropped** — article name becomes the hero element (currently logo at top, article in info table).
+3. **QR pinned in fixed 36mm right column** spanning 45mm vertically — currently QR is grouped with the size table.
+4. **MRP shrinks to a 55mm cell** sharing a row with the new "size summary" notation `6 × 9` — currently MRP spans full width.
+5. **"6 × 9" notation appears as a size summary** in the main info area, separate from the detailed size assortment table below. Likely `(sizes) × (pairs/size)` = 4 × 12 = 48 — but **needs client confirmation**.
+6. **Mfg address compacted** into the 55mm middle column — currently its own row at full width.
+7. **"QR Code Number" label** below the QR — same role as the child-box barcode-under-QR added two days ago.
+8. **Size assortment table** has explicit `Total` column aligned to the 36mm right column — visual alignment with the QR section above.
+
+**4 open items flagged to user (awaiting reply before any code change):**
+1. **Variable size counts** — sketch shows 4 sizes; current model supports N sizes per master carton. Render fixed-4 or dynamic-N? Recommended dynamic, splitting the 110mm L+M width equally regardless of size count.
+2. **"6 × 9" meaning** — `sizes × pairs-per-size`? Independent product config? Some other notation? Sketch shows it while the assortment table independently shows 4 sizes × 12 each.
+3. **"QR Code Number"** — confirming this is the human-readable master-carton barcode string for manual entry fallback.
+4. **Colour value format** — sketch shows `BLUE. GREEN. RED` (period-separated). Does the existing aggregation (commit `723116b`) emit this format, or comma-separated? Need to align with the new label visual.
+
+Items I'll proceed with on my own reading (unless flagged): article-name spans L+M (110mm), borders stay at the current 0.5px style.
+
+**Status:** **no code changes yet** — full breakdown prepared and surfaced to user. Implementation blocked on the 4 answers above.
+
+---
+
+### May 20, 2026 — Deployed today's child-box label v2 round to Hostinger VPS testing portal
+
+Client asked to push the day's label iterations to the test server for review. Used the documented tar-over-SSH recipe from `[[project_deployment]]`:
+
+```
+tar cf - backend/src frontend/src progress.md docs/test-cases-v2-phases-*.md \
+  | ssh -i ~/.ssh/id_ed25519 root@srv1409601.hstgr.cloud "cd /opt/binny && tar xf -"
+ssh root@srv1409601.hstgr.cloud "cd /opt/binny && \
+  docker compose -f docker-compose.prod.yml build binny-frontend && \
+  docker compose -f docker-compose.prod.yml up -d binny-frontend"
+```
+
+**Scope filtered intentionally:**
+- Tar pattern includes `frontend/src` (catches today's `child-boxes/generate/page.tsx` edits) and `progress.md` only.
+- The `docs/test-cases-v2-phases-*.md` glob matches zero files today (mobile authoring lives under `docs/test-cases-v3/` — outside the glob).
+- This keeps the held mobile-test-authoring batch ([[feedback_combined_commit_test_authoring]]) **uncommitted and undeployed** as intended. The deploy moves only the label work to the test server.
+- Backend rebuild skipped — only `binny-frontend` rebuilt (no backend changes today).
+
+**Build:** Next.js 14.2.21 build completed in 56.9s. Same lint warnings as prior deploys (img tag warnings in legacy components — not introduced today). Container `binny-frontend` recreated; `binny-db` + `binny-backend` stayed up healthy throughout.
+
+**Verified live:**
+- `https://srv1409601.hstgr.cloud/binny/api/v1/health` → `{"status":"ok"}`
+- `https://srv1409601.hstgr.cloud/binny/child-boxes/generate` → HTTP 200
+
+**What's on the test server now (the day's iterations bundled):**
+1. Barcode font matched to article (Arial) + "Colour:" prefix removed.
+2. Page geometry: `@page` 100×50mm with 1mm margin around each 48×48 label → 2mm gap between adjacent labels' black borders.
+3. Size-cell width pinned to 20mm to clear the 18mm QR (right-edge clip fix).
+4. MRP restructured: left-column 3-line stack (M.R.P. / ₹ value / (Inc of all taxes)); Size cell rowspan=2 on the right.
+5. Vertical re-fit: tightened paddings + line-heights across rows; size value bumped to 38pt to fill the cell.
+6. `<colgroup>` + `table-layout: fixed` + nowrap/ellipsis on colour & MRP rows: column widths now content-variance-proof across all products.
+7. Barcode font reduced to 8pt for comfortable fit in the 20mm qr-cell.
+
+**Status:** Live on testing portal. Local working tree retains all today's edits + the held mobile-test-authoring batch — **still no git commit**, per the standing bundle rule.
+
+---
+
+### May 20, 2026 — Child-box label v2 — barcode font to 8pt (room for ~8 chars in 20mm cell)
+
+Client follow-up after the 11→10pt drop: the qr-cell column at 20mm only has room for ~6-7 chars at the larger fonts. Dropped further to **8pt** so 8-char short-format barcodes (post May-5 migration) fit comfortably with margin.
+
+At 8pt Arial bold, an 8-char barcode renders ~12.4mm wide in the ~17.4mm usable qr-cell column — ~2.5mm clearance per side, no clip risk even with cell-level `overflow: hidden`.
+
+`.qr-cell .barcode-text` font-size `10pt` → **`8pt`**.
+
+**Status:** live via polling-HMR.
+
+---
+
+### May 20, 2026 — Child-box label v2 — barcode font down one size (right-clip fix)
+
+Barcode text under the QR was clipping on the right edge for products with longer barcodes. At 11pt Arial bold, an 8-char barcode (e.g., `CEY2DBGY`) renders ~17mm wide — the qr-cell column is 20mm with ~1mm padding × 2 + 0.5px border × 2 ≈ 17.4mm usable. Effectively zero clearance; combined with last edit's `td { overflow: hidden }` (which clips at the cell border now rather than the label border), the barcode's right edge clipped cleanly inside the QR cell.
+
+**Edit:** `.qr-cell .barcode-text` font-size `11pt` → **`10pt`**. At 10pt, 8-char barcode ≈ 15.5mm wide, leaves ~1mm clearance on each side.
+
+Minor side effect: barcode is now slightly smaller than the article-row (11pt) — they were intentionally matched two days ago. Acceptable tradeoff vs the clip; visual match is still close (same Arial family, same weight 900-ish via bold).
+
+**Status:** live via polling-HMR. Not committed — still bundled per [[feedback_combined_commit_test_authoring]].
+
+---
+
+### May 20, 2026 — Child-box label v2 — pinned column widths + clip protection (per-product variance fix)
+
+Client reported the label looks fine for some products but cuts on the right for others, and cuts on the bottom for others still. Diagnosis: content-variance not budgeted for.
+
+**Two failure modes by product:**
+1. **Right-edge clip** — products with high MRP (e.g., "₹ 14999.00", ~30mm at 14pt bold) exceeded the ~25mm usable left-column width. With auto table-layout, the browser expanded the left column to fit the unwrappable text, compressing the right column below the 18mm QR threshold → QR/Size clipped on the right.
+2. **Bottom-edge clip** — products with long colour names (e.g., "DARK NAVY BLUE", "OFF WHITE / IVORY") wrapped to a second line in `.colour-row` (no nowrap was set), adding ~3.5mm of vertical demand to row 2, which cascaded down and pushed the footer/QR/barcode past the 48mm `.label { overflow: hidden }` cutoff.
+
+**Edits in `frontend/src/app/(dashboard)/child-boxes/generate/page.tsx`:**
+
+HTML — pinned column widths via `<colgroup>`:
+```html
+<table class="main">
+  <colgroup>
+    <col style="width:27mm;" />  <!-- left: colour, MRP, packed, content, footer -->
+    <col style="width:20mm;" />  <!-- right: size, QR+barcode -->
+  </colgroup>
+```
+Removed the now-redundant `style="width:20mm"` from the size-cell td (colgroup handles it).
+
+CSS:
+- `table.main`: added **`table-layout: fixed`** — without this, colgroup widths are a hint only; with it, they're authoritative regardless of content width.
+- `table.main td`: added **`overflow: hidden`** — any content that exceeds its column width clips at the cell border, not at the label border. Prevents one cell's overflow from visually invading neighbours.
+- `.colour-row`: added **`white-space: nowrap; overflow: hidden; text-overflow: ellipsis`** — long colour names truncate horizontally with "…" instead of wrapping vertically. Pairs with the existing `text-align: center`.
+- `.mrp-row`: added **`white-space: nowrap; overflow: hidden`** — protects against any future overflow surprise.
+- `.mrp-value`: 14pt → **12pt**. At 12pt Arial weight-900, worst-case "₹ 9999.00" (10 chars) renders ~23mm wide — fits in the ~25mm usable left column with margin to spare. Loses ~2pt of "highlight" vs 14pt, but staying at 14pt would only work for ≤3-digit MRPs.
+
+**Sanity-check coverage:**
+- Short colour ("RED") → centred, lots of slack.
+- Long colour ("LIGHT GREY MELANGE") → centred + truncated via ellipsis if it exceeds 25mm at 9pt.
+- 3-digit MRP ("₹ 499.00") → centred, 12pt weight-900 renders ~15mm.
+- 5-digit MRP ("₹ 14999.00") → centred, ~23mm, fits.
+- 1-digit size ("8") → 38pt centred, ~7mm in 18mm cell.
+- 2-digit size ("10") → 38pt centred, ~15mm in 18mm cell.
+
+**Why colgroup + table-layout:fixed (rather than just per-cell widths):** the previous `style="width:20mm"` on size-cell was a soft hint under auto layout — browsers can override it for content fit (which is exactly what happened with long MRPs). Fixed-layout + colgroup is the only way to make column widths truly absolute against content variance.
+
+**Status:** edits live via polling-HMR. Not committed — still bundled per [[feedback_combined_commit_test_authoring]]. Asked client to re-test across a range of products (longest colour name, highest MRP, 2-digit size).
+
+---
+
+### May 20, 2026 — Child-box label v2 — vertical re-fit (bottom cut + size cell whitespace)
+
+Two issues after the 3-line MRP stack landed:
+1. **Bottom cutting** — address details, barcode, and a sliver of the QR clipped at the bottom of the label.
+2. **Size cell whitespace** — 32pt size value visually dwarfed by the now-taller rowspan-2 cell (driven taller by the 3-line MRP stack adding ~6mm vs the original inline single-line MRP).
+
+**Root cause of #1:** Yesterday's `.label { overflow: hidden }` + 48mm height was sized for the ORIGINAL inline MRP. The 3-line stack pushed rows 2+3 from ~10.5mm → ~15.6mm, eating ~5mm of vertical budget. With Article (~7mm) + rows 2+3 (~15.6mm) + rows 4+5+6 right-col (QR 18mm + barcode 4.6mm + padding ≈ 23mm) = ~45.6mm of content packed into 48mm with default browser font line-heights bleeding past the budget.
+
+**Edits in `frontend/src/app/(dashboard)/child-boxes/generate/page.tsx` (~line 269):**
+
+Tightened paddings + pinned line-heights across non-MRP rows to reclaim ~4mm of vertical space without touching the MRP highlight:
+- `.article-row`: padding `0.8mm` → **`0.5mm`** + `line-height: 1.05` (was browser default ~1.2). Saves ~1.2mm.
+- `.colour-row`: padding `0.7mm` → **`0.5mm`** + `line-height: 1`. Saves ~1mm.
+- `.mrp-row`: padding `0.4mm` → **`0.3mm`**; `.mrp-value` line-height `1.1` → **`1`**. Saves ~0.7mm (kept inside MRP block, so size cell's rowspan demand drops in step).
+- `.small-row`: padding `0.3mm` → **`0.15mm`**; height `3mm` → **`2.5mm`**. Saves ~1.6mm across the two small rows.
+- `.footer-row`: padding `0.6mm` → **`0.3mm`** + `line-height: 1.1` → **`1`**. Saves ~1.1mm across 3 footer lines.
+- `.qr-cell`: padding `0.3mm` → **`0.2mm`** (marginal — gives the 18mm QR slightly more breathing room horizontally too).
+- `.size-cell`: padding `0.5mm` → **`0.3mm`** vertical (less internal padding so more of cell goes to size value).
+
+**For issue #2:**
+- `.size-value`: **32pt → 38pt**, `line-height: 1` → **`0.95`**, margin-top `0.8mm` → **`0.3mm`**. Bigger font + tighter line box + less top margin. At 38pt, a single digit fills ~9.4mm of the ~12mm-tall content area within the cell — visibly dominant. Two-digit sizes (e.g., "10") render ~15mm wide in the 18mm cell — still fits.
+
+**Net vertical accounting after edits:**
+- Article: 7mm → ~5mm
+- Rows 2+3 group (driven by size-cell with new 38pt): ~14-16mm (matched against tighter colour+mrp ~13mm; max wins).
+- Rows 4+5+6 group (QR-driven): ~22.5mm (QR-cell padding tightened, footer/small-rows reclaimed elsewhere).
+- Total: ~42-43mm of content in 48mm label → ~5mm headroom for browser font-metric variance.
+
+**Status:** edits live via polling-HMR. Not committed — still bundled per [[feedback_combined_commit_test_authoring]]. Awaiting client re-test print.
+
+---
+
+### May 20, 2026 — Child-box label v2 — MRP stack fix (right-edge clip recurrence + size font + colour centring)
+
+Three issues reported after the MRP/Size restructure landed:
+1. Right edge clipping again (QR cut on the right corner).
+2. Size cell had excessive whitespace — the 26pt size value didn't fill the new ~15mm-tall rowspan cell.
+3. Colour value was left-aligned; should be center-aligned within its cell.
+
+**Root cause of #1:** the previous edit kept MRP label + value inline in a `<div class="mrp-main">` with the inherited `white-space: nowrap` on `.mrp-row`. "M.R.P. ₹ 499.00" at 7pt + 12pt extra-bold ≈ ~26mm inline, exceeding the ~25mm usable left-column width. Auto-layout expanded the left column to fit the unwrappable text, which compressed the right column below the 18mm QR threshold — same clipping mechanism as the earlier `width:35%` bug, just retriggered by inline content overflow.
+
+**Edits in `frontend/src/app/(dashboard)/child-boxes/generate/page.tsx`:**
+
+HTML (`.mrp-row` content): collapsed the inline `mrp-main` wrapper. Three independent stacked divs now: `<div class="mrp-label">M.R.P.</div>`, `<div class="mrp-value">₹ ${mrp}</div>`, `<div class="mrp-sub">(Inc of all taxes)</div>`. Each line stands alone — none exceed ~22mm individually, so no column expansion pressure.
+
+CSS:
+- `.mrp-row`: dropped `white-space: nowrap` (no longer needed since divs are stacked); added **`text-align: center`** so the 3-line MRP block is centred within the left column.
+- `.mrp-main` rule removed.
+- `.mrp-value`: 12pt → **14pt** (more highlighted now that it's alone on its line). Still `font-weight: 900`. Width check: "₹ 499.00" 14pt bold ≈ ~22mm — fits in 25mm usable.
+- `.colour-row`: added **`text-align: center`** per client ask.
+- `.size-value`: 26pt → **32pt**. Single-digit sizes ~6mm wide / two-digit ("10") ~12mm — both fit comfortably in the 18mm usable cell width. Vertical: 32pt char height ~8mm in the ~12mm usable cell height — uses the new space without crowding.
+
+**Fit math re-verified:**
+- Left column (~28mm wide, ~25mm usable): "M.R.P." 7pt = ~7mm; "₹ 499.00" 14pt = ~22mm; "(Inc of all taxes)" 4pt = ~13mm. All independently under 25mm.
+- Right column (20mm fixed): QR 18mm + ~1mm clearance — unchanged from before.
+
+**Status:** edits live via polling-HMR. Not committed — still bundled per [[feedback_combined_commit_test_authoring]]. Awaiting client re-test print.
+
+---
+
+### May 20, 2026 — Child-box label v2 — MRP/Size restructure (Size tall, MRP highlighted left-only)
+
+Client ask: keep MRP + "(Inc of all taxes)" on the left side together; let Size occupy the right side spanning the height of both Colour + MRP rows. Emphasise MRP value; "(Inc of all taxes)" very small.
+
+**HTML changes (`frontend/src/app/(dashboard)/child-boxes/generate/page.tsx` ~line 187):**
+- Row 2 size-cell: added **`rowspan="2"`** so it stretches over Colour + MRP rows on the right.
+- Row 2 size-cell content: switched from inline `<span>Size: </span><span>${size}</span>` to **stacked divs** — `Size:` label on its own line above a big `${size}` numeral, so the larger size font has its own line and isn't cramped beside the label.
+- Row 3 MRP cell: dropped `colspan="2"` — now sits only on the left under Colour (the size-cell from row 2 continues into row 3 on the right).
+- Row 3 MRP content: split into two block-level divs — `.mrp-main` (label + value inline) on line 1, `.mrp-sub` ("(Inc of all taxes)") on its own line below.
+
+**CSS changes (~line 271):**
+- `.mrp-row`: padding 0.7mm/1.5mm → **0.5mm/1.2mm**; line-height 1.15 → **1.05** (tighter so the 2 stacked lines fit comfortably in the now-narrower left column).
+- `.mrp-label` "M.R.P.": 8pt → **7pt** (smaller, context label).
+- `.mrp-value` "₹ 499.00": **font-weight: bold → 900**, **font-size: 11pt → 12pt** (highlighted — the emphasised element per client ask). Margin tweaked to `margin-left: 1mm` only (no right margin since it's last on its line now).
+- `.mrp-sub` "(Inc of all taxes)": 5pt → **4pt** (very small per client ask). Slight `margin-top: 0.3mm` to separate it from the value line.
+- `.size-cell`: added `padding: 0.5mm 1mm` (was unpadded — relied on inherited 1mm/1.5mm); centered with the new vertical span.
+- `.size-label`: 8pt → 7pt; `line-height: 1`.
+- `.size-value`: **14pt → 26pt**, bold (was bold). Uses the new ~10mm vertical room from the rowspan. `margin-top: 0.5mm` to separate from the label above.
+
+**Fit math (left column ~28mm wide, ~25mm usable after padding):**
+- "M.R.P. ₹ 499.00" at 7pt+12pt Arial bold ≈ ~6mm + ~17mm ≈ 23mm. Fits with ~2mm slack.
+- "(Inc of all taxes)" at 4pt ≈ ~14mm. Comfortably fits.
+- Size value 26pt Arial bold in 20mm-wide × ~10mm-tall cell — single character (size number) fits trivially; double-digit sizes (e.g., "10") at 26pt ≈ ~10mm wide, still comfortable.
+
+**Status:** edits live via polling-HMR. Not committed — still bundled per [[feedback_combined_commit_test_authoring]]. Awaiting client re-test print.
+
+---
+
+### May 20, 2026 — Child-box label v2 — QR column clip fix (right edge content cutting)
+
+Client reported QR column content clipped on the right after the page-geometry fix. Root cause was independent of the geometry change — a latent bug from yesterday's QR enlargement:
+
+- Yesterday: QR sized **14mm → 18mm** (`.qr-cell svg { width: 18mm }`).
+- But the right-column width was inherited from the older `.size-cell { width: 35% }` inline hint — **35% of 48mm = ~16.8mm**, narrower than the 18mm QR. Browser auto-layout *should* expand to fit content, but with `overflow: hidden` on `.label` the overflowing ~1.2mm got clipped against the label border.
+- Yesterday's "Colour: BLACK" text in the left column was masking it — auto-layout favoured the wider left column, the right column stayed narrow, but the clip happened *outside the visible label area on the right edge of the row* which had no gutter to expose it. Today's round-2 edit dropping "Colour:" left "BLACK" alone (~5 chars), making the column-width imbalance more visible, and the 2mm gutter introduced by the geometry fix exposed the clip cleanly.
+
+**Edit:** `<td class="size-cell" style="width:35%;">` → **`style="width:20mm;"`**. Fixed width (20mm of 48mm ≈ 42%) guarantees the right column accommodates 18mm QR + 0.6mm padding + cell border with ~1mm clearance. Left column gets the remaining ~28mm — still wide enough for COLOUR / Packed-on / Content / Mfg footer at their current font sizes.
+
+**Status:** edits live via polling-HMR. Not committed — still bundled per [[feedback_combined_commit_test_authoring]]. Awaiting client re-test print.
+
+---
+
+### May 20, 2026 — Child-box label v2 — page geometry fix for 2-up roll (overlap reported on test print)
+
+Client print test showed adjacent labels printing with borders touching / overlapping. Root cause: yesterday's v2 set `@page` to **96mm × 48mm** with `.row` 96mm wide holding two 48mm labels back-to-back — zero gutter, zero gap. The physical roll spec is **48×48mm content + 1mm clear margin on each side per label** → each label occupies a **50mm × 50mm** slot, with a **2mm gap (1mm + 1mm) between adjacent labels' external black borders**.
+
+**Edits in `frontend/src/app/(dashboard)/child-boxes/generate/page.tsx` (~line 235):**
+- `@page` size **96mm × 48mm → 100mm × 50mm**.
+- `html, body` and `.row` widths **96mm → 100mm**; `.row` height **48mm → 50mm**.
+- `.label, .label-empty`: added **`margin: 1mm`** (label content box stays 48×48mm — only the slot grows). On `.label-empty` the margin reserves the same geometry so a row with an odd trailing label still occupies the full 100mm width.
+
+**Why margin (not padding-on-wrapper):** label still has its own 1.5px black border at its 48mm edge; margin keeps that border *outside* the spacing so the 2mm gap between borders is exact. Padding would have collapsed the border-to-content distance via the `border-box` sizing and shifted the border inwards.
+
+**Implication for hardware:** the previously-pending TSC driver media-size update is now **100mm × 50mm** — that matches the legacy v1 driver setting before yesterday's 96×48mm change, so likely no driver tweak needed (still worth a confirmation print before tomorrow's deploy). Master-carton page size (150×100mm) is unaffected.
+
+**Status:** edits in working tree, polling-HMR picked up live. Not committed — still bundled per [[feedback_combined_commit_test_authoring]]. Asked client to re-test the 2-up print.
+
+---
+
+### May 20, 2026 — Child-box label v2 — client tweaks round 2 (barcode font + colour label)
+
+Two small deltas to `frontend/src/app/(dashboard)/child-boxes/generate/page.tsx`, both per client request on the v2 label that was iterated yesterday:
+
+1. **Barcode font matched to article name.** `.qr-cell .barcode-text` was Courier-New mono / 10pt / `letter-spacing: 0.3mm` — switched to **Arial, Helvetica, sans-serif / 11pt**, letter-spacing dropped. Now visually consistent with `.article-row` (same family, weight, size). Letter-spacing removal is intentional — that 0.3mm tracking was added specifically to keep Courier glyphs readable; it would look odd on Arial. Layout fit: 8-char barcode (e.g. `CEY2DBGY`) at 11pt Arial bold ≈ 16mm wide, comfortably inside the ~17mm qr-cell column.
+2. **`Colour:` prefix removed.** `.colour-row` now renders just `${box.colour}` (e.g. `BLACK`) instead of `Colour: BLACK`. CSS untouched — same 9pt bold styling.
+
+**Carry-over from yesterday — still open:**
+- TSC driver media size update for the 96×48mm child-box page and 150×100mm master-carton page (`docs/tsc-printer-setup-guide.html:319`) — pending hardware confirmation before next print test.
+- Master-carton landscape composition — current rotation reuses portrait stacked layout; client may request true horizontal info-left/QR-right restructure after seeing print.
+
+**Status:** edits in working tree, polling-HMR picked up in local Docker stack. Not committed — still bundled with held mobile-test-authoring batch per [[feedback_combined_commit_test_authoring]]. Awaiting client sign-off (this round + any further tweaks) before deploy.
+
+---
 
 ### May 19, 2026 — Iterated child-box label v2 against local Docker preview + landscape-rotated master carton label
 
@@ -1191,7 +2356,64 @@ Net effect: same 6-cell table structure, Colour and MRP cells now visibly domina
 
 ---
 
-## CURRENT EXECUTION (resumption marker — 2026-05-19, MOBILE PARITY M1-M7 ✅; TEST-CASE AUTHORING SESSIONS 1-9/13 ✅ (4/13 remaining: reports, cross-platform, edge cases, finalise); CLIENT MODS #1 + #2 + multi-colour label fix + barcode migration ✅ DEPLOYED to testing portal; child-box label v2 (48×48 + bigger article + bold barcode) DRAFTED in working tree, awaiting test-print + 48×48 roll confirmation before deploy; 24 commits ahead of origin/main; combined commit for mobile test-authoring + label v2 held until session 13)
+## CURRENT EXECUTION (resumption marker — 2026-06-06)
+
+### ⏭️ NEXT SESSION — START HERE (user paused deploy + further work to next session)
+**Deployed to TEST (`srv1409601`, live now):** full Phase-6 bundle + Unpack&Repack two-carton feature + carton1/carton2 refinement (deployed ~12:02 UTC, verified). 
+**DEPLOYED to TEST ✅ 2026-06-10** — Single Repack 3rd mode + sample single-foot-on-CREATE + sample FOOT-SPLIT (full current tree re-synced). Both images rebuilt (`BUILD_EXIT=0`, ~50min on loaded host), recreated, **running image IDs == `:latest` (MATCH)**; `migrate:up` applied **`20260609120001`** (per-foot unique index `idx_unique_active_sample_foot` confirmed on test DB). Verified: health 200, `/unpack-repack` 200, foot UI present in served bundle, `assertFootAvailable`/`active_sample_feet` present in backend `dist`. Awaiting client UAT. LIVE still deferred (needs UAT + 1500/2000 env vars).
+**Next-session actions (in order):**
+1. **Deploy "Single Repack" to TEST** — frontend-only, NO new migration. Recipe per [[deployment-server]]: tar `frontend/src` (+ `progress.md`) → detached `build binny-frontend` (~30-50min on loaded host, run detached + poll `BUILD_EXIT`) → `up -d binny-frontend` → **verify running image ID == `:latest`** (stale-image dance) → curl-verify `/unpack-repack` shows 3 modes. No deleted files this round (only `repack/page.tsx` from earlier, already gone server-side). Backend unchanged since last deploy (no FE/BE contract change for Single Repack) — FE-only deploy is fine.
+2. **Commit everything** (combined-commit hold has held the WHOLE session's work: Phase-6 bundle + test updates + Unpack&Repack + carton1/2 + Single Repack + e2e specs 35-42 + v3 markdown TC edits). Confirm scope with user before committing.
+3. **LIVE deploy** still deferred — needs client UAT sign-off + env vars `CHILD_BOX_MAX_PER_GENERATION=1500`, `PRODUCT_CSV_MAX_ROWS=2000` (+ `NEXT_PUBLIC_` equivalents at FE build) per [[env-gated-caps-live-only]]. + run foot migration on LIVE.
+4. **Phase 6c reports** (8, on dispatch data) — still the remaining roadmap item.
+**UAT flags for client:** (a) Supervisor + WH-Op can't create/manage Samples/E-commerce by default (Admin-only; grant via Role Manager); (b) new Unpack & Repack module with 3 modes.
+**Local dev gotcha:** backend runs dev-mode nodemon over a Windows bind mount that does NOT auto-reload on edits — after any backend src change, `docker compose restart backend`.
+
+---
+
+**2026-06-06 (latest) — "Single Repack" 3rd mode ADDED + verified locally, NOT deployed.** Frontend-only (no backend): unpack-repack page mode selector now 3 modes — Single Unpack | **Single Repack** (NEW: empty ONE carton → re-scan boxes back into the SAME carton; reuses `fullUnpack` + `pack-by-barcode` into same carton id) | Repack — 2 Cartons. Single Repack gated on packing:unpack + packing:pack. e2e 42-... now 10/10 (added TC-RPK-SINGLE-001 API + -002 UI; fixed stale `/^repack$/i` selectors → `/2 cartons/i` after the 2-carton card relabel). phase-10 Section 12 markdown TCs added. tsc+lint clean. Local FE rebuilt+recreated. **NOT committed, NOT deployed** — the TEST box still runs the prior deploy (no Single Repack yet).
+
+**2026-06-06 (later) — NEW FEATURE "Unpack & Repack" BUILT + VERIFIED LOCALLY, NOT DEPLOYED (Opus plan / Sonnet execute).** Client asked to add a repack flow to the unpack module. NOTE: this is a NEW repack (rearrange two cartons), distinct from the standalone Repack feature removed earlier and from the legacy "Open for Repacking" — 3 different things now; labels disambiguated.
+- **User decisions:** (1) any FREE box scannable into destination (reuse pack-by-barcode as-is); (2) a transactional "free-both" endpoint empties source+dest atomically (UI confirms both before freeing either); (3) route renamed `/unpack`→`/unpack-repack` (old route redirects).
+- **Backend (new):** `POST /master-cartons/repack/free-both` (perm `packing:unpack`), body `{source_barcode,destination_barcode}` → one txn: locks both cartons (ORDER BY id), rejects same/DISPATCHED/empty-source, frees all active boxes of BOTH → FREE + cartons → CREATED, returns `{source,destination,freed_count,freed_boxes[]}`. Audit `REPACK_FREE_BOTH`. (`masterCarton.schema/service/controller/routes`.) tsc clean. **Box-packing step reuses existing idempotent `pack-by-barcode`** (no change).
+- **Frontend:** route `/unpack-repack` (`app/(dashboard)/unpack-repack/page.tsx`) with mode toggle (Single Unpack | Repack); old `/unpack` = server redirect stub; Repack wizard (scan source → scan dest → confirm "Empty both" → free-both → scan boxes into dest via HID + serialized scan-queue/ledger mirrored from master-cartons/[id]). Repack mode gated on `packing:pack` AND `packing:unpack`. `repackFreeBoth()` added to FE service. tsc+lint clean. (Did NOT touch master-cartons/[id] page.)
+- **Tests:** `e2e/42-carton-repack.spec.ts` — 8 tests (free-both happy/same-carton/empty-source/dispatched/empty-dest/pack-into-dest/UI/redirect) **ALL PASS**; regression 04-master-cartons + 40-pack-by-barcode green (no breakage). 25 markdown TCs added to phase-10 (Section 11). Fixed 1 ambiguous UI selector (3 "Unpack & Repack" instances → scoped to `main`). Local backend needed a manual `docker compose restart backend` (Windows bind-mount nodemon didn't auto-reload); frontend rebuilt + recreated for the new route.
+- **REFINEMENT (same day, user req):** dropped Source/Destination semantics → symmetric **Carton 1 / Carton 2**, scannable in ANY order (not order-bound). Backend free-both params renamed `carton1_barcode`/`carton2_barcode`, response `{carton1,carton2,...}`, validation changed: reject only if BOTH empty ("At least one carton must have boxes to repack") — a SINGLE empty carton is now allowed; same-carton rejected "Please scan two different cartons". UI: Carton 1/Carton 2 labels + a Step-3 **"Pack into which carton?" target picker** (scan input disabled until a target is chosen; picker locks once packing starts). FE service + e2e (42-...) updated to new contract — **8/8 e2e pass**; phase-10 Section-11 markdown TCs updated (carton1/carton2 + one-empty-allowed + target picker). tsc+lint clean. Backend needed manual restart again (bind-mount nodemon); FE rebuilt+recreated.
+- **DEPLOYED to TEST (`srv1409601`) ✅ 2026-06-06 ~12:02 UTC.** Full current tree (Phase-6 bundle already live + this Unpack&Repack feature + carton1/carton2 refinement). Synced backend/src + backend/migrations + frontend/src; FE rebuild `BUILD_EXIT=0` (started 10:25, ended 11:16 UTC — host load 9-13 so ~50min); recreated both containers, **running image IDs == `:latest` (MATCH)**; `migrate:up` → "No migrations to run" (foot already applied, free-both adds none). **Verified on portal:** health 200; `free-both` 401 unauth + 400 "Please scan two different cartons" (new contract); `/unpack-repack` 200; `/unpack` serves the redirect stub (HTML has REDIRECT + unpack-repack; old full-unpack page gone). NOTE: running the UI e2e against the deployed portal gives FALSE failures — the specs use absolute paths (`/unpack-repack`) that ignore the `/binny` basePath and hit nginx root; authoritative verification is curl + the 8/8 local e2e on identical built code. Pre-flight: only deleted file is repack/page.tsx (already removed server-side); `next lint` Error-check clean. **Still NOT committed** (combined-commit hold). LIVE still deferred (needs client UAT + the 1500/2000 env vars).
+
+---
+
+**State:** Working on the **June-1 plant-meeting client mod list** (`Binny_Modifications_0106.md`). The audit + roadmap and all per-item detail are in the dated entries at the top of "Phase 6 — Post-QA Modifications".
+
+**DEPLOYED to TEST (backend-only):** the **product-CSV casing fix** (2026-06-05 ~06:32 UTC) — case-insensitive category/location + uniform Title-Case storage. That is the ONLY thing from this workstream live on the test box; awaiting client retest of `ALIA PLUS 1.csv`.
+
+**HELD LOCALLY (uncommitted, NOT deployed, NOT runtime-tested) — the Phase-6 mod bundle:**
+- Standalone **Repack feature removed**; **scan→pack skip fixed** (serialized queue + idempotent `pack-by-barcode` + scan ledger).
+- **6a:** K-suffix label font; child-box cap + product-CSV-2000 both **env-gated to live** (defaults 500); product CSV bulk rewritten to batched insert; products Active/Inactive/All filter.
+- **6b:** Customer CSV uploader; e-commerce carton-scan→auto-reflect (moves boxes carton→ecommerce); e-commerce stock view at `/ecommerce/stock`; single-foot L/R on sample boxes.
+
+**⚠️ DEPLOY OBLIGATIONS for the held bundle:**
+1. **Migration** `20260605100001_add-foot-to-sample-box-mapping` → run `npm run migrate:up` on test AND live.
+2. **Env vars (LIVE only)** — see [[env-gated-caps-live-only]]: `CHILD_BOX_MAX_PER_GENERATION=1500`, `PRODUCT_CSV_MAX_ROWS=2000` + `NEXT_PUBLIC_` equivalents at FE build. Test/local stay at 500.
+
+**2026-06-06 — TEST/VERIFY PASS + DEPLOY (user dir: update test cases → Playwright test → debug → deploy held bundle to TEST; reports deferred). Opus orchestrated, Sonnet executed authoring/docs.**
+
+- **Local env rebuilt** with FULL held bundle + **foot migration `20260605100001` applied** to localhost (was repack-only). Backend dev-mode (nodemon/ts-node from mounted `src`), frontend prod image. New endpoints verified.
+- **Test cases updated** (Sonnet): 10 files in `docs/test-cases-v3/` — 85 TCs added / 9 modified / 15 struck (phases 04,05,06,09,10,11,12 + repack cleanup in 01,18,19).
+- **Playwright specs authored** (Sonnet, 7 NEW `frontend/e2e/35..41`): customer bulk upload, ecommerce scan-carton + stock view, sample foot field, product status filter, product CSV cap/batch, carton pack-by-barcode, repack removed. **56 tests ALL PASS** (fixed 1 fixture bug: carton dispatch needs `master_carton_ids[]`+`customer_id`).
+- **Regression** on touched modules (04,09,10,15,31,32): 83 pass / 6 fail → all 6 triaged & resolved:
+  - TC-CUST-006 = flake (passes on rerun). TC-PRODX-006/-015 = test-quality bugs (stale "Size Group" label; ambiguous `/e\.g\., 6/` matching HSN+size-from) — FIXED in `10-products.spec.ts`.
+  - **TC-SM-ROLE-002/003, TC-EC-ROLE-002 = real behavior change** surfaced by the held bundle's **system-wide RBAC migration** (44 `authorize(roles)`→`authorizePermission('x:y')` across 11 route files — the Role-Manager enablement, already in tree pre-session). Effect: **samples & e-commerce are now Admin-ONLY by default** (Admin passes via super-admin bypass; NO non-Admin role — incl. Supervisor — holds `samples:*`/`ecommerce:*` in `role_permissions`, which was backfilled from the old role JSON that never listed them). Catalog (`config/permissions.ts`) DOES define them, so Role Manager can grant per-role.
+- **DECISIONS (user, this session):** (1) WH-Op managerial-lockout from samples/ecommerce = intended. (2) Keep **Admin-only default**; client grants Supervisor/others via **Role Manager** during UAT (NO seed/migration change). → Updated e2e role tests to assert non-Admin 403 (31/32) + Sonnet updated 18 markdown role TCs (phase-11 ×8, phase-12 ×10) to Admin-only-default with Role-Manager caveat. e2e suite now green + consistent (no spec asserts Supervisor-can).
+- **Triaged-clean (non-issues):** stock-summary RBAC matches existing ecommerce read convention; scan-ledger Clear DOES reset `seenRef`. **`next lint` Error-check clean.** backend/package.json diff = test-only devDeps (NOT synced to prod).
+
+**DEPLOYED to TEST (`srv1409601`) ✅ 2026-06-06 ~08:47 UTC — full bundle, verified.** Synced `backend/src` + `backend/migrations` + `frontend/src` (NOT package.json/.env). **Build failure #1 (~28min wasted):** `next build` died on a TS error — stale `frontend/src/app/(dashboard)/repack/page.tsx` on the server (tar-over-ssh never deletes; local had it deleted) still called the removed `masterCartonService.repack`. Fix: `rm -rf` the orphan dir on server → rebuild OK (`BUILD_EXIT=0`). Recreated both containers, **running image IDs == `:latest` (MATCH, no stale-image)**. `migrate:up` applied the foot migration (foot column confirmed on test DB). **Verified:** health 200; 4 new API endpoints 401 (exist+auth-gated); `/ecommerce/stock` page 200 (new); authenticated stock-summary returns real data + customer bulk-sample CSV headers correct. Test caps stay 500 (env-gated, correct). New gotcha saved → [[deployment-server]] ("tar never deletes; rm deleted files on server"). **LIVE deferred** (needs client UAT + the 1500/2000 env vars).
+
+**⚠️ UAT FLAG for client:** Supervisor (and WH-Op) can no longer create/manage Samples or E-commerce by default — grant via Role Manager if desired.
+
+**Next after deploy:** Phase **6c reports** (8, on dispatch data) per user "do reports later".
+
+**Holds:** entire bundle + new test files **uncommitted** (combined-commit plan; no commit until user says so).
 
 ---
 
@@ -1694,6 +2916,13 @@ Files: 10 Maestro YAMLs at `mobile/e2e-maestro/01-login/`. Shared config at `mob
 ---
 
 ## Activity Log
+
+### June 3, 2026 — Client support: test-portal "409 on product upload" + "401 login" — both non-bugs
+
+| # | Activity | Status | Notes |
+|---|----------|--------|-------|
+| — | Diagnose 409 on `/products/bulk-upload` | Resolved (no code change) | Backend log: `CSV contains 519 rows. Maximum allowed is 500 per upload.` — the 500-row cap in `product.service.ts:382` firing as designed. Client advised to split CSV into ≤500-row files. Frontend surfaces a bare "409" instead of the message text — noted as a future UX polish, not actioned this session. |
+| — | Diagnose + fix 401 "invalid email or password" | Resolved (DB reset) | Root cause: a client (Mac UA) called `PUT /auth/change-password` at 09:07 and changed the admin password; all later logins failed because nobody had the new value (and `Admin@123` default also 401'd). `autoSeed` only reverts to default on container restart, which hadn't happened. Fix: reset `admin@binny.com` password_hash directly in test DB to `Admin@123` (bcryptjs, rounds 12) — no restart. Verified login API → HTTP 200. Note: `autoSeed` reverts admin pw to `Admin@123` on every backend restart, so custom admin passwords don't survive redeploys. |
 
 ### April 20, 2026 — Phase 1 Mobile: Login Maestro Suite (Partial — 6/10 Pass)
 

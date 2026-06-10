@@ -7,7 +7,7 @@ export const createEcommerceSchema = z.object({
   listing_sku: z.string().trim().max(100).optional().nullable(),
   mapped_date: z.string().datetime().or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).optional().nullable(),
   notes: z.string().trim().max(2000).optional().nullable(),
-  child_box_barcodes: z.array(z.string()).optional(),
+  child_box_barcodes: z.array(z.string().transform((s) => s.trim().toUpperCase())).optional(),
 });
 
 export const addBoxToEcommerceSchema = z.object({
@@ -20,8 +20,13 @@ export const removeBoxFromEcommerceSchema = z.object({
   ecommerce_record_id: z.string().uuid(),
 });
 
+export const scanCartonToEcommerceSchema = z.object({
+  ecommerce_record_id: z.string().uuid(),
+  carton_barcode: z.string().min(1, 'Carton barcode is required').transform((s) => s.trim().toUpperCase()),
+});
+
 export const ecommerceIdParamSchema = z.object({ id: z.string().uuid() });
-export const ecommerceBarcodeParamSchema = z.object({ barcode: z.string().min(1) });
+export const ecommerceBarcodeParamSchema = z.object({ barcode: z.string().min(1).transform((s) => s.trim().toUpperCase()) });
 
 export const ecommerceListQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -34,4 +39,5 @@ export const ecommerceListQuerySchema = z.object({
 export type CreateEcommerceInput = z.infer<typeof createEcommerceSchema>;
 export type AddBoxToEcommerceInput = z.infer<typeof addBoxToEcommerceSchema>;
 export type RemoveBoxFromEcommerceInput = z.infer<typeof removeBoxFromEcommerceSchema>;
+export type ScanCartonToEcommerceInput = z.infer<typeof scanCartonToEcommerceSchema>;
 export type EcommerceListQuery = z.infer<typeof ecommerceListQuerySchema>;

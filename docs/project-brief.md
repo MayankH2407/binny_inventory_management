@@ -2,8 +2,8 @@
 
 **Client:** Binny Footwear (Mahavir Polymers Pvt. Ltd.)
 **Vendor:** Basiq360
-**Document Version:** 1.3
-**Date:** April 2026 (Updated April 3 with UAT fixes and Phase 2 UI Enhancement Plan; March 20 with Multi-Size QR; March 16 with Customer Master, Product expansion, Label redesign)
+**Document Version:** 1.4
+**Date:** June 2026 (Updated June 2 with Phase 6 post-UAT client enhancements — see §4A; April 3 with UAT fixes and Phase 2 UI Enhancement Plan; March 20 with Multi-Size QR; March 16 with Customer Master, Product expansion, Label redesign)
 **Classification:** External — For Stakeholder Review
 
 ---
@@ -105,6 +105,35 @@ This eliminates phantom stock by ensuring the digital record always matches the 
 ### Platform
 - Mobile-first Progressive Web Application (PWA) — works on Android and iOS
 - Thermal label printing support (TSC printer compatible, TSPL command language)
+
+---
+
+## 4A. Phase 6 — Post-UAT Client Enhancements (May–June 2026)
+
+Following Phase 1 go-live, the client requested a series of enhancements, tracked as numbered modifications. Mod #1 is deployed to production; mods #2–#5 are complete and verified on the development environment and are bundled for a single combined UAT → production release.
+
+| #  | Enhancement                              | Status                          |
+|----|------------------------------------------|---------------------------------|
+| 1  | Child-box label reprint                  | **Live** (production + test)    |
+| 2  | 7-level inventory drill-down             | Dev-complete; bundled for UAT   |
+| 3  | Role Manager (configurable RBAC)         | Dev-complete; bundled for UAT   |
+| 4  | Legacy (pre-go-live) carton onboarding   | Dev-complete; bundled for UAT   |
+| 5  | Legacy carton unpack / repack            | Dev-complete; bundled for UAT   |
+
+### Mod #1 — Child-Box Label Reprint
+Operators can reprint child-box QR labels after generation — both **per-row** and via **multi-select bulk** selection — mirroring the existing master-carton reprint. The label template is byte-identical to the original (tuned for the TSC thermal printer); reprints correctly use each box's original packed date rather than today's.
+
+### Mod #2 — 7-Level Inventory Drill-Down
+The inventory view is now a hierarchical card-grid drill-down across seven levels: **Section → Category → Article Group → Article Name → Colour → Size Group → Master-Carton leaf**. Counts are expressed in **pieces (pairs)** at every level. "In-warehouse" stock excludes dispatched cartons. Loose stock (free / unpacked child boxes) rolls up into the upper levels and is also surfaced separately at the leaf. The leaf lists per-master-carton rows with a per-size breakdown and supports search, filtering, and CSV export. Backed by a new aggregation endpoint `GET /api/v1/inventory/breakdown`; no product schema changes were required.
+
+### Mod #3 — Role Manager (Configurable RBAC)
+Completes and exposes the permission layer. Administrators can now define, per role, which modules a user may **view / add / edit / delete** — and, for stage-aware actions, **up to which lifecycle stage**. A new normalised `role_permissions` table (role → `module:action`, with an optional `max_stage` constraint) backs a new `/admin/roles` admin UI featuring a permission-matrix editor. The **Admin** role is a protected super-admin (cannot be edited or deleted, preventing lockout); the default roles' names and existence are locked, but their permissions are editable. All API routes are permission-gated (`authorizePermission('module:action')`), and the UI hides controls a user lacks permission for. Endpoints: `GET/POST/PATCH/DELETE /api/v1/roles`, `GET /api/v1/permissions`.
+
+### Mod #4 — Legacy (Pre-Go-Live) Carton Onboarding
+Allows onboarding finished-goods stock that was packed and sealed **before** go-live and therefore carries no QR labels. Administrators upload a CSV (`Section, Category, Article Group (Size Group), Master Carton Quantity`); the system generates that many opaque master-carton records, each with a unique barcode. Legacy stock is **count-level, not contents-level** — it has no colour / MRP / per-piece data, so it is tracked as a distinct "carton" measure and surfaced in the drill-down (Section → Category → Article Group) as a separate amber **"legacy cartons"** indicator that never mixes with piece counts. Re-upload is additive (with a warning). The Master Cartons list hides legacy cartons behind a **"Show legacy"** toggle. Endpoint: `POST /api/v1/master-cartons/legacy-upload` (with a downloadable sample CSV); new `master_cartons` columns: `is_legacy`, `section`, `category`, `article_group`, `size_group`.
+
+### Mod #5 — Legacy Carton Unpack / Repack
+Provides the path to bring legacy (opaque) stock into full per-box tracking. An **"Open for Repacking"** action converts a legacy carton into a normal, empty, trackable carton (keeping its barcode) — **no child boxes are auto-created**, because none ever existed. The operator then generates the real child-box labels, applies them to the physical boxes, scans them back into the same carton via the existing pack flow, and closes it. From that point the carton is counted as ordinary tracked pieces and no longer as a legacy carton. Endpoint: `POST /api/v1/master-cartons/:id/open-legacy`.
 
 ---
 
@@ -361,6 +390,7 @@ Phase 1 will be considered successful when the following conditions are met:
 | 1.1     | 16-Mar-2026 | Basiq360 | Added Customer Master module, expanded Product Master (category/section/location/HSN/size group), redesigned child box & master carton labels per client wireframes, Binny HD logo integration |
 | 1.2     | 20-Mar-2026 | Basiq360 | Multi-Size QR Batch Generation: new bulk-multi-size endpoint, product sizes endpoint, generate page rewrite with per-size quantity inputs |
 | 1.3     | 03-Apr-2026 | Basiq360 | UAT bug fixes (button visibility, print labels, searchable product dropdown, customer-centric dispatch list). Phase 2 UI Enhancement Plan: design system modernization (brand-tinted shadows, CSS animations, skeleton loaders), component polish (gradient buttons, interactive cards, glass-effect layouts), page-specific enhancements (dashboard welcome banner, list page skeletons, form sticky submit), PWA improvements (branded splash, offline page, toast accent borders). All frontend-only, no new dependencies. |
+| 1.4     | 02-Jun-2026 | Basiq360 | Phase 6 post-UAT client enhancements documented (§4A): (#1) child-box label reprint — per-row + bulk [live]; (#2) 7-level inventory drill-down with new `/inventory/breakdown` endpoint; (#3) Role Manager / configurable RBAC — `role_permissions` table, `max_stage` constraints, `/admin/roles` UI, permission-gated routes; (#4) legacy pre-go-live carton CSV onboarding (`is_legacy` cartons surfaced in drill-down); (#5) legacy carton unpack/repack ("Open for Repacking"). Mods #2–#5 dev-complete, bundled for a single combined UAT → production release. |
 
 ---
 

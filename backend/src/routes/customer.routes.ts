@@ -1,9 +1,9 @@
 import { Router } from 'express';
 import * as customerController from '../controllers/customer.controller';
 import { authenticate } from '../middleware/auth.middleware';
-import { authorize } from '../middleware/rbac.middleware';
+import { authorizePermission } from '../middleware/rbac.middleware';
 import { validate } from '../middleware/validate.middleware';
-import { USER_ROLES } from '../config/constants';
+import { csvUpload } from '../middleware/upload.middleware';
 import {
   createCustomerSchema,
   updateCustomerSchema,
@@ -17,9 +17,23 @@ router.use(authenticate);
 
 router.post(
   '/',
-  authorize(USER_ROLES.ADMIN, USER_ROLES.SUPERVISOR),
+  authorizePermission('customers:create'),
   validate({ body: createCustomerSchema }),
   customerController.createCustomer
+);
+
+// ── Bulk CSV upload (literal paths declared before /:id to avoid shadowing) ──
+router.get(
+  '/bulk-upload/sample',
+  authorizePermission('customers:read'),
+  customerController.downloadCustomerSampleCsv
+);
+
+router.post(
+  '/bulk-upload',
+  authorizePermission('customers:create'),
+  csvUpload.single('file'),
+  customerController.bulkUploadCustomers
 );
 
 router.get(
@@ -44,14 +58,14 @@ router.get(
 
 router.put(
   '/:id',
-  authorize(USER_ROLES.ADMIN, USER_ROLES.SUPERVISOR),
+  authorizePermission('customers:update'),
   validate({ params: customerIdParamSchema, body: updateCustomerSchema }),
   customerController.updateCustomer
 );
 
 router.delete(
   '/:id',
-  authorize(USER_ROLES.ADMIN),
+  authorizePermission('customers:delete'),
   validate({ params: customerIdParamSchema }),
   customerController.deleteCustomer
 );

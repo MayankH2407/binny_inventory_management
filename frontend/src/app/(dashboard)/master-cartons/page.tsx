@@ -17,21 +17,25 @@ import { useApiQuery } from '@/hooks/useApi';
 import { keepPreviousData } from '@tanstack/react-query';
 import { formatDateTime, formatCurrency } from '@/lib/utils';
 import { useRouter } from 'next/navigation';
+import { useCan } from '@/hooks/useCan';
 
 export default function MasterCartonsPage() {
   const router = useRouter();
+  const canCreate = useCan('cartons:create');
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [showLegacy, setShowLegacy] = useState(false);
 
   const { data, isLoading } = useApiQuery(
-    ['master-cartons', String(page), search, statusFilter],
+    ['master-cartons', String(page), search, statusFilter, String(showLegacy)],
     () =>
       masterCartonService.getAll({
         page,
         limit: PAGE_SIZE,
         search: search || undefined,
         status: statusFilter || undefined,
+        includeLegacy: showLegacy || undefined,
       }),
     { placeholderData: keepPreviousData }
   );
@@ -42,9 +46,11 @@ export default function MasterCartonsPage() {
         title="Master Cartons"
         description="Manage master cartons and their child box contents"
         action={
-          <Link href={ROUTES.MASTER_CARTONS_CREATE}>
-            <Button leftIcon={<Plus className="h-4 w-4" />}>Create Carton</Button>
-          </Link>
+          canCreate ? (
+            <Link href={ROUTES.MASTER_CARTONS_CREATE}>
+              <Button leftIcon={<Plus className="h-4 w-4" />}>Create Carton</Button>
+            </Link>
+          ) : undefined
         }
       />
 
@@ -77,6 +83,18 @@ export default function MasterCartonsPage() {
               }}
               className="w-full sm:w-44"
             />
+            <label className="flex items-center gap-2 cursor-pointer self-center whitespace-nowrap select-none">
+              <input
+                type="checkbox"
+                checked={showLegacy}
+                onChange={(e) => {
+                  setShowLegacy(e.target.checked);
+                  setPage(1);
+                }}
+                className="h-4 w-4 rounded border-brand-border text-binny-navy accent-binny-navy cursor-pointer"
+              />
+              <span className="text-sm text-brand-text-muted">Show legacy</span>
+            </label>
           </div>
         </div>
 
@@ -103,7 +121,14 @@ export default function MasterCartonsPage() {
                     {carton.article_summary ? (
                       <span className="text-sm font-medium text-brand-text-dark">{carton.article_summary}</span>
                     ) : (
-                      <span className="font-mono text-xs text-brand-text-dark">{carton.carton_barcode}</span>
+                      <>
+                        <span className="font-mono text-xs text-brand-text-dark">{carton.carton_barcode}</span>
+                        {carton.is_legacy && (
+                          <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded bg-amber-100 border border-amber-300 text-amber-800 text-[10px] font-medium align-middle">
+                            Legacy
+                          </span>
+                        )}
+                      </>
                     )}
                     <StatusBadge status={carton.status} size="sm" />
                   </div>
@@ -114,7 +139,14 @@ export default function MasterCartonsPage() {
                     </p>
                   )}
                   {carton.article_summary && (
-                    <p className="font-mono text-xs text-brand-text-muted mb-1">{carton.carton_barcode}</p>
+                    <p className="font-mono text-xs text-brand-text-muted mb-1">
+                      {carton.carton_barcode}
+                      {carton.is_legacy && (
+                        <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded bg-amber-100 border border-amber-300 text-amber-800 text-[10px] font-medium align-middle">
+                          Legacy
+                        </span>
+                      )}
+                    </p>
                   )}
                   <div className="flex items-center gap-3 text-xs text-brand-text-muted">
                     <span className="font-semibold text-brand-text-dark">
@@ -157,6 +189,11 @@ export default function MasterCartonsPage() {
                             </p>
                           )}
                           <span className="font-mono text-xs text-brand-text-muted">{carton.carton_barcode}</span>
+                          {carton.is_legacy && (
+                            <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded bg-amber-100 border border-amber-300 text-amber-800 text-[10px] font-medium align-middle">
+                              Legacy
+                            </span>
+                          )}
                         </div>
                       </TableCell>
                       <TableCell>

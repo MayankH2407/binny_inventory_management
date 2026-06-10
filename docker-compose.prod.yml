@@ -65,6 +65,25 @@ services:
     networks:
       - edge-network
 
+  binny-frontend-root:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: prod
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL_ROOT:-https://binnyfootwear.basiq360.com/api/v1}
+        NEXT_PUBLIC_BASE_PATH: ""
+    container_name: binny-frontend-root
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL_ROOT:-https://binnyfootwear.basiq360.com/api/v1}
+      NEXT_PUBLIC_BASE_PATH: ""
+    depends_on:
+      binny-backend:
+        condition: service_healthy
+    networks:
+      - edge-network
+
 volumes:
   binny_pgdata:
 

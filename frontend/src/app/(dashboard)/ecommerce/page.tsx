@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Plus, Search, ShoppingCart } from 'lucide-react';
+import { Plus, Search, ShoppingCart, BarChart3 } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import Select from '@/components/ui/Select';
@@ -17,9 +17,11 @@ import { useApiQuery } from '@/hooks/useApi';
 import { keepPreviousData } from '@tanstack/react-query';
 import { formatDateTime } from '@/lib/utils';
 import { useRouter } from 'next/navigation';
+import { useCan } from '@/hooks/useCan';
 
 export default function EcommercePage() {
   const router = useRouter();
+  const canCreate = useCan('ecommerce:create');
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -44,9 +46,16 @@ export default function EcommercePage() {
         title="E-commerce"
         description="Manage e-commerce listings and order batches"
         action={
-          <Link href={ROUTES.ECOMMERCE_CREATE}>
-            <Button leftIcon={<Plus className="h-4 w-4" />}>Create E-commerce Record</Button>
-          </Link>
+          <div className="flex gap-2">
+            <Link href={ROUTES.ECOMMERCE_STOCK}>
+              <Button variant="outline" leftIcon={<BarChart3 className="h-4 w-4" />}>Stock View</Button>
+            </Link>
+            {canCreate && (
+              <Link href={ROUTES.ECOMMERCE_CREATE}>
+                <Button leftIcon={<Plus className="h-4 w-4" />}>Create E-commerce Record</Button>
+              </Link>
+            )}
+          </div>
         }
       />
 

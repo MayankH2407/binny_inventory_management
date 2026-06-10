@@ -105,3 +105,41 @@ export async function getSubDealers(
     next(error);
   }
 }
+
+export async function bulkUploadCustomers(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const file = (req as AuthenticatedRequest & { file?: { buffer: Buffer } }).file;
+    if (!file) {
+      res.status(400).json({ success: false, message: 'No CSV file provided' });
+      return;
+    }
+
+    const result = await customerService.bulkCreateCustomers(file.buffer, req.user!.userId);
+    sendSuccess(res, result, `Bulk upload complete: ${result.created} customers created${result.errors.length > 0 ? `, ${result.errors.length} errors` : ''}`, 201);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export function downloadCustomerSampleCsv(
+  _req: AuthenticatedRequest,
+  res: Response,
+): void {
+  const headers = [
+    'firm_name', 'address', 'delivery_location', 'gstin', 'private_marka',
+    'gr', 'contact_person_name', 'contact_person_mobile', 'customer_type', 'primary_dealer_name',
+  ];
+  const sampleRows = [
+    ['Acme Footwear', '12 MG Road, Jaipur', 'Jaipur', '22AAAAA0000A1Z5', 'ACME', 'GR-001', 'Ramesh', '9876543210', 'Primary Dealer', ''],
+    ['Acme Sub Store', '5 Station Road, Ajmer', 'Ajmer', '', '', 'GR-002', 'Suresh', '9876500000', 'Sub Dealer', 'Acme Footwear'],
+  ];
+  const csv = [headers.join(','), ...sampleRows.map((r) => r.join(','))].join('\n');
+
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', 'attachment; filename=customer_upload_sample.csv');
+  res.send(csv);
+}

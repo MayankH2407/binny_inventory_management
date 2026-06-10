@@ -2474,5 +2474,40 @@ During UAT (April 3, 2026), the UI was flagged as functional but visually bland.
 
 ---
 
+## 18. Phase 6 — Post-QA Client Modifications (May–June 2026)
+
+A set of client-requested enhancements made after Phase 1 go-live, tracked as numbered mods. Mod #1 is deployed to production + test; mods #2–#5 are localhost-complete (TypeScript clean both ends) and bundled for one combined test → UAT → live cycle. Day-by-day execution history lives in `progress.md`; this section is the technical summary.
+
+### 18.1 Mod #1 — Child-Box Label Reprint (frontend-only) — **LIVE**
+- Extracted the child-box label HTML/CSS template into shared util `frontend/src/lib/childBoxLabel.ts` → `printChildBoxLabels(boxes)`. Template byte-identical to the original (TSC-printer-tuned); `packedOn` derived per-box from `created_at` (correct for reprints).
+- `child-boxes/page.tsx`: per-row **Print Label** action (desktop column + mobile card) and **multi-select bulk** reprint (`selectedIds: Set`, tri-state header checkbox, `Print Selected (N)`); selection resets on search/filter/page change. No backend/DB change.
+
+### 18.2 Mod #2 — 7-Level Inventory Drill-Down
+- Hierarchy: **Section → Category → Article Group → Article Name → Colour → Size Group → master-carton leaf**. Unit = pieces (pairs) at every level. "In-warehouse" = `master_cartons.status != 'DISPATCHED'`. Loose (FREE/unpacked) child boxes roll up into upper levels and appear as a separate "Loose Stock" group at the leaf. Same Article+Colour+Size-Group at different MRPs = separate leaf rows.
+- Backend: `GET /api/v1/inventory/breakdown` (one parametric SQL in `inventory.service.ts → getInventoryBreakdown()`; leaf branch aggregates per `(carton, size, mrp)` then `json_agg`s a numeric-sorted `size_breakdown`). Zod schema with a path-completeness `.refine()`. **No product schema change** — all six grouping fields already existed on `products`. Jest test runner stood up here (jest, ts-jest, supertest, `jest.config.ts`, `tests/setup.ts`).
+- Frontend: catch-all `inventory/[...path]/page.tsx` + `InventoryDrillView`, `InventoryCardGrid`, `InventoryBreadcrumb`, `InventoryLeafTable`, `InventorySearchBar`, `InventoryFilters`, `InventorySummaryCards`, `InventoryStockBar`; CSV export at leaf. The prior 998-line `/inventory/page.tsx` was replaced by a 20-line wrapper (lost stock-summary cards, per-card stock bars, CSV export were ported into the new view). Breadcrumb hrefs use idempotent `encodeURIComponent(decodeURIComponent(s))` to avoid double-encoding.
+
+### 18.3 Mod #3 — Role Manager (Configurable RBAC)
+- **Finished a half-built RBAC layer**: the `roles.permissions` jsonb column + seeded `module:action` strings existed, but `authorize()` only checked role *name*. 
+- New normalised `role_permissions` table (`role_id` FK, `permission` text, `max_stage` text NULL), migration `20260529100001`, backfilled from jsonb. New `authorizePermission(perm, {stageCheck?})` middleware; **all 46 `authorize(USER_ROLES.X)` call sites across 11 route files migrated** to `authorizePermission('module:action')`. New endpoints: `GET/POST/PATCH/DELETE /api/v1/roles`, `GET /api/v1/permissions` (15-module catalog with `stage_aware` + canonical `stages`). `Admin` is hard-coded super-admin (no edit/delete → lockout-safe); default roles name/delete-locked, permissions editable. `/api/v1/auth/login` + `/profile` return the user's effective `permissions: [{permission, max_stage}]`.
+- Frontend: `/admin/roles` page (card list + `PermissionMatrix` editor with per-action `max_stage` dropdowns + delete-confirm with 409 handling), `useCan('module:action', opts?)` hook (stage-aware via `MASTER_CARTON_STAGES`/`CHILD_BOX_STAGES`), permission-filtered sidebar, and `useCan` gates on ~17 action buttons (hide-don't-disable).
+- New backend files: `config/permissions.ts`, `services/role.service.ts`, `controllers/role.controller.ts`, `routes/role.routes.ts`, `routes/permission.routes.ts`, `models/schemas/role.schema.ts`. New frontend: `app/(dashboard)/admin/roles/*` (`page.tsx`, `RoleEditModal.tsx`, `DeleteRoleModal.tsx`, `PermissionMatrix.tsx`), `hooks/useCan.ts`, `constants/stages.ts`, `types/role.ts`.
+
+### 18.4 Mod #4 — Legacy (Pre-Go-Live) Carton Onboarding
+- Onboards stock packed & sealed before go-live (no QR labels). CSV columns: `SECTION, CATEGORY, ARTICLE GROUP (SIZE GROUP), MASTER CARTON QUANTITY`. Generates N opaque master-carton records (`status=CLOSED, child_count=0, is_legacy=true`, no inner child boxes), each with a unique `MC` barcode. **Count-level, not contents-level** — no colour/MRP/article-name/sizes.
+- Migration `20260531100001` adds `is_legacy bool`, `section`, `category`, `article_group(200)`, `size_group` to `master_cartons` + two partial indexes (`WHERE is_legacy=true`). Service `legacyCarton.service.ts`: `parseArticleGroup()` (last-balanced-paren size-group extractor), case-insensitive section/category normalisers, `bulkCreateLegacyCartons()` (csv-parse, header validation, 20k cap, additive-with-warning on duplicate sections, per-row txn, one `BULK_CREATE_LEGACY_CARTONS` audit row/row). Endpoints: `POST /api/v1/master-cartons/legacy-upload` (csv upload) + `GET .../legacy-upload/sample`; `getMasterCartons` threads `includeLegacy` (defaults to **excluding** legacy).
+- Inventory drill-down: `getInventoryBreakdown` merges a separate legacy aggregation (section/category/group **only** — legacy lacks deeper levels) into a `legacy_carton_count` (+ `legacy_size_groups` at group level); the original piece-counting SQL is untouched. UI: amber "N legacy cartons" pill distinct from piece counts; Master Cartons list has a **"Show legacy"** toggle. Frontend: `components/inventory/LegacyUploadButton.tsx`.
+
+### 18.5 Mod #5 — Legacy Carton Unpack / Repack ("Open for Repacking")
+- Brings opaque legacy stock into per-box tracking. Key realisation: once a legacy carton becomes a normal empty `CREATED` carton, the existing generate → Add-Boxes (scan-pack) → Close flow already covers the rest — so the only new operation is the conversion itself.
+- `POST /api/v1/master-cartons/:id/open-legacy` (gated `packing:unpack`) → `openLegacyCarton()` guards `is_legacy=true` (else 400) and flips `is_legacy=false, status=CREATED, child_count=0` (keeps barcode + section/etc. for provenance), creating/freeing **zero** child boxes, then logs a `LEGACY_CARTON_OPENED` transaction + `OPEN_LEGACY_CARTON` audit row.
+- `transaction_type` is a Postgres **ENUM** (no CHECK constraint), so migration `20260602100001` adds the `LEGACY_CARTON_OPENED` value (down is a no-op — PG can't drop enum values). Frontend: `is_legacy` etc. added to the `MasterCarton` type; `openLegacy()` service call; carton detail page shows a legacy banner + **"Open for Repacking"** button + confirm modal (Full-Unpack hidden for legacy); list page shows a "Legacy" pill.
+- After opening + repacking, the carton is an ordinary tracked carton (its `legacy_carton_count` drops to 0 and its pieces appear via the normal aggregation). Out of scope: dispatching a still-sealed legacy carton without repacking; enriching the CSV with colour/MRP/pieces.
+
+### 18.6 Deployment note
+The held bundle carries **two** migrations to run on test + live: `20260531100001_add-legacy-carton-fields` and `20260602100001_add-legacy-carton-opened-transaction-type` (plus `20260529100001_create-role-permissions-table`). The stack uses **node-pg-migrate** (`pgmigrations` table), not knex.
+
+---
+
 *Document prepared by Basiq360 for Binny Footwear (Mahavir Polymers Pvt. Ltd.)*
 *This is a living document and will be updated as the project progresses.*

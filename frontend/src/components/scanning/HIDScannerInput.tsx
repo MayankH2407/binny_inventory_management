@@ -44,7 +44,9 @@ export default function HIDScannerInput({
   // Submit helper. Reads the DOM value at call time and clears both state
   // and DOM so the next scan starts fresh.
   const submit = useCallback((code: string) => {
-    const trimmed = code.trim();
+    // Barcode alphabet is uppercase A-Z and 0-9 only. Normalize defensively
+    // because HID scanners + Windows Caps Lock can flip output to lowercase.
+    const trimmed = code.trim().toUpperCase();
     if (trimmed.length < minLengthRef.current) return;
     if (inputRef.current) {
       inputRef.current.value = '';

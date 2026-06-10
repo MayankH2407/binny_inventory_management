@@ -11,15 +11,16 @@ import Badge from '@/components/ui/Badge';
 import Modal from '@/components/ui/Modal';
 import PageHeader from '@/components/layout/PageHeader';
 import { ROLE_LABELS } from '@/constants';
-import { useAuth } from '@/hooks/useAuth';
 import api from '@/services/api';
+import { useCan } from '@/hooks/useCan';
 import { useApiQuery, useApiMutation } from '@/hooks/useApi';
 import type { User } from '@/types';
 import { formatDateTime } from '@/lib/utils';
 import toast from 'react-hot-toast';
 
 export default function UsersPage() {
-  const { isAdmin } = useAuth();
+  const canCreate = useCan('users:create');
+  const canRead = useCan('users:read');
   const [search, setSearch] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newUser, setNewUser] = useState({
@@ -65,13 +66,13 @@ export default function UsersPage() {
     }
   };
 
-  if (!isAdmin) {
+  if (!canRead) {
     return (
       <div className="flex flex-col items-center justify-center py-20">
         <Shield className="h-16 w-16 text-brand-text-muted/20 mb-4" />
         <h2 className="text-lg font-semibold text-brand-text-dark mb-2">Access Denied</h2>
         <p className="text-brand-text-muted">
-          Only administrators can manage users.
+          You do not have permission to view users.
         </p>
       </div>
     );
@@ -83,12 +84,14 @@ export default function UsersPage() {
         title="User Management"
         description="Manage system users and their roles"
         action={
-          <Button
-            leftIcon={<Plus className="h-4 w-4" />}
-            onClick={() => setShowCreateModal(true)}
-          >
-            Add User
-          </Button>
+          canCreate ? (
+            <Button
+              leftIcon={<Plus className="h-4 w-4" />}
+              onClick={() => setShowCreateModal(true)}
+            >
+              Add User
+            </Button>
+          ) : undefined
         }
       />
 
@@ -173,7 +176,7 @@ export default function UsersPage() {
       </Card>
 
       <Modal
-        isOpen={showCreateModal}
+        isOpen={showCreateModal && canCreate}
         onClose={() => setShowCreateModal(false)}
         title="Add New User"
         description="Create a new user account for the inventory system"
@@ -182,9 +185,11 @@ export default function UsersPage() {
             <Button variant="secondary" onClick={() => setShowCreateModal(false)}>
               Cancel
             </Button>
-            <Button onClick={() => createUser(undefined as void)} isLoading={isCreating}>
-              Create User
-            </Button>
+            {canCreate && (
+              <Button onClick={() => createUser(undefined as void)} isLoading={isCreating}>
+                Create User
+              </Button>
+            )}
           </>
         }
       >

@@ -245,12 +245,12 @@ test.describe.serial('Dispatch RBAC & Lifecycle Suite', () => {
       expect(dispatchId).toBeTruthy();
     });
 
-    test('TC-DISP-SUP-001: Supervisor creates dispatch → 201', async ({ request }) => {
-      // Use the second closed carton
+    test('TC-DISP-SUP-001: Supervisor CANNOT create dispatch (has dispatch:read only) → 403', async ({ request }) => {
+      // Supervisor holds `dispatch:read` but NOT `dispatch:create` in 001_roles.ts → denied at the permission gate.
       const res = await createDispatch(request, tokens.supervisor, [closedCartonId2], customerId);
-      expect(res.status()).toBe(201);
+      expect(res.status()).toBe(403);
       const body = await res.json();
-      expect(body.success).toBe(true);
+      expect(body.success).toBe(false);
     });
 
     test('TC-DISP-DOP-001: Dispatch Operator creates dispatch (needs a fresh CLOSED carton)', async ({ request }) => {

@@ -1,9 +1,8 @@
 import { Router } from 'express';
 import * as sectionController from '../controllers/section.controller';
 import { authenticate } from '../middleware/auth.middleware';
-import { authorize } from '../middleware/rbac.middleware';
+import { authorizePermission } from '../middleware/rbac.middleware';
 import { validate } from '../middleware/validate.middleware';
-import { USER_ROLES } from '../config/constants';
 import {
   createSectionSchema,
   updateSectionSchema,
@@ -16,7 +15,7 @@ router.use(authenticate);
 
 router.post(
   '/',
-  authorize(USER_ROLES.ADMIN),
+  authorizePermission('sections:create'),
   validate({ body: createSectionSchema }),
   sectionController.createSection
 );
@@ -34,14 +33,14 @@ router.get(
 
 router.put(
   '/:id',
-  authorize(USER_ROLES.ADMIN),
+  authorizePermission('sections:update'),
   validate({ params: sectionIdParamSchema, body: updateSectionSchema }),
   sectionController.updateSection
 );
 
 router.delete(
   '/:id',
-  authorize(USER_ROLES.ADMIN),
+  authorizePermission('sections:delete'),
   validate({ params: sectionIdParamSchema }),
   sectionController.deleteSection
 );

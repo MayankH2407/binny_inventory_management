@@ -14,13 +14,17 @@ import { productService } from '@/services/product.service';
 import { useApiQuery, useApiMutation } from '@/hooks/useApi';
 import type { BulkCreateMultiSizeRequest, ChildBoxWithProduct, Product } from '@/types';
 import { formatCurrency } from '@/lib/utils';
+import { compareSizes } from '@/lib/sizeSort';
 import Link from 'next/link';
-import { QRCodeSVG } from 'qrcode.react';
-import { renderToStaticMarkup } from 'react-dom/server';
-import { createElement } from 'react';
+import { printChildBoxLabels } from '@/lib/childBoxLabel';
+import { useCan } from '@/hooks/useCan';
+
+// Env-driven cap: default 500 (test/local); live build sets NEXT_PUBLIC_CHILD_BOX_MAX=1500.
+const MAX_LABELS = Number(process.env.NEXT_PUBLIC_CHILD_BOX_MAX) || 500;
 
 export default function GenerateQRPage() {
   const router = useRouter();
+  const canCreate = useCan('child_boxes:create');
   const printRef = useRef<HTMLDivElement>(null);
   const [productId, setProductId] = useState('');
   const [colourProductId, setColourProductId] = useState('');
@@ -99,15 +103,16 @@ export default function GenerateQRPage() {
     { enabled: !!effectiveProductId },
   );
 
-  // Sort sizes numerically
+  // Dedupe by size (colour variants can produce multiple sibling products sharing a
+  // size, which made each size appear twice in the labels grid) then sort with the
+  // shared kids-before-adults comparator.
   const sortedSizes = useMemo(() => {
     if (!siblingProducts) return [];
-    return [...siblingProducts].sort((a, b) => {
-      const numA = parseFloat(a.size);
-      const numB = parseFloat(b.size);
-      if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
-      return a.size.localeCompare(b.size);
-    });
+    const seen = new Map<string, (typeof siblingProducts)[number]>();
+    for (const p of siblingProducts) {
+      if (!seen.has(p.size)) seen.set(p.size, p);
+    }
+    return Array.from(seen.values()).sort((a, b) => compareSizes(a.size, b.size));
   }, [siblingProducts]);
 
   // Summary calculations
@@ -135,7 +140,7 @@ export default function GenerateQRPage() {
     if (!effectiveProductId) newErrors.product_id = 'Please select a product';
     if (quantity < 1) newErrors.quantity = 'Quantity must be at least 1';
     if (sizeSummary.total === 0) newErrors.sizes = 'Enter at least one size quantity';
-    if (sizeSummary.total > 500) newErrors.sizes = 'Total labels must not exceed 500';
+    if (sizeSummary.total > MAX_LABELS) newErrors.sizes = `Total labels must not exceed ${MAX_LABELS}`;
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -169,133 +174,15 @@ export default function GenerateQRPage() {
   };
 
   const handlePrint = () => {
-    const today = new Date()
-      .toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' })
-      .toUpperCase();
-
-    // Pre-render all QR SVGs safely using createElement
-    const labelHtmlParts = generatedBoxes.map((box) => {
-      const qrSvg = renderToStaticMarkup(
-        createElement(QRCodeSVG, { value: box.barcode, size: 128, level: 'M' })
-      );
-      return `
-        <div class="label">
-          <table class="main">
-            <tr>
-              <td colspan="2" class="article-row">${box.article_name}</td>
-            </tr>
-            <tr>
-              <td class="colour-row">Colour: ${box.colour}</td>
-              <td class="size-cell" style="width:35%;">
-                <span class="size-label">Size: </span><span class="size-value">${box.size}</span>
-              </td>
-            </tr>
-            <tr>
-              <td colspan="2" class="mrp-row">
-                <span class="mrp-label">M.R.P.</span>
-                <span class="mrp-value">&#8377; ${Number(box.mrp).toFixed(2)}</span>
-                <span class="mrp-sub">(Inc of all taxes)</span>
-              </td>
-            </tr>
-            <tr>
-              <td class="small-row">Packed on: ${today}</td>
-              <td rowspan="3" class="qr-cell">
-                ${qrSvg}
-                <div class="barcode-text">${box.barcode}</div>
-              </td>
-            </tr>
-            <tr>
-              <td class="small-row">Content: ${(box.quantity || 1) * 2}N (${box.quantity || 1} Pair)</td>
-            </tr>
-            <tr>
-              <td class="footer-row">
-                Mfg &amp; Mktd by: Mahavir Polymers Pvt Ltd<br/>
-                FE 16-17 MIA Jaipur - 302017 Raj (India)<br/>
-                Customer Care: 0141 2751684
-              </td>
-            </tr>
-          </table>
-        </div>`;
-    });
-
-    const rowsHtml = labelHtmlParts
-      .reduce<string[][]>((acc, label, i) => {
-        if (i % 2 === 0) acc.push([label]);
-        else acc[acc.length - 1].push(label);
-        return acc;
-      }, [])
-      .map((pair) => `<div class="row">${pair[0]}${pair[1] ?? '<div class="label-empty"></div>'}</div>`)
-      .join('');
-
-    const htmlContent = `
-      <html>
-        <head>
-          <title>Print Labels</title>
-          <style>
-            @page { size: 96mm 48mm; margin: 0; }
-            * { margin: 0; padding: 0; box-sizing: border-box; }
-            html, body { width: 96mm; margin: 0; padding: 0; }
-            body { font-family: Arial, Helvetica, sans-serif; }
-            /* Inline-block layout (vs flex) is more print-engine-safe.
-               flex's cross-axis stretch is implemented inconsistently in
-               print contexts across browsers; inline-block sidesteps that. */
-            .row {
-              width: 96mm;
-              height: 48mm;
-              page-break-after: always;
-              page-break-inside: avoid;
-              font-size: 0;        /* kill inline-block whitespace gap */
-              white-space: nowrap;
-            }
-            .row:last-child { page-break-after: avoid; }
-            .label, .label-empty {
-              display: inline-block;
-              vertical-align: top;
-              width: 48mm;
-              height: 48mm;
-              font-size: 11pt;     /* reset for inner content */
-            }
-            .label {
-              border: 1.5px solid #000;
-              overflow: hidden;
-            }
-            .label-empty { visibility: hidden; }
-            table.main { width: 100%; height: 100%; border-collapse: collapse; }
-            table.main td { border: 0.5px solid #000; padding: 1mm 1.5mm; vertical-align: middle; }
-            .article-row { font-weight: bold; font-size: 11pt; vertical-align: middle; padding: 0.8mm 1.5mm; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center; }
-            .colour-row { font-size: 9pt; font-weight: bold; padding: 0.7mm 1.5mm; }
-            .mrp-row { vertical-align: middle; padding: 0.7mm 1.5mm; line-height: 1.15; white-space: nowrap; }
-            .mrp-label { font-weight: bold; font-size: 8pt; }
-            .mrp-value { font-weight: bold; font-size: 11pt; margin: 0 1mm; }
-            .mrp-sub { font-size: 5pt; color: #333; }
-            .size-cell { text-align: center; vertical-align: middle; }
-            .size-label { font-size: 8pt; font-weight: bold; }
-            .size-value { font-size: 14pt; font-weight: bold; line-height: 1; }
-            .small-row { font-size: 6pt; padding: 0.3mm 1.5mm; height: 3mm; white-space: nowrap; overflow: hidden; vertical-align: middle; }
-            .qr-cell { text-align: center; vertical-align: middle; padding: 0.3mm; }
-            .qr-cell svg { width: 18mm; height: 18mm; display: block; margin: 0 auto; }
-            .footer-row { font-size: 5pt; line-height: 1.1; padding: 0.6mm 1.5mm; vertical-align: middle; border-top: 1px solid #000; }
-            .qr-cell .barcode-text { font-family: 'Courier New', monospace; font-weight: bold; font-size: 10pt; letter-spacing: 0.3mm; margin-top: 0.5mm; text-align: center; }
-          </style>
-        </head>
-        <body>${rowsHtml}</body>
-      </html>
-    `;
-
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) return;
-
-    printWindow.document.write(htmlContent);
-    printWindow.document.close();
-
-    // Wait for the document to fully load before triggering print
-    printWindow.onload = () => {
-      printWindow.focus();
-      printWindow.print();
-    };
+    printChildBoxLabels(generatedBoxes);
   };
 
   if (productsLoading) return <PageSpinner />;
+
+  if (!canCreate) {
+    router.replace(ROUTES.INVENTORY);
+    return null;
+  }
 
   // --- Success state: show generated labels ---
   if (generatedBoxes.length > 0) {
@@ -560,7 +447,7 @@ export default function GenerateQRPage() {
                               <input
                                 type="number"
                                 min="0"
-                                max="500"
+                                max={MAX_LABELS}
                                 value={sizeQuantities[product.size] || 0}
                                 onChange={(e) => handleSizeQuantityChange(product.size, e.target.value)}
                                 className="w-24 px-3 py-1.5 text-sm border border-brand-border rounded-md focus:outline-none focus:ring-2 focus:ring-binny-navy focus:border-transparent"

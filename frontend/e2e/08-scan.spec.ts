@@ -10,12 +10,13 @@ test.describe('TC-SCANTRACE: Scan & Trace Page', () => {
   // Layout / Static content tests
   // ──────────────────────────────────────────────
 
-  test('TC-SCANTRACE-001: Page loads with Camera Scanner and Manual Entry sections', async ({ page }) => {
+  test('TC-SCANTRACE-001: Page loads with HID barcode scanner input and camera toggle', async ({ page }) => {
     await page.goto('/scan');
     await page.waitForLoadState('networkidle');
 
-    await expect(page.getByText('Camera Scanner')).toBeVisible({ timeout: 10000 });
-    await expect(page.getByText('Manual Entry')).toBeVisible({ timeout: 10000 });
+    // HID-first UI: a barcode input (primary) + a "Use Camera Instead" fallback toggle
+    await expect(page.getByPlaceholder(/scan barcode to trace/i).first()).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('button', { name: /use camera instead/i })).toBeVisible({ timeout: 10000 });
   });
 
   test('TC-SCANTRACE-002: Page title is "Scan & Trace"', async ({ page }) => {
@@ -25,31 +26,31 @@ test.describe('TC-SCANTRACE: Scan & Trace Page', () => {
     await expect(page.getByText('Scan & Trace').first()).toBeVisible({ timeout: 10000 });
   });
 
-  test('TC-SCANTRACE-003: Manual barcode input and Look Up button visible', async ({ page }) => {
+  test('TC-SCANTRACE-003: Barcode input and Add button visible', async ({ page }) => {
     await page.goto('/scan');
     await page.waitForLoadState('networkidle');
 
-    // Input placeholder
-    const input = page.getByPlaceholder(/enter barcode/i).first();
+    // Input placeholder (HIDScannerInput)
+    const input = page.getByPlaceholder(/scan barcode to trace/i).first();
     await expect(input).toBeVisible({ timeout: 10000 });
 
-    // Look Up button
-    const lookupBtn = page.getByRole('button', { name: /look up/i });
-    await expect(lookupBtn).toBeVisible({ timeout: 10000 });
+    // Add button (submits the typed/scanned barcode)
+    const addBtn = page.getByRole('button', { name: /add/i });
+    await expect(addBtn.first()).toBeVisible({ timeout: 10000 });
   });
 
   test('TC-SCANTRACE-004: Enter key triggers lookup (keyboard event)', async ({ page }) => {
     await page.goto('/scan');
     await page.waitForLoadState('networkidle');
 
-    const input = page.getByPlaceholder(/enter barcode/i).first();
+    const input = page.getByPlaceholder(/scan barcode to trace/i).first();
     await input.fill('NONEXISTENT-BARCODE-12345');
 
-    // Press Enter — the page should react (spinner, error toast, or result card)
+    // Press Enter — triggers a trace lookup. A nonexistent barcode surfaces an
+    // "item not found" error toast (the empty-state panel stays for a failed lookup).
     await input.press('Enter');
 
-    // The empty-state placeholder should disappear (lookup was triggered)
-    await expect(page.getByText('Scan or Enter a Barcode')).not.toBeVisible({ timeout: 10000 });
+    await expect(page.getByText(/not found/i)).toBeVisible({ timeout: 15000 });
   });
 
   test('TC-SCANTRACE-005: Empty state shows placeholder text before any scan', async ({ page }) => {
@@ -88,9 +89,9 @@ test.describe('TC-SCANTRACE: Scan & Trace Page', () => {
     await page.goto('/scan');
     await page.waitForLoadState('networkidle');
 
-    const input = page.getByPlaceholder(/enter barcode/i).first();
+    const input = page.getByPlaceholder(/scan barcode to trace/i).first();
     await input.fill(barcode);
-    await page.getByRole('button', { name: /look up/i }).click();
+    await page.getByRole("button", { name: /add/i }).click();
 
     // Child Box card should appear
     await expect(page.getByText('Child Box').first()).toBeVisible({ timeout: 15000 });
@@ -117,9 +118,9 @@ test.describe('TC-SCANTRACE: Scan & Trace Page', () => {
     await page.goto('/scan');
     await page.waitForLoadState('networkidle');
 
-    const input = page.getByPlaceholder(/enter barcode/i).first();
+    const input = page.getByPlaceholder(/scan barcode to trace/i).first();
     await input.fill(cb.barcode);
-    await page.getByRole('button', { name: /look up/i }).click();
+    await page.getByRole("button", { name: /add/i }).click();
 
     // Wait for results
     await expect(page.getByText('Child Box').first()).toBeVisible({ timeout: 15000 });
@@ -154,9 +155,9 @@ test.describe('TC-SCANTRACE: Scan & Trace Page', () => {
     await page.goto('/scan');
     await page.waitForLoadState('networkidle');
 
-    const input = page.getByPlaceholder(/enter barcode/i).first();
+    const input = page.getByPlaceholder(/scan barcode to trace/i).first();
     await input.fill(barcode);
-    await page.getByRole('button', { name: /look up/i }).click();
+    await page.getByRole("button", { name: /add/i }).click();
 
     // Master Carton card should appear
     await expect(page.getByText('Master Carton').first()).toBeVisible({ timeout: 15000 });
@@ -181,9 +182,9 @@ test.describe('TC-SCANTRACE: Scan & Trace Page', () => {
     await page.goto('/scan');
     await page.waitForLoadState('networkidle');
 
-    const input = page.getByPlaceholder(/enter barcode/i).first();
+    const input = page.getByPlaceholder(/scan barcode to trace/i).first();
     await input.fill(carton.carton_barcode);
-    await page.getByRole('button', { name: /look up/i }).click();
+    await page.getByRole("button", { name: /add/i }).click();
 
     // Wait for the Master Carton card to load
     await expect(page.getByText('Master Carton').first()).toBeVisible({ timeout: 15000 });
@@ -214,9 +215,9 @@ test.describe('TC-SCANTRACE: Scan & Trace Page', () => {
     await page.goto('/scan');
     await page.waitForLoadState('networkidle');
 
-    const input = page.getByPlaceholder(/enter barcode/i).first();
+    const input = page.getByPlaceholder(/scan barcode to trace/i).first();
     await input.fill(barcode);
-    await page.getByRole('button', { name: /look up/i }).click();
+    await page.getByRole("button", { name: /add/i }).click();
 
     // Timeline heading should appear after results load
     await expect(page.getByText('Timeline').first()).toBeVisible({ timeout: 15000 });
@@ -245,9 +246,9 @@ test.describe('TC-SCANTRACE: Scan & Trace Page', () => {
     await page.waitForLoadState('networkidle');
 
     // Perform a lookup to produce results
-    const input = page.getByPlaceholder(/enter barcode/i).first();
+    const input = page.getByPlaceholder(/scan barcode to trace/i).first();
     await input.fill(barcode);
-    await page.getByRole('button', { name: /look up/i }).click();
+    await page.getByRole("button", { name: /add/i }).click();
 
     // Wait for results to appear
     await expect(page.getByText('Child Box').first()).toBeVisible({ timeout: 15000 });
@@ -289,9 +290,9 @@ test.describe('TC-SCANTRACE: Scan & Trace Page', () => {
     await page.goto('/scan');
     await page.waitForLoadState('networkidle');
 
-    const input = page.getByPlaceholder(/enter barcode/i).first();
+    const input = page.getByPlaceholder(/scan barcode to trace/i).first();
     await input.fill('DOES-NOT-EXIST-XYZ-99999');
-    await page.getByRole('button', { name: /look up/i }).click();
+    await page.getByRole("button", { name: /add/i }).click();
 
     // An error toast should appear
     await expect(page.getByText(/item not found/i)).toBeVisible({ timeout: 15000 });

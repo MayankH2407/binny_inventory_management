@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TSC Printer Setup Guide — Binny Footwear Inventory</title>
+  <style>
+    :root {
+      --navy: #2D2A6E;
+      --navy-dark: #1E1A5F;
+      --navy-light: #EEEDF7;
+      --red: #E31E24;
+      --green: #16A34A;
+      --amber: #D97706;
+      --bg: #F5F6FA;
+      --white: #ffffff;
+      --text: #1a1a2e;
+      --text-muted: #6b7280;
+      --border: #e5e7eb;
+      --border-strong: #d1d5db;
+      --code-bg: #F3F4F6;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+    }
+
+    .header {
+      background: linear-gradient(135deg, var(--navy) 0%, var(--navy-dark) 100%);
+      padding: 48px 24px 64px;
+      text-align: center;
+      position: relative;
+    }
+    .header::after {
+      content: '';
+      position: absolute;
+      bottom: -24px;
+      left: 0;
+      right: 0;
+      height: 48px;
+      background: var(--bg);
+      border-radius: 28px 28px 0 0;
+    }
+    .header .badge {
+      display: inline-block;
+      background: rgba(255, 255, 255, 0.15);
+      color: rgba(255, 255, 255, 0.9);
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      padding: 6px 14px;
+      border-radius: 999px;
+      margin-bottom: 16px;
+    }
+    .header h1 { color: white; font-size: 32px; font-weight: 700; line-height: 1.2; }
+    .header .subtitle { color: rgba(255, 255, 255, 0.8); font-size: 15px; margin-top: 10px; }
+
+    .container {
+      max-width: 880px;
+      margin: 0 auto;
+      padding: 24px 24px 80px;
+    }
+
+    .meta-card {
+      background: var(--white);
+      border-radius: 14px;
+      padding: 24px 28px;
+      margin-bottom: 24px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 4px 12px rgba(0, 0, 0, 0.03);
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px 24px;
+    }
+    .meta-card .meta-item { display: flex; flex-direction: column; }
+    .meta-card .meta-label {
+      font-size: 11px; font-weight: 700; letter-spacing: 0.06em;
+      text-transform: uppercase; color: var(--text-muted); margin-bottom: 4px;
+    }
+    .meta-card .meta-value { font-size: 14px; color: var(--text); }
+
+    .card {
+      background: var(--white);
+      border-radius: 14px;
+      padding: 28px 32px;
+      margin-bottom: 20px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 4px 12px rgba(0, 0, 0, 0.03);
+    }
+    .card.intro { border-left: 4px solid var(--navy); }
+    .card.warning { border-left: 4px solid var(--amber); background: #FFFBEB; }
+    .card.critical { border-left: 4px solid var(--red); background: #FEF2F2; }
+
+    .card h2 {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--navy);
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .card h2 .step-num {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px; height: 32px;
+      background: linear-gradient(135deg, var(--navy), var(--navy-dark));
+      color: white;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+    .card h3 {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--navy);
+      margin: 18px 0 8px;
+    }
+    .card p { margin: 8px 0; color: var(--text); }
+    .card p + p { margin-top: 12px; }
+    .card ol, .card ul { margin: 10px 0 10px 24px; }
+    .card li { margin: 6px 0; }
+
+    code {
+      background: var(--code-bg);
+      padding: 2px 8px;
+      border-radius: 5px;
+      font-family: 'Consolas', 'Monaco', monospace;
+      font-size: 0.92em;
+      color: var(--navy-dark);
+      border: 1px solid var(--border);
+    }
+    kbd {
+      background: linear-gradient(180deg, #fafafa, #e5e7eb);
+      border: 1px solid var(--border-strong);
+      border-bottom-width: 2px;
+      border-radius: 5px;
+      padding: 2px 8px;
+      font-family: 'Consolas', 'Monaco', monospace;
+      font-size: 0.85em;
+      color: var(--text);
+      box-shadow: 0 1px 0 rgba(0, 0, 0, 0.04);
+    }
+
+    .callout {
+      border-radius: 10px;
+      padding: 14px 18px;
+      margin: 14px 0;
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+      font-size: 14px;
+      line-height: 1.55;
+    }
+    .callout-icon {
+      flex-shrink: 0;
+      width: 22px; height: 22px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 13px;
+      color: white;
+      margin-top: 1px;
+    }
+    .callout-info { background: var(--navy-light); }
+    .callout-info .callout-icon { background: var(--navy); }
+    .callout-warn { background: #FEF3C7; }
+    .callout-warn .callout-icon { background: var(--amber); }
+    .callout-danger { background: #FEE2E2; }
+    .callout-danger .callout-icon { background: var(--red); }
+    .callout-success { background: #DCFCE7; }
+    .callout-success .callout-icon { background: var(--green); }
+    .callout-body { flex: 1; }
+    .callout-body strong { display: block; margin-bottom: 2px; color: var(--text); }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 14px 0;
+      font-size: 14px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    table thead {
+      background: var(--navy);
+      color: white;
+    }
+    table th {
+      text-align: left;
+      padding: 10px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+    table td {
+      padding: 10px 14px;
+      border-top: 1px solid var(--border);
+      vertical-align: top;
+    }
+    table tbody tr:nth-child(even) { background: #FAFAFC; }
+    table td code { font-size: 0.88em; }
+
+    .toc {
+      background: var(--white);
+      border-radius: 14px;
+      padding: 24px 28px;
+      margin-bottom: 24px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 4px 12px rgba(0, 0, 0, 0.03);
+    }
+    .toc h3 {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+    }
+    .toc ol { margin: 0 0 0 20px; }
+    .toc li { margin: 6px 0; font-size: 14px; }
+    .toc a { color: var(--navy); text-decoration: none; }
+    .toc a:hover { text-decoration: underline; }
+
+    .footer {
+      text-align: center;
+      padding: 24px 16px 0;
+      color: var(--text-muted);
+      font-size: 12px;
+      line-height: 1.7;
+    }
+    .footer strong { color: var(--text); }
+
+    /* Print-friendly */
+    @media print {
+      body { background: white; font-size: 11pt; }
+      .header { padding: 24px; background: var(--navy) !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .header::after { display: none; }
+      .container { padding: 16px; max-width: none; }
+      .card, .meta-card, .toc {
+        box-shadow: none;
+        border: 1px solid var(--border);
+        page-break-inside: avoid;
+        margin-bottom: 12px;
+      }
+      table { page-break-inside: auto; }
+      table tr { page-break-inside: avoid; }
+      .toc { display: none; }
+      a { color: var(--navy); text-decoration: none; }
+    }
+
+    @media (max-width: 640px) {
+      .meta-card { grid-template-columns: 1fr; }
+      .card { padding: 22px 20px; }
+      .header h1 { font-size: 24px; }
+      table { font-size: 13px; }
+      table th, table td { padding: 8px 10px; }
+    }
+  </style>
+</head>
+<body>
+
+  <header class="header">
+    <span class="badge">Setup Guide</span>
+    <h1>TSC Printer Setup<br>for Binny Inventory</h1>
+    <p class="subtitle">Configure 100mm × 50mm media on Windows for two-up child-box label printing</p>
+  </header>
+
+  <main class="container">
+
+    <!-- Metadata -->
+    <div class="meta-card">
+      <div class="meta-item">
+        <span class="meta-label">Audience</span>
+        <span class="meta-value">End user / on-site IT support at Binny Footwear</span>
+      </div>
+      <div class="meta-item">
+        <span class="meta-label">Goal</span>
+        <span class="meta-value">Print two 50×50mm stickers per row on a 100mm-wide roll, both QR codes scannable</span>
+      </div>
+      <div class="meta-item">
+        <span class="meta-label">Time required</span>
+        <span class="meta-value">~10 minutes (one-time setup)</span>
+      </div>
+      <div class="meta-item">
+        <span class="meta-label">Last updated</span>
+        <span class="meta-value">4 May 2026</span>
+      </div>
+    </div>
+
+    <!-- Prerequisites -->
+    <section class="card intro">
+      <h2><span class="step-num">i</span> Prerequisites</h2>
+      <ul>
+        <li>Windows 10 or 11 PC, with <strong>administrator rights</strong> on the local machine.</li>
+        <li>TSC label printer connected directly via USB.</li>
+        <li>100mm-wide thermal label roll loaded with two 50×50mm die-cut labels per row (small gap between labels and between rows).</li>
+        <li>Latest Chrome or Edge browser.</li>
+        <li>TSC Seagull-based driver installed — <em>not</em> a generic Microsoft text driver. See the note in Step&nbsp;1 if in doubt.</li>
+      </ul>
+    </section>
+
+    <!-- Why -->
+    <section class="card">
+      <h2><span class="step-num">?</span> Why this guide exists</h2>
+      <p>
+        Earlier the system printed one 50×50mm label per page (1-up). On 1 May 2026
+        the print template was updated to <strong>2-up mode</strong> (two 50×50mm labels per
+        100×50mm page) so the full width of the roll is used and no half-row is wasted.
+      </p>
+      <p>
+        For the new layout to print correctly, the
+        <strong>printer driver's media size must match the new page size (100mm × 50mm)</strong>.
+        If the driver is still configured for the old 50×50mm media, Windows scales
+        the 100×50mm content down to fit 50mm width — exactly 50% scale — and the
+        result is the wrong size (approximately 50×25mm of squashed content per
+        sticker).
+      </p>
+      <p>
+        CSS and browser settings <em>cannot</em> override the driver's media size. The driver
+        must be reconfigured one time. After that, all subsequent prints work
+        without manual adjustment.
+      </p>
+    </section>
+
+    <!-- TOC -->
+    <nav class="toc">
+      <h3>What you'll do</h3>
+      <ol>
+        <li><a href="#step1">Open Printer Properties</a></li>
+        <li><a href="#step2">Define a 100×50mm custom stock</a></li>
+        <li><a href="#step3">Set the new stock as the default in Printing Preferences</a></li>
+        <li><a href="#step4">Set the new stock as the system-wide default</a> <strong style="color: var(--red)">(critical)</strong></li>
+        <li><a href="#step5">Calibrate the gap sensor</a></li>
+        <li><a href="#step6">Print a test page from Chrome</a></li>
+        <li><a href="#expected">Expected result</a></li>
+        <li><a href="#troubleshooting">Troubleshooting</a></li>
+      </ol>
+    </nav>
+
+    <!-- Step 1 -->
+    <section id="step1" class="card">
+      <h2><span class="step-num">1</span> Open Printer Properties</h2>
+      <ol>
+        <li>Press <kbd>Win</kbd> + <kbd>R</kbd>, type <code>control printers</code>, press <kbd>Enter</kbd>.
+          <br><em>Alternative:</em> Settings → Bluetooth &amp; devices → Printers &amp; scanners → click the TSC printer → "Printer properties".
+        </li>
+        <li>In the printer list, <strong>right-click the TSC printer</strong> → <strong>Printer properties</strong>.</li>
+        <li>Confirm you see tabs that include <strong>Stocks</strong> and <strong>Tools</strong> in addition to the standard Windows tabs (General, Sharing, Ports, Advanced, Color Management, Security).</li>
+      </ol>
+
+      <div class="callout callout-info">
+        <span class="callout-icon">i</span>
+        <div class="callout-body">
+          <strong>"Printer properties" — not "Printing preferences" yet</strong>
+          The Windows dialog with multiple tabs (General, Sharing, Ports, Advanced, Stocks, Tools, …) is what you want. We'll get to Preferences inside this dialog later.
+        </div>
+      </div>
+
+      <div class="callout callout-warn">
+        <span class="callout-icon">!</span>
+        <div class="callout-body">
+          <strong>If "Stocks" / "Tools" tabs are missing</strong>
+          The wrong driver is installed (likely a generic Microsoft text driver, not the TSC Seagull driver).
+          Download and install the correct TSC Windows driver for your model from
+          <a href="https://www.tscprinters.com/" target="_blank" rel="noopener">tscprinters.com</a>
+          → Support → Drivers → search by model. Then return to Step&nbsp;1.
+        </div>
+      </div>
+    </section>
+
+    <!-- Step 2 -->
+    <section id="step2" class="card">
+      <h2><span class="step-num">2</span> Define a 100×50mm custom stock</h2>
+      <ol>
+        <li>Click the <strong>Stocks</strong> tab.</li>
+        <li>Click <strong>New…</strong></li>
+        <li>Fill in the dialog as shown below:</li>
+      </ol>
+
+      <table>
+        <thead>
+          <tr><th style="width: 32%">Field</th><th>Value</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><strong>Name</strong></td><td><code>Binny 100x50 2up</code></td></tr>
+          <tr><td><strong>Description</strong></td><td><code>Two 50x50mm labels per row</code> <em>(optional)</em></td></tr>
+          <tr><td><strong>Stock Type</strong></td><td><code>Labels with Gaps</code> &nbsp;<strong style="color: var(--red)">← must be this</strong></td></tr>
+          <tr><td><strong>Width</strong></td><td><code>100.0 mm</code></td></tr>
+          <tr><td><strong>Height</strong> <em>(or "Length")</em></td><td><code>50.0 mm</code></td></tr>
+          <tr><td><strong>Liner Width</strong></td><td><code>100.0 mm</code> <em>(same as Width unless your liner is wider)</em></td></tr>
+          <tr><td><strong>Gap (between labels)</strong></td><td><code>3.0 mm</code> <em>(see note below)</em></td></tr>
+          <tr><td><strong>Sensor Type</strong></td><td><code>Gap</code> <em>(transmissive — the default)</em></td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout callout-info">
+        <span class="callout-icon">i</span>
+        <div class="callout-body">
+          <strong>About the Gap value</strong>
+          Measure the actual gap between two consecutive rows on the roll if you can
+          (a vernier caliper or a printed ruler works). Common values are 2.0, 2.5,
+          or 3.0 mm. If unsure, start with 3.0 mm — if Step&nbsp;5 calibration
+          fails or the printer skips rows, come back here and reduce to 2.0 mm.
+        </div>
+      </div>
+
+      <ol start="4">
+        <li>Click <strong>OK</strong> to save the stock.</li>
+      </ol>
+      <p>You should now see <code>Binny 100x50 2up</code> in the Stocks list.</p>
+    </section>
+
+    <!-- Step 3 -->
+    <section id="step3" class="card">
+      <h2><span class="step-num">3</span> Set the new stock as the default in Printing Preferences</h2>
+      <ol>
+        <li>Switch back to the <strong>General</strong> tab in Printer properties.</li>
+        <li>Click the <strong>Preferences…</strong> button.</li>
+        <li>In the Preferences dialog, go to <strong>Page Setup</strong> tab.</li>
+        <li>Under <strong>Stock</strong>, open the dropdown and select <code>Binny 100x50 2up</code>.</li>
+        <li><em>(Optional)</em> On the <strong>Options</strong> tab, set:
+          <ul>
+            <li><strong>Speed:</strong> 4 IPS <em>(safe default)</em></li>
+            <li><strong>Darkness:</strong> 8–10 <em>(thermal-direct rolls)</em></li>
+          </ul>
+        </li>
+        <li>Click <strong>Apply</strong>, then <strong>OK</strong> to close Preferences.</li>
+      </ol>
+    </section>
+
+    <!-- Step 4 -->
+    <section id="step4" class="card critical">
+      <h2><span class="step-num">4</span> Set the new stock as the system-wide default</h2>
+
+      <div class="callout callout-danger">
+        <span class="callout-icon">!</span>
+        <div class="callout-body">
+          <strong>This step is the one most commonly missed</strong>
+          Chrome reads the system <em>default</em>, not the per-user Preferences. If you
+          skip this, Chrome will keep using the old 50×50mm media and the symptom
+          returns even though Preferences look correct.
+        </div>
+      </div>
+
+      <ol>
+        <li>Back in Printer properties, click the <strong>Advanced</strong> tab.</li>
+        <li>Click <strong>Printing Defaults…</strong> <em>(this is a separate button from "Preferences" on the General tab — both must be set).</em></li>
+        <li>Repeat the same selection as Step&nbsp;3:
+          <br>Page Setup → Stock → <code>Binny 100x50 2up</code>.
+        </li>
+        <li>Click <strong>Apply</strong> and <strong>OK</strong>.</li>
+        <li>Click <strong>OK</strong> on Printer properties to close everything.</li>
+      </ol>
+    </section>
+
+    <!-- Step 5 -->
+    <section id="step5" class="card">
+      <h2><span class="step-num">5</span> Calibrate the gap sensor (one-time)</h2>
+      <p>The printer needs to relearn where the gaps between labels are.</p>
+
+      <h3>Driver-side calibration (preferred)</h3>
+      <ol>
+        <li>Open Printer properties again → <strong>Tools</strong> tab.</li>
+        <li>Click <strong>Calibrate Sensor</strong> <em>(or "Auto Calibrate")</em>.</li>
+        <li>The printer feeds 2–3 labels and stores the new gap pattern.</li>
+      </ol>
+
+      <h3>Hardware-side calibration (if no Tools button is available)</h3>
+      <ol>
+        <li>Power off the printer.</li>
+        <li>Hold the <strong>FEED</strong> button while powering it on.</li>
+        <li>Release the FEED button once the LED flashes amber, then green.</li>
+        <li>The printer auto-feeds a few labels and calibrates.</li>
+      </ol>
+
+      <div class="callout callout-success">
+        <span class="callout-icon">✓</span>
+        <div class="callout-body">
+          <strong>Quick test</strong>
+          Press the FEED button once. The printer should advance <strong>exactly one row (50mm)</strong> and stop with the next blank label cleanly aligned at the tear bar. If it skips a row or stops mid-label, redo this step with the Gap value tweaked in Step&nbsp;2.
+        </div>
+      </div>
+    </section>
+
+    <!-- Step 6 -->
+    <section id="step6" class="card">
+      <h2><span class="step-num">6</span> Print a test page from Chrome</h2>
+      <ol>
+        <li>Open Chrome and navigate to the Binny Inventory portal.</li>
+        <li>Sign in. Go to <strong>Child Boxes → Generate Labels</strong>.</li>
+        <li>Generate at least <strong>4 labels</strong> (so we have two full rows for the test).</li>
+        <li>On the success screen, click <strong>Print Labels</strong>. A new tab opens with the labels rendered.</li>
+        <li>The browser print dialog appears. Configure as follows:</li>
+      </ol>
+
+      <table>
+        <thead>
+          <tr><th style="width: 32%">Setting</th><th>Value</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><strong>Destination</strong></td><td>TSC printer</td></tr>
+          <tr><td><strong>Pages</strong></td><td>All</td></tr>
+          <tr><td><strong>Paper size</strong></td><td><code>Binny 100x50 2up</code> <em>(or <code>100 x 50 mm</code>)</em> &nbsp;<strong style="color: var(--red)">← must select</strong></td></tr>
+          <tr><td><strong>Margins</strong></td><td>None <em>(or "Default" — minimum)</em></td></tr>
+          <tr><td><strong>Scale</strong></td><td><code>Default</code> or <code>100%</code> &nbsp;<strong style="color: var(--red)">— NOT "Fit to printable area"</strong></td></tr>
+          <tr><td><strong>More settings → Background graphics</strong></td><td>ON</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout callout-warn">
+        <span class="callout-icon">!</span>
+        <div class="callout-body">
+          <strong>Critical: Paper size dropdown gotcha</strong>
+          On the first print after driver changes, the "Paper size" dropdown sometimes still shows A4 or Letter even though the system default was set in Step&nbsp;4. <strong>Select <code>Binny 100x50 2up</code> manually the first time.</strong> After that Chrome will remember it for this printer.
+        </div>
+      </div>
+
+      <ol start="6">
+        <li>Click <strong>Print</strong>.</li>
+      </ol>
+    </section>
+
+    <!-- Expected -->
+    <section id="expected" class="card">
+      <h2><span class="step-num">✓</span> Expected result</h2>
+      <ul>
+        <li>Two adjacent 50×50mm labels print on the first row of the roll.</li>
+        <li>Each label fully filled: outer border, "Article No", colour, size, MRP, QR code, "Packed on", content quantity, and the manufacturer footer.</li>
+        <li>The printer advances 50mm to the next row.</li>
+        <li>The next pair of labels prints on row 2. And so on, two labels per row, one row per page.</li>
+        <li>Each QR code, peeled and stuck on a separate child box, scans independently with the BPS250BC scanner gun (or any standard 2D scanner).</li>
+      </ul>
+    </section>
+
+    <!-- Troubleshooting -->
+    <section id="troubleshooting" class="card">
+      <h2><span class="step-num">!</span> Troubleshooting</h2>
+
+      <table>
+        <thead>
+          <tr>
+            <th style="width: 28%">Symptom</th>
+            <th style="width: 32%">Most likely cause</th>
+            <th>Fix</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Still printing at ~50×25mm</td>
+            <td>Step&nbsp;4 (Printing Defaults) was skipped, or Chrome's "Paper size" still says A4</td>
+            <td>Redo Step&nbsp;4, then re-check Chrome dialog Paper size in Step&nbsp;6</td>
+          </tr>
+          <tr>
+            <td>Two labels print but printer advances 100mm (skips a row)</td>
+            <td>Gap calibration is reading both label gaps as one big gap</td>
+            <td>Reduce Gap value to 2.0mm in Step&nbsp;2, redo Step&nbsp;5</td>
+          </tr>
+          <tr>
+            <td>Labels drift downward over time</td>
+            <td>Gap sensor not calibrated, or roll loaded slightly off-axis</td>
+            <td>Re-run Step&nbsp;5; reload the roll squarely against the guides</td>
+          </tr>
+          <tr>
+            <td>Right label is blank, left label is correct</td>
+            <td>Driver still on 50×50mm media, OR Liner Width set to 50mm</td>
+            <td>Re-check Step&nbsp;2: both Width and Liner Width must be 100.0mm</td>
+          </tr>
+          <tr>
+            <td>Border or QR cut off near label edges</td>
+            <td>Print offset shifted in driver</td>
+            <td>Tools tab → set Horizontal/Vertical offsets to 0; recalibrate</td>
+          </tr>
+          <tr>
+            <td>QR code is fuzzy / fails to scan</td>
+            <td>Darkness too low, or speed too high</td>
+            <td>Preferences → Options → set Darkness to 10, Speed to 2 IPS</td>
+          </tr>
+          <tr>
+            <td>Chrome print dialog never shows the new stock size</td>
+            <td>Printing Defaults (Step&nbsp;4) wasn't saved, or Chrome cached the old printer profile</td>
+            <td>Redo Step&nbsp;4, restart Chrome, retry</td>
+          </tr>
+          <tr>
+            <td>Printer feeds blank labels but doesn't print anything</td>
+            <td>Wrong stock type (e.g. "Continuous" instead of "Labels with Gaps")</td>
+            <td>Step&nbsp;2: ensure Stock Type = <code>Labels with Gaps</code></td>
+          </tr>
+          <tr>
+            <td>Printer beeps and stops with red light</td>
+            <td>Out of media, door open, or sensor blocked</td>
+            <td>Reload roll, close door cleanly, clean the gap sensor with compressed air</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- Escalation -->
+    <section class="card warning">
+      <h2><span class="step-num">?</span> What if it still doesn't work after all steps</h2>
+      <p>Send us the following so we can diagnose further:</p>
+      <ol>
+        <li><strong>Exact TSC model number</strong> — printed on the label on the bottom or back of the printer (e.g. <code>TE244</code>, <code>TDP-225</code>, <code>TTP-244 Pro</code>).</li>
+        <li><strong>Screenshot of the Stocks tab</strong> showing the <code>Binny 100x50 2up</code> entry.</li>
+        <li><strong>Screenshot of Chrome's print dialog</strong> with all settings expanded (especially Paper size, Margins, Scale).</li>
+        <li><strong>Photo of the printed output</strong> with a ruler alongside one label.</li>
+        <li><strong>Photo of the roll</strong> showing the gap between labels (so we can confirm the Gap measurement).</li>
+      </ol>
+      <p>With those five items we can pinpoint whether the issue is driver-side, browser-side, or media-side.</p>
+    </section>
+
+    <footer class="footer">
+      <p><strong>Document maintained by Basiq360</strong></p>
+      <p>For the matching code change history see <code>progress.md</code> entries dated 1 May 2026 (2-up label mod) and 4 May 2026 (HID scanner fix + CSS hardening).</p>
+      <p style="margin-top: 8px; font-size: 11px;">Last updated: 4 May 2026</p>
+    </footer>
+
+  </main>
+</body>
+</html>

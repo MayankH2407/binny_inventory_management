@@ -9,6 +9,19 @@ export interface EcommerceListResponse {
   totalPages: number;
 }
 
+export interface EcommerceStockRow {
+  product_id: string;
+  article_name: string;
+  colour: string;
+  size: string;
+  sku: string;
+  mrp: number;
+  allocated_boxes: number;
+  allocated_pairs: number;
+  available_boxes: number;
+  available_pairs: number;
+}
+
 export const ecommerceService = {
   async getAll(params?: {
     page?: number;
@@ -49,6 +62,11 @@ export const ecommerceService = {
     return response.data;
   },
 
+  async scanCarton(data: { ecommerce_record_id: string; carton_barcode: string }): Promise<{ added: number; cartonBarcode: string }> {
+    const response = await api.post('/ecommerce/scan-carton', data);
+    return response.data;
+  },
+
   async removeBox(data: { child_box_id: string; ecommerce_record_id: string }): Promise<any> {
     const response = await api.post('/ecommerce/remove-box', data);
     return response.data;
@@ -66,6 +84,11 @@ export const ecommerceService = {
 
   async getAssortment(id: string): Promise<AssortmentItem[]> {
     const response = await api.get<AssortmentItem[]>(`/ecommerce/${id}/assortment`);
+    return response.data;
+  },
+
+  async getStockSummary(): Promise<EcommerceStockRow[]> {
+    const response = await api.get<EcommerceStockRow[]>('/ecommerce/stock-summary');
     return response.data;
   },
 

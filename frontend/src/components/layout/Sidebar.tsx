@@ -23,6 +23,7 @@ import {
   Warehouse,
   FlaskConical,
   ShoppingCart,
+  ShieldCheck,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { NAV_ITEMS } from '@/constants';
@@ -47,6 +48,7 @@ const iconMap: Record<string, React.ElementType> = {
   Warehouse,
   FlaskConical,
   ShoppingCart,
+  ShieldCheck,
 };
 
 interface SidebarProps {
@@ -57,13 +59,18 @@ interface SidebarProps {
 export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const pathname = usePathname();
   const { user } = useAuthStore();
-  const isAdmin = user?.role === 'Admin';
-  const isSupervisor = user?.role === 'Supervisor';
-  const isManagement = isAdmin || isSupervisor;
+  const permissions = user?.permissions ?? [];
 
-  const filteredNavItems = NAV_ITEMS.filter(
-    (item) => !('adminOnly' in item && item.adminOnly) || isManagement
-  );
+  const canDo = (permission: string): boolean => {
+    return permissions.some((p) => p.permission === permission);
+  };
+
+  const filteredNavItems = NAV_ITEMS.filter((item) => {
+    if (item.requiresPermission) {
+      return canDo(item.requiresPermission);
+    }
+    return true;
+  });
 
   return (
     <aside

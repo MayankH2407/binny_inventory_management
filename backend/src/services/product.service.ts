@@ -13,11 +13,42 @@ function stripHtml(value: string | undefined | null): string | undefined {
   return value.replace(/<[^>]*>/g, '').trim();
 }
 
+/**
+ * Title-case a name-like field for uniform display, regardless of how it was entered.
+ * "ALIA PLUS" / "alia plus" / "Alia plus" all become "Alia Plus". Collapses runs of
+ * whitespace to a single space. Applied to name fields only (article_name, colour,
+ * section, article_group) — NOT to codes/acronyms (article_code, location, hsn_code).
+ */
+function toTitleCase(value: string): string {
+  return value
+    .trim()
+    .replace(/\s+/g, ' ')
+    .split(' ')
+    .map((w) => (w ? w[0].toUpperCase() + w.slice(1).toLowerCase() : w))
+    .join(' ');
+}
+
+/** Resolve a category to its canonical casing (case-insensitive); undefined if not a valid category. */
+function canonicalCategory(value: string): string | undefined {
+  const v = value.trim().toLowerCase();
+  return VALID_CATEGORIES.find((c) => c.toLowerCase() === v);
+}
+
+/** Resolve a location code to its canonical casing (case-insensitive); undefined if not a valid location. */
+function canonicalLocation(value: string): string | undefined {
+  const v = value.trim().toLowerCase();
+  return VALID_LOCATIONS.find((l) => l.toLowerCase() === v);
+}
+
 export async function createProduct(
   input: CreateProductInput,
   createdBy: string
 ): Promise<Product> {
-  input.article_name = stripHtml(input.article_name) ?? input.article_name;
+  input.article_name = toTitleCase(stripHtml(input.article_name) ?? input.article_name);
+  input.colour = toTitleCase(input.colour);
+  input.section = toTitleCase(input.section);
+  input.article_code = input.article_code.trim().toUpperCase();
+  if (input.article_group) input.article_group = toTitleCase(input.article_group);
   if (input.description) input.description = stripHtml(input.description);
   const sku = await generateSku(input.section, input.article_name, input.category, input.colour);
 
@@ -170,10 +201,15 @@ export async function updateProduct(
   for (const field of updateableFields) {
     if (input[field] !== undefined) {
       fields.push(`${field} = $${paramIndex++}`);
-      if ((field === 'article_name' || field === 'description') && typeof input[field] === 'string') {
-        values.push(stripHtml(input[field] as string));
+      const raw = input[field];
+      if (typeof raw === 'string') {
+        if (field === 'article_name') values.push(toTitleCase(stripHtml(raw) ?? raw));
+        else if (field === 'description') values.push(stripHtml(raw));
+        else if (field === 'colour' || field === 'section' || field === 'article_group') values.push(toTitleCase(raw));
+        else if (field === 'article_code') values.push(raw.trim().toUpperCase());
+        else values.push(raw);
       } else {
-        values.push(input[field]);
+        values.push(raw);
       }
     }
   }
@@ -283,16 +319,20 @@ export async function bulkCreateProductsBySizeRange(
   input: BulkCreateBySizeRangeInput,
   createdBy: string
 ): Promise<Product[]> {
-  const articleName = stripHtml(input.article_name) ?? input.article_name;
+  const articleName = toTitleCase(stripHtml(input.article_name) ?? input.article_name);
   const description = input.description ? stripHtml(input.description) : input.description;
+  const colour = toTitleCase(input.colour);
+  const section = toTitleCase(input.section);
+  const articleCode = input.article_code.trim().toUpperCase();
+  const articleGroup = input.article_group ? toTitleCase(input.article_group) : input.article_group;
 
   const from = parseInt(input.size_from);
   const to = parseInt(input.size_to);
 
-  const normSection = input.section.trim().toUpperCase().replace(/\s+/g, '-');
-  const normArticle = articleName.trim().toUpperCase().replace(/\s+/g, '-');
+  const normSection = section.toUpperCase().replace(/\s+/g, '-');
+  const normArticle = articleName.toUpperCase().replace(/\s+/g, '-');
   const normCategory = input.category.trim().toUpperCase().replace(/\s+/g, '-');
-  const normColour = input.colour.trim().toUpperCase().replace(/\s+/g, '-');
+  const normColour = colour.toUpperCase().replace(/\s+/g, '-');
 
   const client = await pool.connect();
   try {
@@ -319,9 +359,9 @@ export async function bulkCreateProductsBySizeRange(
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
          RETURNING *`,
         [
-          articleName, sku, input.article_code, input.colour, String(size), input.mrp,
-          description || null, input.category, input.section, input.location || null,
-          input.article_group || null, input.hsn_code || null, null, null,
+          articleName, sku, articleCode, colour, String(size), input.mrp,
+          description || null, input.category, section, input.location || null,
+          articleGroup || null, input.hsn_code || null, null, null,
         ]
       );
 
@@ -379,8 +419,10 @@ export async function bulkCreateProducts(
     throw new ConflictError('CSV file is empty. Please add product rows below the header.');
   }
 
-  if (records.length > 500) {
-    throw new ConflictError(`CSV contains ${records.length} rows. Maximum allowed is 500 per upload.`);
+  // Env-driven cap: default 500 (test/local); live sets PRODUCT_CSV_MAX_ROWS=2000.
+  const maxRows = Number(process.env.PRODUCT_CSV_MAX_ROWS) || 500;
+  if (records.length > maxRows) {
+    throw new ConflictError(`CSV contains ${records.length} rows. Maximum allowed is ${maxRows} per upload.`);
   }
 
   const requiredCols = ['article_code', 'article_name', 'colour', 'size', 'mrp', 'section', 'category'];
@@ -390,89 +432,184 @@ export async function bulkCreateProducts(
     throw new ConflictError(`Missing required columns: ${missingCols.join(', ')}. Download the sample file for reference.`);
   }
 
-  const results: BulkRowResult[] = [];
-  let created = 0;
+  const errors: BulkRowResult[] = [];
+
+  // ── Pass 1: validate + clean every row in memory (no DB round-trips) ───────
+  interface ValidRow {
+    rowNum: number;
+    cleanName: string; cleanColour: string; cleanSection: string;
+    cleanArticleCode: string; cleanArticleGroup: string | null; cleanDesc: string | null;
+    category: string; location: string | null;
+    size: string; mrp: number; hsn: string | null; sizeFrom: string | null; sizeTo: string | null;
+    normSection: string; normArticle: string; normCategory: string; normColour: string;
+    sku: string;
+  }
+  const valid: ValidRow[] = [];
 
   for (let i = 0; i < records.length; i++) {
     const raw = records[i];
     const rowNum = i + 2; // +2 because row 1 is header, data starts at 2
 
-    // Normalize keys to lowercase
     const row: Record<string, string> = {};
     for (const [key, val] of Object.entries(raw)) {
       row[key.toLowerCase().trim()] = val;
     }
 
-    // Validate required fields
-    const errors: string[] = [];
-    if (!row.article_code?.trim()) errors.push('article_code is empty');
-    if (!row.article_name?.trim()) errors.push('article_name is empty');
-    if (!row.colour?.trim()) errors.push('colour is empty');
-    if (!row.size?.trim()) errors.push('size is empty');
-    if (!row.section?.trim()) errors.push('section is empty');
-    if (!row.category?.trim()) errors.push('category is empty');
+    const rowErrors: string[] = [];
+    if (!row.article_code?.trim()) rowErrors.push('article_code is empty');
+    if (!row.article_name?.trim()) rowErrors.push('article_name is empty');
+    if (!row.colour?.trim()) rowErrors.push('colour is empty');
+    if (!row.size?.trim()) rowErrors.push('size is empty');
+    if (!row.section?.trim()) rowErrors.push('section is empty');
+    if (!row.category?.trim()) rowErrors.push('category is empty');
 
     const mrp = parseFloat(row.mrp);
     if (!row.mrp?.trim() || isNaN(mrp) || mrp <= 0) {
-      errors.push('mrp must be a positive number');
+      rowErrors.push('mrp must be a positive number');
     }
 
     if (row.article_code && row.article_code.trim().length > 20) {
-      errors.push('article_code exceeds 20 characters');
+      rowErrors.push('article_code exceeds 20 characters');
     }
 
-    if (row.category?.trim() && !VALID_CATEGORIES.includes(row.category.trim())) {
-      errors.push(`category must be one of: ${VALID_CATEGORIES.join(', ')}`);
+    // Category & location are matched case-insensitively and stored in canonical casing,
+    // so "ladies", "LADIES", "Ladies" all resolve to "Ladies" (and "vkia" -> "VKIA").
+    const canonicalCat = row.category?.trim() ? canonicalCategory(row.category) : undefined;
+    if (row.category?.trim() && !canonicalCat) {
+      rowErrors.push(`category must be one of: ${VALID_CATEGORIES.join(', ')}`);
     }
 
-    if (row.location?.trim() && !VALID_LOCATIONS.includes(row.location.trim())) {
-      errors.push(`location must be one of: ${VALID_LOCATIONS.join(', ')}`);
+    const canonicalLoc = row.location?.trim() ? canonicalLocation(row.location) : undefined;
+    if (row.location?.trim() && !canonicalLoc) {
+      rowErrors.push(`location must be one of: ${VALID_LOCATIONS.join(', ')}`);
     }
 
-    if (errors.length > 0) {
-      results.push({ row: rowNum, status: 'error', article_name: row.article_name, error: errors.join('; ') });
+    if (rowErrors.length > 0) {
+      errors.push({ row: rowNum, status: 'error', article_name: row.article_name, error: rowErrors.join('; ') });
       continue;
     }
 
+    // Name fields stored in uniform Title Case; codes uppercased.
+    const cleanName = toTitleCase(stripHtml(row.article_name.trim()) ?? row.article_name.trim());
+    const cleanColour = toTitleCase(row.colour.trim());
+    const cleanSection = toTitleCase(row.section.trim());
+    valid.push({
+      rowNum,
+      cleanName, cleanColour, cleanSection,
+      cleanArticleCode: row.article_code.trim().toUpperCase(),
+      cleanArticleGroup: row.article_group?.trim() ? (toTitleCase(row.article_group.trim()) ?? null) : null,
+      cleanDesc: row.description?.trim() ? (stripHtml(row.description.trim()) ?? null) : null,
+      category: canonicalCat!, location: canonicalLoc ?? null,
+      size: row.size.trim(), mrp,
+      hsn: row.hsn_code?.trim() || null,
+      sizeFrom: row.size_from?.trim() || null,
+      sizeTo: row.size_to?.trim() || null,
+      normSection: cleanSection.toUpperCase().replace(/\s+/g, '-'),
+      normArticle: cleanName.toUpperCase().replace(/\s+/g, '-'),
+      normCategory: canonicalCat!.toUpperCase().replace(/\s+/g, '-'),
+      normColour: cleanColour.toUpperCase().replace(/\s+/g, '-'),
+      sku: '',
+    });
+  }
+
+  if (valid.length === 0) {
+    logger.info(`Bulk product upload: 0 created, ${errors.length} errors`);
+    return { created: 0, errors };
+  }
+
+  // ── Pass 2: assign SKU serials per combo from ONE grouped count query ──────
+  // Mirrors generateSku: SKU = SECTION-ARTICLE-CATEGORY-serial-COLOUR, serial = existing
+  // count for the (section,article,category,colour) combo + running index within this batch.
+  const countResult = await query(
+    `SELECT UPPER(REPLACE(section, ' ', '-')) AS s,
+            UPPER(REPLACE(article_name, ' ', '-')) AS a,
+            UPPER(REPLACE(category, ' ', '-')) AS c,
+            UPPER(REPLACE(colour, ' ', '-')) AS col,
+            COUNT(*)::int AS n
+     FROM products
+     GROUP BY 1, 2, 3, 4`
+  );
+  const comboCount = new Map<string, number>();
+  for (const r of countResult.rows) {
+    comboCount.set(`${r.s} ${r.a} ${r.c} ${r.col}`, r.n);
+  }
+
+  const running = new Map<string, number>();
+  for (const v of valid) {
+    const key = `${v.normSection} ${v.normArticle} ${v.normCategory} ${v.normColour}`;
+    const base = running.get(key) ?? (comboCount.get(key) ?? 0);
+    const serial = base + 1;
+    running.set(key, serial);
+    v.sku = `${v.normSection}-${v.normArticle}-${v.normCategory}-${String(serial).padStart(2, '0')}-${v.normColour}`;
+  }
+
+  // ── Pass 3: dedup candidate SKUs against the DB (one query) + intra-batch ──
+  const existingResult = await query(
+    'SELECT sku FROM products WHERE sku = ANY($1::text[])',
+    [valid.map((v) => v.sku)]
+  );
+  const takenSkus = new Set<string>(existingResult.rows.map((r) => r.sku));
+
+  const toInsert: ValidRow[] = [];
+  const seenInBatch = new Set<string>();
+  for (const v of valid) {
+    if (takenSkus.has(v.sku) || seenInBatch.has(v.sku)) {
+      errors.push({ row: v.rowNum, status: 'error', sku: v.sku, article_name: v.cleanName, error: `Duplicate SKU: ${v.sku} already exists` });
+      continue;
+    }
+    seenInBatch.add(v.sku);
+    toInsert.push(v);
+  }
+
+  // ── Pass 4: chunked multi-row INSERT (per chunk txn; degrade to per-row on failure) ──
+  const insertCols = `(article_name, sku, article_code, colour, size, mrp, description, category, section, location, article_group, hsn_code, size_from, size_to)`;
+  const rowParams = (v: ValidRow): unknown[] => [
+    v.cleanName, v.sku, v.cleanArticleCode, v.cleanColour, v.size, v.mrp, v.cleanDesc,
+    v.category, v.cleanSection, v.location, v.cleanArticleGroup, v.hsn, v.sizeFrom, v.sizeTo,
+  ];
+  let created = 0;
+  const CHUNK = 500; // 500 × 14 cols = 7000 bind params, well under PG's 65535
+  for (let start = 0; start < toInsert.length; start += CHUNK) {
+    const chunk = toInsert.slice(start, start + CHUNK);
+    const client = await pool.connect();
     try {
-      const cleanName = stripHtml(row.article_name.trim()) ?? row.article_name.trim();
-      const cleanDesc = row.description?.trim() ? stripHtml(row.description.trim()) : null;
-      const sku = await generateSku(row.section.trim(), cleanName, row.category.trim(), row.colour.trim());
-
-      const existing = await query('SELECT id FROM products WHERE sku = $1', [sku]);
-      if (existing.rows.length > 0) {
-        results.push({ row: rowNum, status: 'error', sku, article_name: cleanName, error: `Duplicate SKU: ${sku} already exists` });
-        continue;
-      }
-
-      await query(
-        `INSERT INTO products (article_name, sku, article_code, colour, size, mrp, description, category, section, location, article_group, hsn_code, size_from, size_to)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
-        [
-          cleanName, sku, row.article_code.trim(), row.colour.trim(),
-          row.size.trim(), mrp, cleanDesc,
-          row.category.trim(), row.section.trim(), row.location?.trim() || null,
-          row.article_group?.trim() || null, row.hsn_code?.trim() || null,
-          row.size_from?.trim() || null, row.size_to?.trim() || null,
-        ]
-      );
-
-      await createAuditLog({
-        userId: createdBy,
-        action: 'CREATE_PRODUCT',
-        entityType: 'product',
-        entityId: sku,
-        newValues: { sku, article_name: cleanName, source: 'csv_bulk_upload' },
+      await client.query('BEGIN');
+      const valuesSql: string[] = [];
+      const params: unknown[] = [];
+      chunk.forEach((v, idx) => {
+        const b = idx * 14;
+        valuesSql.push(`($${b+1},$${b+2},$${b+3},$${b+4},$${b+5},$${b+6},$${b+7},$${b+8},$${b+9},$${b+10},$${b+11},$${b+12},$${b+13},$${b+14})`);
+        params.push(...rowParams(v));
       });
-
-      results.push({ row: rowNum, status: 'success', sku, article_name: cleanName });
-      created++;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unknown error';
-      results.push({ row: rowNum, status: 'error', article_name: row.article_name?.trim(), error: message });
+      await client.query(`INSERT INTO products ${insertCols} VALUES ${valuesSql.join(', ')}`, params);
+      await client.query('COMMIT');
+      created += chunk.length;
+    } catch {
+      await client.query('ROLLBACK');
+      // Degrade to per-row so one unexpected bad row doesn't sink the whole chunk
+      for (const v of chunk) {
+        try {
+          await query(`INSERT INTO products ${insertCols} VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`, rowParams(v));
+          created++;
+        } catch (err) {
+          const message = err instanceof Error ? err.message : 'Unknown error';
+          errors.push({ row: v.rowNum, status: 'error', sku: v.sku, article_name: v.cleanName, error: message });
+        }
+      }
+    } finally {
+      client.release();
     }
   }
 
-  logger.info(`Bulk product upload: ${created} created, ${results.filter((r) => r.status === 'error').length} errors`);
-  return { created, errors: results.filter((r) => r.status === 'error') };
+  // ── Pass 5: one summary audit log (vs a row per product) ───────────────────
+  await createAuditLog({
+    userId: createdBy,
+    action: 'BULK_UPLOAD_PRODUCTS',
+    entityType: 'product',
+    newValues: { created, errors: errors.length, source: 'csv_bulk_upload' },
+  });
+
+  errors.sort((a, b) => a.row - b.row); // stable, readable per-row report
+  logger.info(`Bulk product upload: ${created} created, ${errors.length} errors`);
+  return { created, errors };
 }

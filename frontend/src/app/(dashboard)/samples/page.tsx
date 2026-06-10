@@ -17,9 +17,11 @@ import { useApiQuery } from '@/hooks/useApi';
 import { keepPreviousData } from '@tanstack/react-query';
 import { formatDateTime } from '@/lib/utils';
 import { useRouter } from 'next/navigation';
+import { useCan } from '@/hooks/useCan';
 
 export default function SamplesPage() {
   const router = useRouter();
+  const canCreate = useCan('samples:create');
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -42,9 +44,11 @@ export default function SamplesPage() {
         title="Samples"
         description="Manage sample batches sent to dealers, exhibitions, and internal QC"
         action={
-          <Link href={ROUTES.SAMPLES_CREATE}>
-            <Button leftIcon={<Plus className="h-4 w-4" />}>Create Sample</Button>
-          </Link>
+          canCreate ? (
+            <Link href={ROUTES.SAMPLES_CREATE}>
+              <Button leftIcon={<Plus className="h-4 w-4" />}>Create Sample</Button>
+            </Link>
+          ) : undefined
         }
       />
 

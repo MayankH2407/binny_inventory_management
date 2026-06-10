@@ -1,6 +1,7 @@
 import { Response, NextFunction } from 'express';
 import { AuthenticatedRequest } from '../types/auth.types';
 import * as masterCartonService from '../services/masterCarton.service';
+import * as legacyCartonService from '../services/legacyCarton.service';
 import { sendSuccess, sendPaginated } from '../utils/response';
 
 export async function createMasterCarton(
@@ -22,11 +23,12 @@ export async function getMasterCartons(
   next: NextFunction
 ): Promise<void> {
   try {
-    const { page, limit, status, search } = req.query as {
-      page?: number; limit?: number; status?: string; search?: string;
+    const { page, limit, status, search, includeLegacy } = req.query as {
+      page?: number; limit?: number; status?: string; search?: string; includeLegacy?: boolean;
     };
+    const is_legacy = includeLegacy === true ? true : includeLegacy === false ? false : undefined;
     const result = await masterCartonService.getMasterCartons(
-      { status, search },
+      { status, search, is_legacy },
       page || 1,
       limit || 25
     );
@@ -80,6 +82,27 @@ export async function packChildBox(
   }
 }
 
+export async function packChildBoxByBarcode(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const { barcode, master_carton_id } = req.body;
+    const result = await masterCartonService.packChildBoxByBarcode(
+      barcode,
+      master_carton_id,
+      req.user!.userId
+    );
+    const message = result.alreadyPacked
+      ? `Box ${result.childBoxBarcode} is already in this carton`
+      : `Packed ${result.childBoxBarcode} into carton`;
+    sendSuccess(res, result, message);
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function unpackChildBox(
   req: AuthenticatedRequest,
   res: Response,
@@ -93,25 +116,6 @@ export async function unpackChildBox(
       req.user!.userId
     );
     sendSuccess(res, carton, 'Child box unpacked from master carton successfully');
-  } catch (error) {
-    next(error);
-  }
-}
-
-export async function repackChildBox(
-  req: AuthenticatedRequest,
-  res: Response,
-  next: NextFunction
-): Promise<void> {
-  try {
-    const { child_box_id, source_carton_id, destination_carton_id } = req.body;
-    const result = await masterCartonService.repackChildBox(
-      child_box_id,
-      source_carton_id,
-      destination_carton_id,
-      req.user!.userId
-    );
-    sendSuccess(res, result, 'Child box repacked successfully');
   } catch (error) {
     next(error);
   }
@@ -156,6 +160,19 @@ export async function fullUnpackMasterCarton(
   }
 }
 
+export async function openLegacyCarton(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const carton = await masterCartonService.openLegacyCarton(req.params.id, req.user!.userId);
+    sendSuccess(res, carton, 'Legacy carton opened for repacking');
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function getAssortmentSummary(
   req: AuthenticatedRequest,
   res: Response,
@@ -167,4 +184,44 @@ export async function getAssortmentSummary(
   } catch (error) {
     next(error);
   }
+}
+
+export async function bulkUploadLegacyCartons(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const file = (req as AuthenticatedRequest & { file?: { buffer: Buffer } }).file;
+    if (!file) {
+      res.status(400).json({ success: false, message: 'No CSV file provided' });
+      return;
+    }
+
+    const result = await legacyCartonService.bulkCreateLegacyCartons(file.buffer, req.user!.userId);
+    sendSuccess(
+      res,
+      result,
+      `Legacy carton upload complete: ${result.cartons_created} cartons created across ${result.rows_processed} rows${result.errors.length > 0 ? `, ${result.errors.length} errors` : ''}`,
+      201
+    );
+  } catch (error) {
+    next(error);
+  }
+}
+
+export function downloadLegacySampleCsv(
+  _req: AuthenticatedRequest,
+  res: Response,
+): void {
+  const headers = ['SECTION', 'CATEGORY', 'ARTICLE GROUP (SIZE GROUP)', 'MASTER CARTON QUANTITY'];
+  const sampleRows = [
+    ['Hawaii', 'Ladies', 'ALIA PLUS (4-8)', '16'],
+    ['Hawaii', 'Gents', 'BUSKER 01-20 (6-10)', '0'],
+  ];
+  const csv = [headers.join(','), ...sampleRows.map((r) => r.join(','))].join('\n');
+
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', 'attachment; filename=legacy_carton_upload_sample.csv');
+  res.send(csv);
 }

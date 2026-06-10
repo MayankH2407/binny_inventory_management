@@ -1,9 +1,8 @@
 import { Router } from 'express';
 import * as productController from '../controllers/product.controller';
 import { authenticate } from '../middleware/auth.middleware';
-import { authorize } from '../middleware/rbac.middleware';
+import { authorizePermission } from '../middleware/rbac.middleware';
 import { validate } from '../middleware/validate.middleware';
-import { USER_ROLES } from '../config/constants';
 import {
   createProductSchema,
   updateProductSchema,
@@ -19,27 +18,27 @@ router.use(authenticate);
 
 router.get(
   '/bulk-upload/sample',
-  authorize(USER_ROLES.ADMIN, USER_ROLES.SUPERVISOR),
+  authorizePermission('products:read'),
   productController.downloadSampleCsv
 );
 
 router.post(
   '/bulk-upload',
-  authorize(USER_ROLES.ADMIN, USER_ROLES.SUPERVISOR),
+  authorizePermission('products:create'),
   csvUpload.single('file'),
   productController.bulkUploadProducts
 );
 
 router.post(
   '/bulk-size-range',
-  authorize(USER_ROLES.ADMIN, USER_ROLES.SUPERVISOR),
+  authorizePermission('products:create'),
   validate({ body: bulkCreateBySizeRangeSchema }),
   productController.bulkCreateBySizeRange
 );
 
 router.post(
   '/',
-  authorize(USER_ROLES.ADMIN, USER_ROLES.SUPERVISOR),
+  authorizePermission('products:create'),
   validate({ body: createProductSchema }),
   productController.createProduct
 );
@@ -64,7 +63,7 @@ router.get(
 
 router.post(
   '/:id/image',
-  authorize(USER_ROLES.ADMIN, USER_ROLES.SUPERVISOR),
+  authorizePermission('products:update'),
   productImageUpload.single('image'),
   productController.uploadProductImage
 );
@@ -77,14 +76,14 @@ router.get(
 
 router.put(
   '/:id',
-  authorize(USER_ROLES.ADMIN, USER_ROLES.SUPERVISOR),
+  authorizePermission('products:update'),
   validate({ params: productIdParamSchema, body: updateProductSchema }),
   productController.updateProduct
 );
 
 router.delete(
   '/:id',
-  authorize(USER_ROLES.ADMIN),
+  authorizePermission('products:delete'),
   validate({ params: productIdParamSchema }),
   productController.deleteProduct
 );

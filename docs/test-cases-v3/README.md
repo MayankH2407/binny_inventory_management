@@ -3,8 +3,8 @@
 **Project:** Binny Footwear — Mahavir Polymers Pvt. Ltd. Inventory Management System
 **Built by:** Basiq360
 **Suite version:** v3 (supersedes v2)
-**Last updated:** 2026-04-30
-**Scope:** Web portal (Next.js) + Backend API (Node/Express + Postgres). Mobile app coverage deferred per 2026-04-27 user direction.
+**Last updated:** 2026-05-02
+**Scope:** Web portal (Next.js) + Backend API (Node/Express + Postgres) + Mobile app (Expo / React Native). Mobile coverage being added in phases 21-32 (see `AUTHORING_PROGRESS.md`).
 
 ---
 
@@ -147,8 +147,20 @@ The 20 phases are split for parallel authoring. Each phase is one self-contained
 | 18 | [phase-18-scan-traceability.md](phase-18-scan-traceability.md) | Scan & Traceability | 35–50 | `/scan` and `/traceability` pages, barcode lookup (child + master + sample + ecommerce), GENERATED auto-activate on scan, timeline correctness |
 | 19 | [phase-19-audit-integrity.md](phase-19-audit-integrity.md) | Audit log, inventory transactions, cross-module integrity | 30–45 | Every state transition writes the right transaction type, audit log per role, FK integrity, soft-delete (where applicable), referential safety |
 | 20 | [phase-20-edge-cases.md](phase-20-edge-cases.md) | Negative tests, edge cases, boundary values, performance | 50–70 | Pagination boundaries, max-length input fields, concurrent ops, race conditions, malformed payloads, expired tokens, file-size limits, network errors |
+| 21 | [phase-21-mobile-foundation.md](phase-21-mobile-foundation.md) | Mobile — Auth, tab shell, Menu, Settings | 80–110 | Login per role, AuthGate routing, bottom tab bar, Dashboard tab, Menu role-gated tile grid, Settings, logout, token persistence (mobile-only) |
+| 22 | [phase-22-mobile-inventory.md](phase-22-mobile-inventory.md) | Mobile — Inventory (Child Box + Master Carton tabs, MRP grouping) | 80–100 | Inventory tab toggle, MRP conditional drill (M5), Master Carton hierarchy, breadcrumbs, summary cards |
+| 23 | [phase-23-mobile-products-childboxes.md](phase-23-mobile-products-childboxes.md) | Mobile — Products, Child Boxes, Repack/Unpack/Storage | 100–130 | Products list/detail; child-box list/detail/aging tint; Generate stub (web-only); Repack / Unpack / Storage workflows |
+| 24 | phase-24-mobile-master-cartons.md (pending) | Mobile — Master Cartons | 70–90 | List, create, detail, add/remove box, close, full-unpack, status transitions per role |
+| 25 | phase-25-mobile-samples.md (pending) | Mobile — Samples (M2) | 70–90 | Full sample lifecycle on mobile |
+| 26 | phase-26-mobile-ecommerce.md (pending) | Mobile — E-commerce (M3) | 70–90 | Full ecommerce lifecycle on mobile |
+| 27 | phase-27-mobile-dispatch.md (pending) | Mobile — Dispatch multi-source (M4) | 70–90 | 3-way source picker, source-type chip, jump-link, role gates |
+| 28 | phase-28-mobile-customers-users.md (pending) | Mobile — Customers + Users | 50–70 | Customers per role; Users (Admin only) |
+| 29 | phase-29-mobile-scan-traceability.md (pending) | Mobile — Scan + Traceability | 50–70 | Scan tab, parseQRCode for CB/MC/SR/EC (M1), traceability path |
+| 30 | phase-30-mobile-reports.md (pending) | Mobile — Reports (M6 columns) | 50–70 | Stock Sample/Ecommerce columns; Cartons / Dispatches / Activity tabs |
+| 31 | phase-31-cross-platform-parity.md (pending) | Cross-platform parity (web ↔ mobile) | 40–60 | Web→mobile data, JWT sharing, status changes both ways, concurrent edits |
+| 32 | phase-32-mobile-edge-cases.md (pending) | Mobile — Edge cases | 50–70 | Network failures, offline, camera permissions, token refresh, perf smoke |
 
-**Total estimated test cases:** ~1,000–1,400 across 20 files.
+**Total estimated test cases:** ~2,000–2,600 across 32 files (web 1,469 actual; mobile 870–1,170 estimated).
 
 ---
 
@@ -237,15 +249,28 @@ When running locally, the simplest path is: reset DB → run `npm run seed` → 
 | 18 | ✅ | ⬜ | ⬜ | — | 44 TCs — scan, traceability, GENERATED auto-activate, timeline |
 | 19 | ✅ | ⬜ | ⬜ | — | 45 TCs — inventory transactions, audit logs, cross-module integrity |
 | 20 | ✅ | ⬜ | ⬜ | — | 86 TCs — pagination, input bounds, concurrent ops, auth edge, perf smoke |
+| 21 | ✅ | ⬜ | ⬜ | — | 106 TCs — mobile foundation (auth, tabs, Menu, Settings); 21 Maestro flows; 2 `[?]` flags |
+| 22 | ✅ | ⬜ | ⬜ | — | 94 TCs — mobile inventory M5 (Child Box w/ MRP, Master Carton tab); 19 Maestro flows; 4 `[?]` flags |
+| 23 | ✅ | ⬜ | ⬜ | — | 122 TCs — Products (30), Child Boxes (31), Repack (28), Unpack (16), Storage (17); 15 Maestro flows; 6 `[?]` flags incl. 2 real behavioral gaps (Unpack CREATED, Storage role mismatch) |
+| 24 | ⬜ | ⬜ | ⬜ | — | pending — mobile master cartons |
+| 25 | ⬜ | ⬜ | ⬜ | — | pending — mobile samples (M2) |
+| 26 | ⬜ | ⬜ | ⬜ | — | pending — mobile ecommerce (M3) |
+| 27 | ⬜ | ⬜ | ⬜ | — | pending — mobile dispatch (M4) |
+| 28 | ⬜ | ⬜ | ⬜ | — | pending — mobile customers + users |
+| 29 | ⬜ | ⬜ | ⬜ | — | pending — mobile scan + traceability |
+| 30 | ⬜ | ⬜ | ⬜ | — | pending — mobile reports (M6) |
+| 31 | ⬜ | ⬜ | ⬜ | — | pending — cross-platform parity |
+| 32 | ⬜ | ⬜ | ⬜ | — | pending — mobile edge cases |
 
 Update the Authored ▢ → ✅ on file commit. Update Reviewed ▢ → ✅ when an Opus pass has read through the file. Update Executed and Pass rate after a test run.
+
+The mobile authoring workstream is tracked separately in [`AUTHORING_PROGRESS.md`](AUTHORING_PROGRESS.md) — that file is the resumption marker for sessions 1-13 of mobile coverage.
 
 ---
 
 ## 9. Out of scope (explicitly)
 
-- **Mobile app coverage.** Mobile is on commit `042b1e6` (2026-04-23) and lacks the four Apr 27 mods. v2 Phase 12 mobile tests still apply for the older flows; mobile parity work is deferred per 2026-04-27 user direction. When mobile catches up, a `phase-21-mobile.md` (or v4 suite) will land.
-- **Maestro E2E mobile tests.** Existing 10-flow Maestro suite under `mobile/.maestro/` is unchanged.
+- **Maestro suite execution.** Phases 21-32 author Maestro flow YAML inline with each E2E TC. The flows are not yet extracted to `mobile/.maestro/<flow>.yaml` files — that's a separate task once authoring completes.
 - **Load / stress testing.** Phase 20 includes some concurrency edge cases but is not a load-test plan. If the client wants k6 / Artillery scripts, that's a separate ask.
 - **Penetration testing.** Phase 01 covers auth basics + SQL injection sanity; the broader pen-test artefact lives in `docs/security-audit-report.md`.
 - **Backup / DR / migration rollback drills.** Operational, not functional — out of suite.

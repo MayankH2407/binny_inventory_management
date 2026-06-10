@@ -20,6 +20,7 @@ import toast from 'react-hot-toast';
 import { ROUTES } from '@/constants';
 import { useRouter } from 'next/navigation';
 import { formatCurrency } from '@/lib/utils';
+import { useCan } from '@/hooks/useCan';
 
 type SourceType = 'master_carton' | 'sample' | 'ecommerce';
 
@@ -31,6 +32,7 @@ const SOURCE_TABS: Array<{ id: SourceType; label: string; icon: React.ReactNode 
 
 export default function DispatchPage() {
   const router = useRouter();
+  const canCreate = useCan('dispatch:create');
   const [sourceType, setSourceType] = useState<SourceType>('master_carton');
 
   // Master carton state (multi)
@@ -139,7 +141,7 @@ export default function DispatchPage() {
   // ── Submit ──
   const canSubmit =
     sourceType === 'master_carton'
-      ? scannedCartons.length > 0
+      ? scannedCartons.length > 0 && !!customerId
       : sourceType === 'sample'
       ? selectedSample !== null
       : selectedEc !== null;
@@ -180,6 +182,10 @@ export default function DispatchPage() {
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
+    if (sourceType === 'master_carton' && !customerId) {
+      toast.error('Select a customer before dispatching');
+      return;
+    }
     if (!canSubmit) {
       toast.error(
         sourceType === 'master_carton'
@@ -239,7 +245,7 @@ export default function DispatchPage() {
             </div>
             <form className="space-y-4" onSubmit={handleSubmit}>
               <Select
-                label="Customer (Optional)"
+                label={sourceType === 'master_carton' ? 'Customer *' : 'Customer (Optional)'}
                 placeholder="Select a customer..."
                 options={customers.map((c) => ({
                   value: c.id,
@@ -291,18 +297,20 @@ export default function DispatchPage() {
                 onChange={(e) => updateField('notes', e.target.value)}
               />
 
-              <div className="pt-4 border-t border-brand-border">
-                <Button
-                  type="submit"
-                  fullWidth
-                  size="lg"
-                  isLoading={isPending}
-                  disabled={!canSubmit}
-                  leftIcon={<Truck className="h-4 w-4" />}
-                >
-                  {submitLabel}
-                </Button>
-              </div>
+              {canCreate && (
+                <div className="pt-4 border-t border-brand-border">
+                  <Button
+                    type="submit"
+                    fullWidth
+                    size="lg"
+                    isLoading={isPending}
+                    disabled={!canSubmit}
+                    leftIcon={<Truck className="h-4 w-4" />}
+                  >
+                    {submitLabel}
+                  </Button>
+                </div>
+              )}
             </form>
           </Card>
         </div>

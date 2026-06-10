@@ -1,9 +1,20 @@
+import { parse } from 'csv-parse/sync';
 import { query } from '../config/database';
 import { Customer } from '../types';
-import { NotFoundError } from '../utils/errors';
+import { NotFoundError, ConflictError } from '../utils/errors';
 import { createAuditLog } from './auditLog.service';
 import { CreateCustomerInput, UpdateCustomerInput } from '../models/schemas/customer.schema';
 import { logger } from '../utils/logger';
+
+const GSTIN_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
+const MOBILE_REGEX = /^[0-9]{10,15}$/;
+const CUSTOMER_TYPES = ['Primary Dealer', 'Sub Dealer'];
+
+/** Resolve a customer_type to its canonical casing (case-insensitive); undefined if invalid. */
+function canonicalCustomerType(value: string): string | undefined {
+  const v = value.trim().toLowerCase();
+  return CUSTOMER_TYPES.find((t) => t.toLowerCase() === v);
+}
 
 export async function checkDuplicateFirmName(firmName: string): Promise<boolean> {
   const result = await query(
@@ -215,4 +226,131 @@ export async function getSubDealers(primaryDealerId: string): Promise<Customer[]
     [primaryDealerId]
   );
   return result.rows;
+}
+
+interface BulkCustomerRowResult {
+  row: number;
+  status: 'success' | 'error';
+  firm_name?: string;
+  error?: string;
+}
+
+/**
+ * Bulk-create customers from a CSV buffer. Columns:
+ *   firm_name (required), address, delivery_location, gstin, private_marka, gr,
+ *   contact_person_name, contact_person_mobile, customer_type, primary_dealer_name
+ * Sub Dealers must name an EXISTING active Primary Dealer via primary_dealer_name.
+ * Reuses createCustomer per valid row (preserves sub-dealer inheritance + audit);
+ * customer volumes are low, so a per-row loop is fine.
+ */
+export async function bulkCreateCustomers(
+  csvBuffer: Buffer,
+  createdBy: string
+): Promise<{ created: number; errors: BulkCustomerRowResult[] }> {
+  let records: Record<string, string>[];
+  try {
+    records = parse(csvBuffer, { columns: true, skip_empty_lines: true, trim: true, bom: true });
+  } catch {
+    throw new ConflictError('Invalid CSV format. Please ensure the file is a valid CSV with headers.');
+  }
+
+  if (records.length === 0) {
+    throw new ConflictError('CSV file is empty. Please add customer rows below the header.');
+  }
+  if (records.length > 500) {
+    throw new ConflictError(`CSV contains ${records.length} rows. Maximum allowed is 500 per upload.`);
+  }
+
+  const headerKeys = Object.keys(records[0]).map((h) => h.toLowerCase().trim());
+  if (!headerKeys.includes('firm_name')) {
+    throw new ConflictError('Missing required column: firm_name. Download the sample file for reference.');
+  }
+
+  // Prefetch existing active firm names + active Primary Dealers (by lower-cased firm name).
+  const existingFirms = await query('SELECT LOWER(firm_name) AS f FROM customers WHERE is_active = true');
+  const takenFirms = new Set<string>(existingFirms.rows.map((r) => r.f));
+  const primaryRows = await query(
+    "SELECT id, LOWER(firm_name) AS f FROM customers WHERE customer_type = 'Primary Dealer' AND is_active = true"
+  );
+  const primaryByName = new Map<string, string>();
+  for (const r of primaryRows.rows) primaryByName.set(r.f, r.id);
+
+  const errors: BulkCustomerRowResult[] = [];
+  const seenInBatch = new Set<string>();
+  let created = 0;
+
+  for (let i = 0; i < records.length; i++) {
+    const raw = records[i];
+    const rowNum = i + 2; // +2: row 1 is header, data starts at 2
+    const row: Record<string, string> = {};
+    for (const [k, v] of Object.entries(raw)) row[k.toLowerCase().trim()] = v;
+
+    const rowErrors: string[] = [];
+    const firmName = row.firm_name?.trim();
+    if (!firmName) rowErrors.push('firm_name is empty');
+
+    if (row.gstin?.trim() && !GSTIN_REGEX.test(row.gstin.trim())) {
+      rowErrors.push('invalid GSTIN format (expected e.g. 22AAAAA0000A1Z5)');
+    }
+    if (row.contact_person_mobile?.trim() && !MOBILE_REGEX.test(row.contact_person_mobile.trim())) {
+      rowErrors.push('contact_person_mobile must be 10-15 digits');
+    }
+
+    let customerType = 'Primary Dealer';
+    if (row.customer_type?.trim()) {
+      const ct = canonicalCustomerType(row.customer_type);
+      if (!ct) rowErrors.push("customer_type must be 'Primary Dealer' or 'Sub Dealer'");
+      else customerType = ct;
+    }
+
+    let primaryDealerId: string | null = null;
+    if (customerType === 'Sub Dealer') {
+      const pdName = row.primary_dealer_name?.trim();
+      if (!pdName) {
+        rowErrors.push('primary_dealer_name is required for a Sub Dealer');
+      } else {
+        const id = primaryByName.get(pdName.toLowerCase());
+        if (!id) rowErrors.push(`primary dealer "${pdName}" not found (must be an existing active Primary Dealer)`);
+        else primaryDealerId = id;
+      }
+    }
+
+    if (firmName) {
+      const key = firmName.toLowerCase();
+      if (takenFirms.has(key) || seenInBatch.has(key)) {
+        rowErrors.push(`a customer named "${firmName}" already exists`);
+      }
+    }
+
+    if (rowErrors.length > 0) {
+      errors.push({ row: rowNum, status: 'error', firm_name: firmName, error: rowErrors.join('; ') });
+      continue;
+    }
+
+    try {
+      await createCustomer(
+        {
+          firm_name: firmName!,
+          address: row.address?.trim() || null,
+          delivery_location: row.delivery_location?.trim() || null,
+          gstin: row.gstin?.trim() || null,
+          private_marka: row.private_marka?.trim() || null,
+          gr: row.gr?.trim() || null,
+          contact_person_name: row.contact_person_name?.trim() || null,
+          contact_person_mobile: row.contact_person_mobile?.trim() || null,
+          customer_type: customerType as 'Primary Dealer' | 'Sub Dealer',
+          primary_dealer_id: primaryDealerId,
+        },
+        createdBy
+      );
+      seenInBatch.add(firmName!.toLowerCase());
+      created++;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      errors.push({ row: rowNum, status: 'error', firm_name: firmName, error: message });
+    }
+  }
+
+  logger.info(`Bulk customer upload: ${created} created, ${errors.length} errors`);
+  return { created, errors };
 }

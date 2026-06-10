@@ -68,9 +68,7 @@ let supCartonId = '';          // created by Supervisor
 let whoCartonId = '';          // created by Warehouse Operator
 let closeTargetCartonId = '';  // created for close tests
 let unpackCartonId = '';       // created for unpack tests
-let repackSourceCartonId = ''; // source carton for repack test
-let repackDestCartonId = '';   // destination carton for repack test
-let repackBarcode = '';        // barcode to repack from source to dest
+let packedBarcode = '';        // a barcode packed into adminCarton (for the already-PACKED test)
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -216,8 +214,8 @@ test.describe.serial('Master Carton Lifecycle Suite', () => {
       expect(body.data.status).toBe('ACTIVE');
       adminCartonId = body.data.id;
 
-      // Store one barcode for the repack source test
-      repackBarcode = barcodes[0];
+      // Keep one packed barcode for the already-PACKED rejection test (ADM-003)
+      packedBarcode = barcodes[0];
     });
 
     test('TC-MC-ADM-002: Admin packs additional child box into carton — 200', async ({
@@ -250,13 +248,13 @@ test.describe.serial('Master Carton Lifecycle Suite', () => {
     test('TC-MC-ADM-003: Create carton with already-PACKED box returns 400', async ({
       request,
     }) => {
-      // repackBarcode is now PACKED (it was packed into adminCartonId in ADM-001)
-      expect(repackBarcode).toBeTruthy();
+      // packedBarcode is PACKED (it was packed into adminCartonId during ADM setup)
+      expect(packedBarcode).toBeTruthy();
 
       const res = await request.post(`${BASE_API}/master-cartons`, {
         headers: authHeader(tokens.admin),
         data: {
-          child_box_barcodes: [repackBarcode],
+          child_box_barcodes: [packedBarcode],
           max_capacity: 50,
         },
       });
@@ -373,16 +371,25 @@ test.describe.serial('Master Carton Lifecycle Suite', () => {
       expect(body.success).toBe(true);
     });
 
-    test('TC-MC-CLOSE-003: Warehouse Operator CANNOT close carton — 403', async ({ request }) => {
-      // Use a fake ID — 403 should fire before the record lookup
-      const fakeId = '00000000-0000-0000-0000-000000000099';
+    test('TC-MC-CLOSE-003: Warehouse Operator CAN close carton (seed grants cartons:close) — 200', async ({ request }) => {
+      // Warehouse Operator holds `cartons:close` in 001_roles.ts → allowed.
+      const barcodes = takeBarcodes(1);
+      const createRes = await request.post(`${BASE_API}/master-cartons`, {
+        headers: authHeader(tokens.admin),
+        data: { child_box_barcodes: barcodes, max_capacity: 50 },
+      });
+      expect(createRes.status()).toBe(201);
+      const cartonId = (await createRes.json()).data.id;
+
       const res = await request.post(
-        `${BASE_API}/master-cartons/${fakeId}/close`,
+        `${BASE_API}/master-cartons/${cartonId}/close`,
         {
           headers: authHeader(tokens.warehouse),
         }
       );
-      expect(res.status()).toBe(403);
+      expect(res.status()).toBe(200);
+      const body = await res.json();
+      expect(body.data.status).toBe('CLOSED');
     });
 
     test('TC-MC-CLOSE-004: Close already CLOSED carton — 400', async ({ request }) => {
@@ -473,67 +480,20 @@ test.describe.serial('Master Carton Lifecycle Suite', () => {
   // TC-MC-REPACK: Repack box from carton A to carton B
   // =========================================================================
 
-  test.describe('TC-MC-REPACK: Repack child box between cartons', () => {
-    test('MC-REPACK-SETUP: Create source and destination cartons with FREE boxes', async ({
-      request,
-    }) => {
-      // We need 2 fresh FREE boxes for source, 1 for dest
-      const sourceBarcodes = takeBarcodes(2);
-      const destBarcodes = takeBarcodes(1);
-
-      // Source carton
-      const sourceRes = await request.post(`${BASE_API}/master-cartons`, {
-        headers: authHeader(tokens.admin),
-        data: {
-          child_box_barcodes: sourceBarcodes,
-          max_capacity: 50,
-        },
-      });
-      expect(sourceRes.status()).toBe(201);
-      const sourceBody = await sourceRes.json();
-      repackSourceCartonId = sourceBody.data.id;
-      // Use the first barcode from source as the one to repack
-      repackBarcode = sourceBarcodes[0];
-
-      // Destination carton
-      const destRes = await request.post(`${BASE_API}/master-cartons`, {
-        headers: authHeader(tokens.admin),
-        data: {
-          child_box_barcodes: destBarcodes,
-          max_capacity: 50,
-        },
-      });
-      expect(destRes.status()).toBe(201);
-      const destBody = await destRes.json();
-      repackDestCartonId = destBody.data.id;
-    });
-
-    test('TC-MC-REPACK-001: Admin repacks box from carton A to carton B — 200', async ({
-      request,
-    }) => {
-      expect(repackSourceCartonId).toBeTruthy();
-      expect(repackDestCartonId).toBeTruthy();
-      expect(repackBarcode).toBeTruthy();
-
-      const lookupRes = await request.get(
-        `${BASE_API}/child-boxes/qr/${encodeURIComponent(repackBarcode)}`,
-        { headers: authHeader(tokens.admin) }
-      );
-      expect(lookupRes.ok()).toBeTruthy();
-      const childBoxId = (await lookupRes.json()).data.id;
-      expect(childBoxId).toBeTruthy();
-
+  test.describe('TC-MC-REPACK: Standalone Repack feature removed', () => {
+    // The standalone A→B box-transfer Repack feature was removed (redundant with
+    // unpack + pack). Its route `POST /master-cartons/repack` no longer exists.
+    // Repacking is now done via /unpack-repack (see spec 41-repack-removed + 42-carton-repack).
+    test('TC-MC-REPACK-001: POST /master-cartons/repack is gone — 404', async ({ request }) => {
       const res = await request.post(`${BASE_API}/master-cartons/repack`, {
         headers: authHeader(tokens.admin),
         data: {
-          child_box_id: childBoxId,
-          source_carton_id: repackSourceCartonId,
-          destination_carton_id: repackDestCartonId,
+          child_box_id: '00000000-0000-0000-0000-000000000001',
+          source_carton_id: '00000000-0000-0000-0000-000000000002',
+          destination_carton_id: '00000000-0000-0000-0000-000000000003',
         },
       });
-      expect(res.status()).toBe(200);
-      const body = await res.json();
-      expect(body.success).toBe(true);
+      expect(res.status()).toBe(404);
     });
   });
 

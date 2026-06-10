@@ -27,17 +27,20 @@ export const useScanStore = create<ScanStore>((set, get) => ({
   },
 
   addItem: (qrCode: string) => {
+    // Defense in depth — also handle direct callers that bypass the scanner components.
+    const normalized = qrCode.trim().toUpperCase();
     const { scannedItems } = get();
-    if (scannedItems.includes(qrCode)) {
+    if (scannedItems.includes(normalized)) {
       return false;
     }
-    set({ scannedItems: [...scannedItems, qrCode] });
+    set({ scannedItems: [...scannedItems, normalized] });
     return true;
   },
 
   removeItem: (qrCode: string) => {
+    const normalized = qrCode.trim().toUpperCase();
     const { scannedItems } = get();
-    set({ scannedItems: scannedItems.filter((item) => item !== qrCode) });
+    set({ scannedItems: scannedItems.filter((item) => item !== normalized) });
   },
 
   clearItems: () => {

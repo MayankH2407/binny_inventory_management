@@ -9,6 +9,18 @@ export interface CustomerListResponse {
   totalPages: number;
 }
 
+export interface CustomerBulkRowError {
+  row: number;
+  status: 'error';
+  firm_name?: string;
+  error?: string;
+}
+
+export interface CustomerBulkUploadResult {
+  created: number;
+  errors: CustomerBulkRowError[];
+}
+
 export const customerService = {
   async getAll(params?: {
     page?: number;
@@ -48,5 +60,19 @@ export const customerService = {
   async getSubDealers(primaryDealerId: string): Promise<Customer[]> {
     const response = await api.get<Customer[]>(`/customers/${primaryDealerId}/sub-dealers`);
     return response.data;
+  },
+
+  async bulkUpload(file: File): Promise<CustomerBulkUploadResult> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await api.post<CustomerBulkUploadResult>('/customers/bulk-upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  },
+
+  getSampleCsvUrl(): string {
+    const base = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1';
+    return `${base}/customers/bulk-upload/sample`;
   },
 };

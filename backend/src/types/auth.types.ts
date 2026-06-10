@@ -30,6 +30,7 @@ export interface LoginResponse {
     email: string;
     name: string;
     role: string;
+    permissions?: Array<{ permission: string; max_stage: string | null }>;
   };
   accessToken: string;
 }

@@ -1,3 +1,8 @@
+export interface UserPermission {
+  permission: string;
+  max_stage: string | null;
+}
+
 export interface User {
   id: string;
   name: string;
@@ -6,6 +11,7 @@ export interface User {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+  permissions?: UserPermission[];
 }
 
 export type UserRole = 'Admin' | 'Supervisor' | 'Warehouse Operator' | 'Dispatch Operator';
@@ -81,6 +87,8 @@ export interface ChildBoxWithProduct extends ChildBox {
   size: string;
   mrp: number;
   sku: string;
+  // Feet of this box currently held by active sample mappings (e.g. ['LEFT']). Present on barcode lookups.
+  active_sample_feet?: ('LEFT' | 'RIGHT' | 'PAIR')[];
 }
 
 // ---------- MasterCarton ----------
@@ -103,6 +111,11 @@ export interface MasterCarton {
   colour_summary?: string | null;
   size_summary?: string | null;
   mrp_summary?: number | null;
+  is_legacy?: boolean;
+  section?: string | null;
+  category?: string | null;
+  article_group?: string | null;
+  size_group?: string | null;
 }
 
 // ---------- SampleRecord ----------

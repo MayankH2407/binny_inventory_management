@@ -12,12 +12,16 @@ export const createSampleSchema = z.object({
     .optional()
     .nullable(),
   notes: z.string().trim().max(2000).optional().nullable(),
-  child_box_barcodes: z.array(z.string()).optional(),
+  child_box_barcodes: z.array(z.string().transform((s) => s.trim().toUpperCase())).optional(),
+  // Optional per-barcode foot, keyed by child-box barcode (LEFT/RIGHT/PAIR). Missing entries default to PAIR.
+  box_feet: z.record(z.enum(['LEFT', 'RIGHT', 'PAIR'])).optional(),
 });
 
 export const addBoxToSampleSchema = z.object({
   child_box_id: z.string().uuid('Invalid child box ID format'),
   sample_record_id: z.string().uuid('Invalid sample record ID format'),
+  // Samples can be dispatched as a single foot rather than a pair.
+  foot: z.enum(['LEFT', 'RIGHT', 'PAIR']).default('PAIR'),
 });
 
 export const removeBoxFromSampleSchema = z.object({
@@ -30,7 +34,7 @@ export const sampleIdParamSchema = z.object({
 });
 
 export const sampleBarcodeParamSchema = z.object({
-  barcode: z.string().min(1, 'Barcode is required'),
+  barcode: z.string().min(1, 'Barcode is required').transform((s) => s.trim().toUpperCase()),
 });
 
 export const sampleListQuerySchema = z.object({
