@@ -34,6 +34,8 @@ services:
       JWT_REFRESH_EXPIRY: ${JWT_REFRESH_EXPIRY:-7d}
       CORS_ORIGIN: ${CORS_ORIGIN:-https://srv1409601.hstgr.cloud}
       DATABASE_SSL: "false"
+      CHILD_BOX_MAX_PER_GENERATION: ${CHILD_BOX_MAX_PER_GENERATION:-500}
+      PRODUCT_CSV_MAX_ROWS: ${PRODUCT_CSV_MAX_ROWS:-500}
     depends_on:
       binny-db:
         condition: service_healthy
@@ -54,6 +56,8 @@ services:
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://srv1409601.hstgr.cloud/binny/api/v1}
         NEXT_PUBLIC_BASE_PATH: ${NEXT_PUBLIC_BASE_PATH:-/binny}
+        NEXT_PUBLIC_CHILD_BOX_MAX: ${NEXT_PUBLIC_CHILD_BOX_MAX:-500}
+        NEXT_PUBLIC_PRODUCT_CSV_MAX: ${NEXT_PUBLIC_PRODUCT_CSV_MAX:-500}
     container_name: binny-frontend
     restart: unless-stopped
     environment:
@@ -73,6 +77,8 @@ services:
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL_ROOT:-https://binnyfootwear.basiq360.com/api/v1}
         NEXT_PUBLIC_BASE_PATH: ""
+        NEXT_PUBLIC_CHILD_BOX_MAX: ${NEXT_PUBLIC_CHILD_BOX_MAX:-500}
+        NEXT_PUBLIC_PRODUCT_CSV_MAX: ${NEXT_PUBLIC_PRODUCT_CSV_MAX:-500}
     container_name: binny-frontend-root
     restart: unless-stopped
     environment:
