@@ -112,3 +112,9 @@ backend/scripts/*.csv
 /child qr*.png
 /qr child*.png
 /phase-*.png
+
+# Client data files (spreadsheets / CSVs) + Office temp locks
+*.xlsx
+*.xls
+*.csv
+~$*
