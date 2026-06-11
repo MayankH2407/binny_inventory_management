@@ -33,12 +33,15 @@
 - ✅ **Verified** — health both URLs 200, `/unpack-repack` 200, `repackFreeBoth` absent from dist, `pack-by-barcode` 401 alive, frontend caps baked into both frontends' generate-page chunk.
 - 📣 **Client comms TODO (not code):** (a) Supervisor + WH-Operator can no longer create/manage Samples or E-commerce by default — now Admin-only; grant via Role Manager. (b) Old Repack page replaced by the new Unpack & Repack 2-tab module. (c) Child-box label generation cap now 1500/generation; product CSV upload cap now 2000 rows (live only).
 
-Session focus: get the Phase 6 work onto `main`, fix the cap-wiring infra gap, and deploy the full bundle to LIVE (client UAT signed off).
+Session focus: get the Phase 6 work onto `main`, fix the cap-wiring infra gap, and deploy the full bundle to LIVE (client UAT signed off). **Outcome: deployed & verified (see above).**
+
+Supporting repo work this session:
 - **gitignore:** added `*.xlsx` / `*.xls` / `*.csv` / `~$*` to ignore client data spreadsheets + Office temp lock files (`ALIA PLUS 1.csv`, `HAWAI INVENTORY.xlsx` were showing untracked). Verified no already-tracked file is now hidden. Committed `1d22a39`.
-- **Merge to main:** fast-forwarded `main` from `65f53f1` → `1d22a39` (clean, no conflicts). The full Phase 6 bundle (foot-split samples, unpack/repack 2-tab redesign, label fixes, Role Manager, inventory drill-down, legacy CSV, Phase 6a/6b, pack-by-barcode) is now on `main`. **Local `main` is ahead of `origin/main` by 2 — NOT pushed** (awaiting go-ahead).
-- **New doc `docs/live-deploy-checklist.md`** — step-by-step LIVE runbook for the combined bundle, keyed to the real prod infra. Captures: UAT gate; DB backup; the env-gated caps in TWO places — backend `.env` (`CHILD_BOX_MAX_PER_GENERATION=1500`, `PRODUCT_CSV_MAX_ROWS=2000`) AND frontend BUILD-time `NEXT_PUBLIC_CHILD_BOX_MAX=1500`/`NEXT_PUBLIC_PRODUCT_CSV_MAX=2000` which must be baked into **BOTH** frontend containers (`binny-frontend` + `binny-frontend-root`) or the UI silently stays at 500; `migrate:status`→`migrate:up` with the 7-migration expected set; verify steps incl. a cap spot-check; UAT comms (Admin-only samples/ecommerce, Repack→Unpack&Repack); prod do-not-touch rules; out-of-scope items (DNS cutover, APK rebuild, JWT rotation, cert renewal).
-- **Confirmed re the LIVE-only cap changes:** NOT done and not doable yet — the code that reads those env vars only exists in the held Phase 6a bundle (TEST-only), and test deliberately stays at 500. They get set as part of the live deploy (now in the checklist), not before.
-- **Pending-LIVE inventory (everything May 29 → Jun 10 is TEST-only, awaiting UAT):** Inventory drill-down, Role Manager, Legacy CSV + unpack/repack, Phase 6a/6b, sample foot-split, Repack removal + pack-by-barcode, Unpack&Repack 2-tab redesign, label fixes. 7 migrations to run on live; 4 env vars to set. Full detail in `docs/live-deploy-checklist.md`.
+- **Merge to main:** fast-forwarded `main` `65f53f1` → `1d22a39` (clean), bringing the full Phase 6 bundle onto `main`. Then the infra cap-wiring fix `e0b2243` and the deploy log `4005f73`. **All pushed — `origin/main` in sync at `4005f73`.**
+- **New doc `docs/live-deploy-checklist.md`** — LIVE runbook, used for this deploy and corrected against prod reality (6 pending migrations not 7; no `migrate:status` script; the `tar`-doesn't-delete clean-slate step; 401-not-404 removed-route caveat; cap wiring lives in compose+Dockerfile, not just `.env`). Out-of-scope items still tracked: DNS cutover, APK rebuild, JWT rotation, LE cert renewal.
+- **Env-gated caps — now SET on LIVE** (`CHILD_BOX_MAX_PER_GENERATION=1500`, `PRODUCT_CSV_MAX_ROWS=2000` + `NEXT_PUBLIC_` equivalents baked into both frontends); test/local stay at 500. See [[env-gated-caps-live-only]].
+
+**Remaining after this session:** relay the 3 client-comms items above (permissions change, Repack→Unpack&Repack, new caps) to the client. No code work outstanding for the Phase 6 bundle.
 
 ### June 10, 2026 — Label fixes from client meeting (3 concerns) (Opus plan / Sonnet execute) — built + localhost, NOT deployed; no migration
 
