@@ -46,12 +46,16 @@ Edit `/opt/binny/.env` and add all four (do NOT overwrite existing lines):
 
 From the local repo (on `main`):
 
-- [ ] Stream changed source + the updated infra files (must include `docker-compose.prod.yml` and `frontend/Dockerfile` — the §2 cap wiring lives there), excluding build artefacts and `.env`:
+> ⚠️ **`tar xf` only adds/overwrites — it NEVER deletes** (learned the hard way 2026-06-11: a bundle-deleted `repack/page.tsx` lingered on the box and failed `next build`). When the box trails a bundle that removed/renamed files, **clean-slate the `src` dirs first** so deletions propagate. This is safe — running containers serve from baked images, not on-disk `src`. Also sync `package.json`/`package-lock.json` for both ends.
+
+- [ ] Stream changed source + the updated infra files, clearing `src` first so deletions propagate:
       ```bash
       tar --exclude='node_modules' --exclude='.next' --exclude='.env' \
-        -cf - backend/src backend/migrations frontend/src frontend/Dockerfile \
+        -cf - backend/src backend/migrations backend/package.json backend/package-lock.json \
+              frontend/src frontend/package.json frontend/package-lock.json frontend/Dockerfile \
               docker-compose.prod.yml progress.md \
-        | ssh -i ~/.ssh/id_ed25519 root@187.127.130.99 "cd /opt/binny && tar xf -"
+        | ssh -i ~/.ssh/id_ed25519 root@187.127.130.99 \
+            "cd /opt/binny && rm -rf backend/src frontend/src && tar xf -"
       ```
 
 ---
@@ -97,8 +101,9 @@ From the local repo (on `main`):
 
 - [ ] Health: `curl -sS https://binnyfootwear.basiq360.com/api/v1/health` → 200
 - [ ] Health (fallback): `curl -sS https://srv1689976.hstgr.cloud/binny/api/v1/health` → 200
-- [ ] `/unpack-repack` serves 200; old `/repack` gone; `POST /master-cartons/repack/free-both` → 404 (removed).
-- [ ] `pack-by-barcode` endpoint alive (400 without body is fine).
+- [ ] `/unpack-repack` serves 200.
+- [ ] **Removed `repackFreeBoth`:** confirm via backend dist, NOT HTTP — without a token, a removed route returns **401 (auth guard runs before routing), not 404**. Use `docker exec binny-backend sh -c "grep -rl repackFreeBoth dist | wc -l"` → expect `0`.
+- [ ] `pack-by-barcode` endpoint alive: `POST` without token → **401** (not 404).
 - [ ] Roles UI loads at `/admin/roles`; inventory drill-down loads.
 - [ ] **Cap spot-check:** on the live UI, child-box generate input `max` shows 1500 and product CSV modal text shows 2000 (proves the NEXT_PUBLIC args baked into BOTH frontends).
 - [ ] Backend dist contains `unpacked_at` stamping; `repackFreeBoth` absent.
