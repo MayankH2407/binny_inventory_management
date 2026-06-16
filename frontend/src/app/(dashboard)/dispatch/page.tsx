@@ -60,7 +60,8 @@ export default function DispatchPage() {
 
   const { data: customersData } = useApiQuery(
     ['customers-for-dispatch'],
-    () => customerService.getAll({ limit: 200, is_active: true }),
+    // Load all active customers (not just the first 200) so none are hidden.
+    () => customerService.getAll({ limit: 100000, is_active: true }),
   );
   const customers = customersData?.data ?? [];
 

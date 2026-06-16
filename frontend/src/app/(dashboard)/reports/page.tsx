@@ -173,7 +173,8 @@ export default function ReportsPage() {
   // Customers for sample report filter
   const { data: customersData } = useApiQuery(
     ['customers-for-reports'],
-    () => customerService.getAll({ limit: 200, is_active: true }),
+    // Load all active customers (not just the first 200) so none are hidden.
+    () => customerService.getAll({ limit: 100000, is_active: true }),
     { enabled: activeTab === 'samples' }
   );
   const customers = customersData?.data ?? [];

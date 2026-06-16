@@ -81,7 +81,10 @@ export default function ChildBoxesPage() {
 
   const { data: productsData } = useApiQuery(
     ['products-list'],
-    () => productService.getAll({ limit: 200, is_active: true }),
+    // Load all active products so the Product filter lists every article, not
+    // just the first 200 variant rows (catalog is thousands of rows / dozens of
+    // articles — see generate page for the same fix).
+    () => productService.getAll({ limit: 100000, is_active: true }),
   );
 
   const products = productsData?.data ?? [];

@@ -40,7 +40,8 @@ export default function CreateSamplePage() {
 
   const { data: customersData } = useApiQuery(
     ['customers-list-for-sample'],
-    () => customerService.getAll({ limit: 200, is_active: true })
+    // Load all active customers (not just the first 200) so none are hidden.
+    () => customerService.getAll({ limit: 100000, is_active: true })
   );
 
   const { mutate: createSample, isPending } = useApiMutation(
