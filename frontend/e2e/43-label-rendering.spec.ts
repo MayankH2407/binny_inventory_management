@@ -568,9 +568,11 @@ test.describe('TC-LBL-C: Responsive auto-fit popup DOM', () => {
     }
 
     // ── Assert: .size-value elements exist and have CSS overflow protection ─
-    // .size-value has `font-size` set inline by the label generator based on
-    // size string length (38pt, 26pt, or 20pt). fitText() may shrink further.
-    // The .size-cell column is 20mm; Kids sizes like "13K" are 3 chars → 26pt.
+    // .size-value gets a no-JS fallback font-size inline (38pt ≤2 chars, 22pt 3,
+    // 16pt 4, else 13pt). When scripts run, fitSizeValue() responsively overrides
+    // it — binary-searching the largest font that fits the cell's width AND height
+    // — so short sizes grow ("13" → ~44pt) and long/suffixed ones shrink ("13K" →
+    // ~27pt). Either way the value must not visibly overflow the 20mm size cell.
     const sizeValueData = await popup.$$eval('.size-value', (els) =>
       els.map((el) => {
         const cs = window.getComputedStyle(el);

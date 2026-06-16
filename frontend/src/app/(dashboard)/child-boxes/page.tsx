@@ -52,7 +52,11 @@ export default function ChildBoxesPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [productFilter, setProductFilter] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // Track the full selected box objects (keyed by id), NOT just ids, so
+  // "Print Selected" can print boxes chosen on ANY page — the previous
+  // Set<id> approach only had access to the current page's rows, silently
+  // dropping selections from other pages/searches at print time.
+  const [selectedBoxes, setSelectedBoxes] = useState<Map<string, ChildBoxWithProduct>>(new Map());
   const headerCheckboxRef = useRef<HTMLInputElement>(null);
 
   // Bulk upload state
@@ -82,29 +86,33 @@ export default function ChildBoxesPage() {
 
   const products = productsData?.data ?? [];
 
-  // Indeterminate state for header checkbox
+  // Indeterminate state for header checkbox (reflects the CURRENT page only)
   useEffect(() => {
     if (!headerCheckboxRef.current || !data?.data?.length) return;
-    const allSelected = data.data.every((b: ChildBoxWithProduct) => selectedIds.has(b.id));
-    const someSelected = data.data.some((b: ChildBoxWithProduct) => selectedIds.has(b.id));
+    const allSelected = data.data.every((b: ChildBoxWithProduct) => selectedBoxes.has(b.id));
+    const someSelected = data.data.some((b: ChildBoxWithProduct) => selectedBoxes.has(b.id));
     headerCheckboxRef.current.indeterminate = someSelected && !allSelected;
-  }, [selectedIds, data]);
+  }, [selectedBoxes, data]);
 
+  // Select-all toggles only the CURRENT page; selections on other pages are
+  // preserved so the user can accumulate boxes across pages/searches.
   const toggleSelectAll = () => {
     if (!data?.data?.length) return;
-    const allSelected = data.data.every((b: ChildBoxWithProduct) => selectedIds.has(b.id));
-    if (allSelected) {
-      setSelectedIds(new Set());
-    } else {
-      setSelectedIds(new Set(data.data.map((b: ChildBoxWithProduct) => b.id)));
-    }
+    const pageBoxes = data.data as ChildBoxWithProduct[];
+    const allSelected = pageBoxes.every((b) => selectedBoxes.has(b.id));
+    setSelectedBoxes((prev) => {
+      const next = new Map(prev);
+      if (allSelected) pageBoxes.forEach((b) => next.delete(b.id));
+      else pageBoxes.forEach((b) => next.set(b.id, b));
+      return next;
+    });
   };
 
-  const toggleSelectOne = (id: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+  const toggleSelectOne = (box: ChildBoxWithProduct) => {
+    setSelectedBoxes((prev) => {
+      const next = new Map(prev);
+      if (next.has(box.id)) next.delete(box.id);
+      else next.set(box.id, box);
       return next;
     });
   };
@@ -176,17 +184,19 @@ export default function ChildBoxesPage() {
         description="Manage and track all child boxes in the system"
         action={
           <div className="flex gap-2">
-            {selectedIds.size > 0 && (
-              <Button
-                variant="secondary"
-                leftIcon={<Printer className="h-4 w-4" />}
-                onClick={() => {
-                  printChildBoxLabels(data!.data.filter((b: ChildBoxWithProduct) => selectedIds.has(b.id)));
-                  setSelectedIds(new Set());
-                }}
-              >
-                Print Selected ({selectedIds.size})
-              </Button>
+            {selectedBoxes.size > 0 && (
+              <>
+                <Button
+                  variant="secondary"
+                  leftIcon={<Printer className="h-4 w-4" />}
+                  onClick={() => printChildBoxLabels(Array.from(selectedBoxes.values()))}
+                >
+                  Print Selected ({selectedBoxes.size})
+                </Button>
+                <Button variant="outline" onClick={() => setSelectedBoxes(new Map())}>
+                  Clear
+                </Button>
+              </>
             )}
             {canCreate && (
               <Button variant="outline" leftIcon={<Upload className="h-4 w-4" />} onClick={() => setShowBulkModal(true)}>
@@ -224,7 +234,6 @@ export default function ChildBoxesPage() {
                 onChange={(e) => {
                   setSearch(e.target.value);
                   setPage(1);
-                  setSelectedIds(new Set());
                 }}
                 leftIcon={<Search className="h-4 w-4" />}
               />
@@ -241,7 +250,6 @@ export default function ChildBoxesPage() {
               onChange={(e) => {
                 setStatusFilter(e.target.value);
                 setPage(1);
-                setSelectedIds(new Set());
               }}
               className="w-full sm:w-44"
             />
@@ -257,7 +265,6 @@ export default function ChildBoxesPage() {
               onChange={(e) => {
                 setProductFilter(e.target.value);
                 setPage(1);
-                setSelectedIds(new Set());
               }}
               className="w-full sm:w-56"
             />
@@ -295,8 +302,8 @@ export default function ChildBoxesPage() {
                       <input
                         type="checkbox"
                         className="h-4 w-4 rounded border-brand-border text-binny-navy focus:ring-binny-navy/30 flex-shrink-0"
-                        checked={selectedIds.has(box.id)}
-                        onChange={() => toggleSelectOne(box.id)}
+                        checked={selectedBoxes.has(box.id)}
+                        onChange={() => toggleSelectOne(box)}
                         onClick={(e) => e.stopPropagation()}
                       />
                       <span className="font-mono text-xs text-brand-text-dark">
@@ -367,7 +374,7 @@ export default function ChildBoxesPage() {
                         ref={headerCheckboxRef}
                         type="checkbox"
                         className="h-4 w-4 rounded border-brand-border text-binny-navy focus:ring-binny-navy/30"
-                        checked={!!data?.data?.length && data.data.every((b: ChildBoxWithProduct) => selectedIds.has(b.id))}
+                        checked={!!data?.data?.length && data.data.every((b: ChildBoxWithProduct) => selectedBoxes.has(b.id))}
                         onChange={toggleSelectAll}
                       />
                     </TableHeader>
@@ -397,8 +404,8 @@ export default function ChildBoxesPage() {
                         <input
                           type="checkbox"
                           className="h-4 w-4 rounded border-brand-border text-binny-navy focus:ring-binny-navy/30"
-                          checked={selectedIds.has(box.id)}
-                          onChange={() => toggleSelectOne(box.id)}
+                          checked={selectedBoxes.has(box.id)}
+                          onChange={() => toggleSelectOne(box)}
                           onClick={(e) => e.stopPropagation()}
                         />
                       </TableCell>
@@ -457,7 +464,7 @@ export default function ChildBoxesPage() {
                     variant="secondary"
                     size="sm"
                     disabled={page === 1}
-                    onClick={() => { setPage(page - 1); setSelectedIds(new Set()); }}
+                    onClick={() => setPage(page - 1)}
                   >
                     Previous
                   </Button>
@@ -468,7 +475,7 @@ export default function ChildBoxesPage() {
                     variant="secondary"
                     size="sm"
                     disabled={page === data.totalPages}
-                    onClick={() => { setPage(page + 1); setSelectedIds(new Set()); }}
+                    onClick={() => setPage(page + 1)}
                   >
                     Next
                   </Button>

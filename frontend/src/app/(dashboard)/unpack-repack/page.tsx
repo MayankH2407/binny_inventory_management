@@ -10,6 +10,7 @@ import {
   RotateCcw,
   Loader2,
   Package,
+  Printer,
 } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
@@ -18,6 +19,7 @@ import PageHeader from '@/components/layout/PageHeader';
 import Modal from '@/components/ui/Modal';
 import HIDScannerInput from '@/components/scanning/HIDScannerInput';
 import { masterCartonService } from '@/services/masterCarton.service';
+import { printMasterCartonLabel } from '@/lib/masterCartonLabel';
 import { useQueryClient } from '@tanstack/react-query';
 import type { MasterCarton } from '@/types';
 import toast from 'react-hot-toast';
@@ -229,6 +231,21 @@ function RepackTab() {
   const seenRef = useRef<Set<string>>(new Set());
   const [isPacking, setIsPacking] = useState(false);
   const [packedCount, setPackedCount] = useState(0);
+  const [isPrintingLabel, setIsPrintingLabel] = useState(false);
+
+  // ── Print the master-carton label (fetches current assortment first) ──
+  const handlePrintCartonLabel = async () => {
+    if (!carton) return;
+    setIsPrintingLabel(true);
+    try {
+      const assortment = await masterCartonService.getAssortment(carton.id);
+      printMasterCartonLabel(carton, assortment);
+    } catch {
+      toast.error('Failed to load carton contents for the label');
+    } finally {
+      setIsPrintingLabel(false);
+    }
+  };
 
   // ── Capacity helpers ──
   const maxCapacity = carton?.max_capacity ?? 0;
@@ -522,9 +539,20 @@ function RepackTab() {
               </span>
             )}
           </div>
-          <Button variant="secondary" size="sm" onClick={handleReset}>
-            Done / Repack Another Carton
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void handlePrintCartonLabel()}
+              isLoading={isPrintingLabel}
+              leftIcon={<Printer className="h-4 w-4" />}
+            >
+              Print Carton Label
+            </Button>
+            <Button variant="secondary" size="sm" onClick={handleReset}>
+              Done / Repack Another Carton
+            </Button>
+          </div>
         </div>
       </Card>
 

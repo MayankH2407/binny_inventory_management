@@ -26,10 +26,15 @@ export function printChildBoxLabels(boxes: ChildBoxWithProduct[]): void {
     const qrSvg = renderToStaticMarkup(
       createElement(QRCodeSVG, { value: box.barcode, size: 128, level: 'M' })
     );
-    // Shrink the size value for longer / suffixed sizes (e.g. "10K", "11K" where K = Kids)
-    // so they don't overflow the fixed-width size cell; short sizes stay large.
+    // Inline font-size is a NO-JS fallback only: it is tuned to FIT the ~17.7mm
+    // usable width of the size cell without clipping even if scripts don't run
+    // (a 3-char value like "12K" at the default 38pt clips the last glyph — the
+    // client-reported bug — so 3 chars fall back to 22pt). When scripts run,
+    // fitSizeValue() below overrides this and responsively grows/shrinks the
+    // value to fill the cell (e.g. "13" -> ~44pt, "12K" -> ~27pt).
     const sizeStr = String(box.size ?? '');
-    const sizeFont = sizeStr.length <= 2 ? 38 : sizeStr.length === 3 ? 26 : 20;
+    const sizeFont =
+      sizeStr.length <= 2 ? 38 : sizeStr.length === 3 ? 22 : sizeStr.length === 4 ? 16 : 13;
     return `
         <div class="label">
           <table class="main">
@@ -131,12 +136,14 @@ export function printChildBoxLabels(boxes: ChildBoxWithProduct[]): void {
             .mrp-sub { font-size: 4pt; color: #333; line-height: 1; margin-top: 0.2mm; }
             .size-cell { text-align: center; vertical-align: middle; padding: 0.3mm 1mm; }
             .size-label { font-size: 7pt; font-weight: bold; line-height: 1; }
-            .size-value { font-size: 38pt; font-weight: bold; line-height: 0.95; margin-top: 0.3mm; }
+            .size-value { font-size: 38pt; font-weight: bold; line-height: 0.95; margin-top: 0.3mm; white-space: nowrap; overflow: hidden; }
             .small-row { font-size: 6pt; padding: 0.15mm 1.5mm; height: 2.5mm; white-space: nowrap; overflow: hidden; vertical-align: middle; }
             .qr-cell { text-align: center; vertical-align: middle; padding: 0.2mm; }
-            .qr-cell svg { width: 18mm; height: 18mm; display: block; margin: 0 auto; }
+            /* QR sized so QR + barcode caption fit inside the 48mm label height —
+               at 18mm the caption spilled past the label bottom and was clipped. */
+            .qr-cell svg { width: 16mm; height: 16mm; display: block; margin: 0 auto; }
             .footer-row { font-size: 5pt; line-height: 1; padding: 0.3mm 1.5mm; vertical-align: middle; border-top: 1px solid #000; }
-            .qr-cell .barcode-text { font-family: Arial, Helvetica, sans-serif; font-weight: bold; font-size: 8pt; margin-top: 0.5mm; text-align: center; }
+            .qr-cell .barcode-text { font-family: Arial, Helvetica, sans-serif; font-weight: bold; font-size: 8pt; margin-top: 0.3mm; text-align: center; white-space: nowrap; }
           </style>
         </head>
         <body>
@@ -151,10 +158,31 @@ export function printChildBoxLabels(boxes: ChildBoxWithProduct[]): void {
                 }
               });
             }
+            // Responsively size the Size value to FILL its cell: binary-search the
+            // largest font (px) that fits both the value's width and the cell's
+            // height. Grows short values ("13" -> ~44pt) and shrinks long/suffixed
+            // ones ("12K" -> ~27pt) so none clip — replaces fixed-bucket guessing.
+            // The inline length-based font-size is only a no-JS print fallback.
+            function fitSizeValue(maxPx, minPx) {
+              document.querySelectorAll('.size-value').forEach(function(el) {
+                var cell = el.closest('td');
+                if (!cell) return;
+                function fits(px) {
+                  el.style.fontSize = px + 'px';
+                  return el.scrollWidth <= el.clientWidth + 1 && cell.scrollHeight <= cell.clientHeight + 1;
+                }
+                var lo = minPx, hi = maxPx, best = minPx;
+                for (var i = 0; i < 30 && hi - lo > 0.25; i++) {
+                  var mid = (lo + hi) / 2;
+                  if (fits(mid)) { best = mid; lo = mid; } else { hi = mid; }
+                }
+                el.style.fontSize = best + 'px';
+              });
+            }
             window.onload = function() {
               fitText('.article-row', 9);
               fitText('.colour-row', 9);
-              fitText('.size-value', 9);
+              fitSizeValue(60, 9);   // 60px ~= 45pt cap keeps single digits sane
               window.print();
             };
           </script>
