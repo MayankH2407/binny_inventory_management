@@ -47,10 +47,14 @@ export default function GenerateQRPage() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Load all products for the dropdown
+  // Load ALL active products for the article dropdown. A product has one row per
+  // size/colour variant, so the catalog is thousands of rows but only a few dozen
+  // distinct articles (deduped below). The old limit of 200 rows got consumed by a
+  // handful of articles' variants, hiding every other article from the list/search.
+  // (Future optimisation: a dedicated distinct-articles endpoint.)
   const { data: productsData, isLoading: productsLoading } = useApiQuery(
     ['products-for-generate'],
-    () => productService.getAll({ limit: 200, is_active: true }),
+    () => productService.getAll({ limit: 100000, is_active: true }),
   );
 
   const products = productsData?.data ?? [];
