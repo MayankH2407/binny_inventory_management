@@ -113,12 +113,30 @@ function normalizeCategory(raw: string): { canonical: string; matched: boolean }
   return { canonical: trimmed, matched: false };
 }
 
+// ─── Multi-value cell normalizer ─────────────────────────────────────────────
+
+/**
+ * Tidies a comma-separated cell (e.g. "black,red " → "black, red") so the
+ * printed label renders the warehouse's multi-value entry consistently.
+ * Returns null for empty input.
+ */
+function normalizeMultiValue(raw: string): string | null {
+  const parts = (raw ?? '')
+    .split(',')
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0);
+  return parts.length > 0 ? parts.join(', ') : null;
+}
+
 // ─── Expected CSV header names (case-insensitive) ────────────────────────────
 
 const REQUIRED_HEADERS = [
   'section',
   'category',
-  'article group (size group)',
+  'article name',
+  'colour',
+  'mrp',
+  'size range',
   'master carton quantity',
 ];
 
@@ -196,7 +214,10 @@ export async function bulkCreateLegacyCartons(
 
     const rawSection = row['section'] ?? '';
     const rawCategory = row['category'] ?? '';
-    const rawArticleGroup = row['article group (size group)'] ?? '';
+    const rawArticleName = row['article name'] ?? '';
+    const rawColour = row['colour'] ?? '';
+    const rawMrp = row['mrp'] ?? '';
+    const rawSizeRange = row['size range'] ?? '';
     const rawQty = row['master carton quantity'] ?? '';
 
     // Parse quantity
@@ -207,7 +228,7 @@ export async function bulkCreateLegacyCartons(
         status: 'error',
         section: rawSection,
         category: rawCategory,
-        article_group: rawArticleGroup,
+        article_group: rawArticleName,
         error: `Invalid quantity "${rawQty}": must be a non-negative integer`,
       });
       continue;
@@ -240,8 +261,12 @@ export async function bulkCreateLegacyCartons(
       );
     }
 
-    // Parse article_group / size_group
-    const { article_group, size_group } = parseArticleGroup(rawArticleGroup);
+    // Article name (label headline) + size range come from dedicated columns now.
+    // Colour / MRP are free-text, multi-value cells normalized for the label.
+    const article_group = rawArticleName.trim();
+    const size_group = rawSizeRange.trim() || null;
+    const legacy_colour = normalizeMultiValue(rawColour);
+    const legacy_mrp = normalizeMultiValue(rawMrp);
 
     // 6. Generate cartons inside one transaction per row
     const client = await getClient();
@@ -256,9 +281,11 @@ export async function bulkCreateLegacyCartons(
         await client.query(
           `INSERT INTO master_cartons
              (id, carton_barcode, status, child_count, max_capacity,
-              is_legacy, section, category, article_group, size_group, created_by)
-           VALUES ($1, $2, 'CLOSED', 0, 50, true, $3, $4, $5, $6, $7)`,
-          [id, cartonBarcode, section, category, article_group, size_group, createdBy]
+              is_legacy, section, category, article_group, size_group,
+              legacy_colour, legacy_mrp, created_by)
+           VALUES ($1, $2, 'CLOSED', 0, 50, true, $3, $4, $5, $6, $7, $8, $9)`,
+          [id, cartonBarcode, section, category, article_group, size_group,
+           legacy_colour, legacy_mrp, createdBy]
         );
         insertedIds.push(id);
       }
@@ -275,6 +302,8 @@ export async function bulkCreateLegacyCartons(
           category,
           article_group,
           size_group,
+          legacy_colour,
+          legacy_mrp,
           quantity: qty,
           cartons_created: insertedIds.length,
         },

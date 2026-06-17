@@ -276,6 +276,41 @@ export default function MasterCartonDetailPage() {
         </div>
       )}
 
+      {/* Legacy carton details (from the existing-stock CSV upload) */}
+      {carton.is_legacy && (
+        <Card className="p-6 mb-6">
+          <h3 className="font-semibold text-brand-text-dark mb-4">Existing Stock Details</h3>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
+            <div>
+              <p className="text-brand-text-muted">Article</p>
+              <p className="font-medium text-brand-text-dark">{carton.article_group || '—'}</p>
+            </div>
+            <div>
+              <p className="text-brand-text-muted">Colour</p>
+              <p className="font-medium text-brand-text-dark">{carton.legacy_colour || '—'}</p>
+            </div>
+            <div>
+              <p className="text-brand-text-muted">MRP</p>
+              <p className="font-medium text-brand-text-dark">
+                {carton.legacy_mrp ? `₹ ${carton.legacy_mrp}` : '—'}
+              </p>
+            </div>
+            <div>
+              <p className="text-brand-text-muted">Size Range</p>
+              <p className="font-medium text-brand-text-dark">{carton.size_group || '—'}</p>
+            </div>
+            <div>
+              <p className="text-brand-text-muted">Section</p>
+              <p className="font-medium text-brand-text-dark">{carton.section || '—'}</p>
+            </div>
+            <div>
+              <p className="text-brand-text-muted">Category</p>
+              <p className="font-medium text-brand-text-dark">{carton.category || '—'}</p>
+            </div>
+          </div>
+        </Card>
+      )}
+
       {/* Status / Capacity / Dates cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-6">
         <Card className="p-6">

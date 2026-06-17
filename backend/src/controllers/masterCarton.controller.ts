@@ -214,12 +214,13 @@ export function downloadLegacySampleCsv(
   _req: AuthenticatedRequest,
   res: Response,
 ): void {
-  const headers = ['SECTION', 'CATEGORY', 'ARTICLE GROUP (SIZE GROUP)', 'MASTER CARTON QUANTITY'];
-  const sampleRows = [
-    ['Hawaii', 'Ladies', 'ALIA PLUS (4-8)', '16'],
-    ['Hawaii', 'Gents', 'BUSKER 01-20 (6-10)', '0'],
-  ];
-  const csv = [headers.join(','), ...sampleRows.map((r) => r.join(','))].join('\n');
+  // COLOUR / MRP cells may hold multiple comma-separated values, so they are
+  // CSV-quoted here (Excel does this automatically when the cell has a comma).
+  const csv = [
+    'SECTION,CATEGORY,ARTICLE NAME,COLOUR,MRP,SIZE RANGE,MASTER CARTON QUANTITY',
+    'Hawaii,Ladies,ALIA PLUS,"black, red","100, 150",6-10,20',
+    'Hawaii,Gents,BUSKER 01-20,brown,349,6-10,10',
+  ].join('\n');
 
   res.setHeader('Content-Type', 'text/csv');
   res.setHeader('Content-Disposition', 'attachment; filename=legacy_carton_upload_sample.csv');

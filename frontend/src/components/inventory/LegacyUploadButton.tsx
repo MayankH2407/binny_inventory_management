@@ -84,7 +84,7 @@ export default function LegacyUploadButton() {
             <div className="flex-1">
               <p className="text-sm font-medium text-blue-900">Download sample CSV</p>
               <p className="text-xs text-blue-700">
-                4 columns: SECTION, CATEGORY, ARTICLE GROUP (SIZE GROUP), MASTER CARTON QUANTITY
+                SECTION, CATEGORY, ARTICLE NAME, COLOUR, MRP, SIZE RANGE, MASTER CARTON QUANTITY
               </p>
             </div>
             <button
@@ -98,12 +98,16 @@ export default function LegacyUploadButton() {
           {/* Column info */}
           <div className="text-xs text-brand-text-muted">
             <p className="font-medium mb-1">Required columns:</p>
-            <p>SECTION, CATEGORY, ARTICLE GROUP (SIZE GROUP), MASTER CARTON QUANTITY</p>
+            <p>SECTION, CATEGORY, ARTICLE NAME, COLOUR, MRP, SIZE RANGE, MASTER CARTON QUANTITY</p>
+            <p className="mt-1">
+              COLOUR and MRP may list several values separated by commas (e.g. <em>black, red</em>
+              {' '}and <em>100, 150</em>) — keep them in one cell; the printed label shows them as entered.
+              SIZE RANGE is a range like <em>6-10</em>. Each row creates the given number of identical cartons.
+            </p>
             <p className="mt-1">
               Rows with quantity 0 are skipped. Upload is additive — re-uploading the same section
-              adds more cartons and shows a warning.
+              adds more cartons and shows a warning. Maximum 20,000 cartons per upload file.
             </p>
-            <p className="mt-1">Maximum 20,000 cartons per upload file.</p>
           </div>
 
           {/* File picker (hidden when result is shown) */}

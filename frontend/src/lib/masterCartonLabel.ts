@@ -40,17 +40,30 @@ export function printMasterCartonLabel(
     }
   }
 
-  const articleLabel = Array.from(articleSet).join(', ');
-  const colourLabel = Array.from(colourSet).join('. ');
-  const mrpLabel = Array.from(mrpSet)
-    .sort((a, b) => a - b)
-    .map((m) => m.toFixed(2))
-    .join(' / ');
+  // Legacy (pre-go-live, count-only) cartons have no tracked child boxes, so
+  // there is no per-size assortment. Their label is printed from the fields
+  // captured at CSV upload: article name, colour(s), MRP(s) and a size RANGE.
+  // The per-size assortment grid is omitted for these cartons.
+  const isLegacy = carton.is_legacy === true;
+
+  const articleLabel = isLegacy
+    ? carton.article_group ?? ''
+    : Array.from(articleSet).join(', ');
+  const colourLabel = isLegacy
+    ? carton.legacy_colour ?? ''
+    : Array.from(colourSet).join('. ');
+  const mrpLabel = isLegacy
+    ? carton.legacy_mrp ?? ''
+    : Array.from(mrpSet)
+        .sort((a, b) => a - b)
+        .map((m) => m.toFixed(2))
+        .join(' / ');
 
   const sizes = sortSizes(Object.keys(sizeMap));
 
-  const sizeRangeLabel =
-    sizes.length === 0
+  const sizeRangeLabel = isLegacy
+    ? carton.size_group || '-'
+    : sizes.length === 0
       ? '-'
       : sizes.length === 1
         ? sizes[0]
@@ -65,9 +78,33 @@ export function printMasterCartonLabel(
   const sizeHeaders = sizes.map((s) => `<td>${s}</td>`).join('');
   const sizeQtys = sizes.map((s) => `<td>${sizeMap[s]}</td>`).join('');
 
-  const packDate = carton.closed_at
-    ? new Date(carton.closed_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
-    : new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+  // The per-size assortment grid only applies to tracked cartons. Legacy cartons
+  // carry just a size range (no per-size counts), so the grid is omitted for them.
+  const assortmentTable = isLegacy
+    ? ''
+    : `
+        <table class="assortment-grid">
+          <colgroup>
+            ${sizeColgroup}
+          </colgroup>
+          <tr style="height:10mm">
+            <td colspan="${sizeColCount + 1}" class="assortment-hdr">SIZE ASSORTMENT</td>
+          </tr>
+          <tr style="height:10mm" class="size-hdr-row">
+            ${sizeHeaders || '<td>-</td>'}
+            <td>Total</td>
+          </tr>
+          <tr style="height:11mm" class="size-qty-row">
+            ${sizeQtys || '<td>-</td>'}
+            <td class="total-qty">${totalPairs} Pairs</td>
+          </tr>
+        </table>`;
+
+  const packDateSource = carton.closed_at || carton.created_at;
+  const packDate = (packDateSource ? new Date(packDateSource) : new Date()).toLocaleDateString(
+    'en-IN',
+    { day: '2-digit', month: 'short', year: 'numeric' }
+  );
 
   const qrSvg = renderToStaticMarkup(
     createElement(QRCodeSVG, { value: carton.carton_barcode, size: 128, level: 'M' })
@@ -151,23 +188,7 @@ export function printMasterCartonLabel(
               <div class="qr-num">${carton.carton_barcode}</div>
             </td>
           </tr>
-        </table>
-        <table class="assortment-grid">
-          <colgroup>
-            ${sizeColgroup}
-          </colgroup>
-          <tr style="height:10mm">
-            <td colspan="${sizeColCount + 1}" class="assortment-hdr">SIZE ASSORTMENT</td>
-          </tr>
-          <tr style="height:10mm" class="size-hdr-row">
-            ${sizeHeaders || '<td>-</td>'}
-            <td>Total</td>
-          </tr>
-          <tr style="height:11mm" class="size-qty-row">
-            ${sizeQtys || '<td>-</td>'}
-            <td class="total-qty">${totalPairs} Pairs</td>
-          </tr>
-        </table>
+        </table>${assortmentTable}
       </div>
       <script>
         function fitText(sel, minPx) {
