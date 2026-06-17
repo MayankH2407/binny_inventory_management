@@ -13,6 +13,15 @@
 
 ## Phase 6 — Post-QA Modifications (batched; testing deferred to after all mods)
 
+### June 17, 2026 — Legacy "Existing Stock" label feature COMMITTED (`5a49766`) + localhost-verified; deploying to TEST for UAT; **NEW MIGRATION**
+
+Finished the held legacy-CSV redesign (was WIP from June 16 #2). Legacy cartons now capture + render real master-carton label data instead of showing blank.
+- **New existing-stock CSV:** `SECTION, CATEGORY, ARTICLE NAME, COLOUR, MRP, SIZE RANGE, MASTER CARTON QUANTITY` (COLOUR/MRP allow comma-separated multi-values in one cell; SIZE RANGE is a range like `6-10`). Sample-CSV endpoint serves this format.
+- **Migration `20260616120001`** adds `legacy_colour`,`legacy_mrp` to `master_cartons` (article_group=article name, size_group=size range). **Run `migrate:up` on TEST and LIVE.**
+- **Backend** `legacyCarton.service` rewritten to the new headers + multi-value normalize + store; controller sample CSV updated. **Frontend** `masterCartonLabel` legacy branch (renders article/colour(s)/MRP(s)/size-range, omits the per-size assortment grid), detail-page "Existing Stock Details" card, `LegacyUploadButton` text, `MasterCarton` type.
+- **Localhost-verified end-to-end (Playwright + API + DB):** sample CSV = new format; uploaded `Hawaii/Ladies/ALIA PLUS/"black, red"/"100, 150"/6-10/2` → 2 cartons stored with `legacy_colour="black, red"`, `legacy_mrp="100, 150"`, `size_group="6-10"`; detail card shows all fields; label prints `ALIA PLUS / black, red / 6-10 / ₹ 100, 150` with QR + NO assortment grid. backend+frontend tsc/lint clean.
+- **TEST deploy in progress** (backend+frontend, needs the migration). LIVE deferred → after client UAT (live also needs `migrate:up`).
+
 ### June 16, 2026 — Three client reports triaged; child-box barcode-clip FIX + the June-15 fixes BUNDLED & DEPLOYED TO TEST (frontend-only); legacy-CSV redesign built but HELD as WIP
 
 Three client reports investigated this session:
