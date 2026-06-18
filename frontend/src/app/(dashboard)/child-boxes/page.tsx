@@ -177,11 +177,16 @@ export default function ChildBoxesPage() {
     URL.revokeObjectURL(url);
   };
 
+  const doPrintAndLog = (boxes: ChildBoxWithProduct[]) => {
+    printChildBoxLabels(boxes);
+    void childBoxService.logReprint(boxes.map((b) => b.barcode));
+  };
+
   const requestPrint = (boxes: ChildBoxWithProduct[]) => {
     if (boxes.some((b) => REPRINT_WARN_STATUSES.includes(b.status))) {
       setReprintWarn(boxes);      // show warning, let the user confirm
     } else {
-      printChildBoxLabels(boxes); // nothing packed/dispatched -> print directly
+      doPrintAndLog(boxes); // nothing packed/dispatched -> print directly
     }
   };
 
@@ -527,7 +532,7 @@ export default function ChildBoxesPage() {
             <Button variant="secondary" onClick={() => setReprintWarn(null)}>Cancel</Button>
             <Button
               leftIcon={<Printer className="h-4 w-4" />}
-              onClick={() => { if (reprintWarn) printChildBoxLabels(reprintWarn); setReprintWarn(null); }}
+              onClick={() => { if (reprintWarn) doPrintAndLog(reprintWarn); setReprintWarn(null); }}
             >
               Print Anyway
             </Button>

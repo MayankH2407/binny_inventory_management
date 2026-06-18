@@ -505,6 +505,36 @@ export async function bulkUploadChildBoxesFromCSV(
   return { totalRows: records.length, created, errors, createdBarcodes };
 }
 
+export async function logChildBoxReprints(
+  barcodes: string[],
+  performedBy: string
+): Promise<{ logged: number }> {
+  const normalized = [...new Set((barcodes || []).map((b) => b.trim().toUpperCase()).filter(Boolean))];
+  if (normalized.length === 0) return { logged: 0 };
+  const rows = (await query(
+    `SELECT cb.id, cb.barcode, cb.status, mc.carton_barcode AS carton
+     FROM child_boxes cb
+     LEFT JOIN carton_child_mapping ccm ON ccm.child_box_id = cb.id AND ccm.is_active = true
+     LEFT JOIN master_cartons mc ON mc.id = ccm.master_carton_id
+     WHERE cb.barcode = ANY($1::text[])`,
+    [normalized]
+  )).rows as Array<{ id: string; barcode: string; status: string; carton: string | null }>;
+  if (rows.length === 0) return { logged: 0 };
+  const values: unknown[] = [];
+  const placeholders = rows.map((r, i) => {
+    const b = i * 4;
+    const note = `Label reprinted for ${r.barcode} (status: ${r.status}${r.carton ? `, in carton ${r.carton}` : ''})`;
+    values.push(TRANSACTION_TYPES.CHILD_LABEL_REPRINTED, r.id, performedBy, note);
+    return `($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4})`;
+  });
+  await query(
+    `INSERT INTO inventory_transactions (transaction_type, child_box_id, performed_by, notes)
+     VALUES ${placeholders.join(', ')}`,
+    values
+  );
+  return { logged: rows.length };
+}
+
 export async function activateChildBox(
   id: string,
   activatedBy: string

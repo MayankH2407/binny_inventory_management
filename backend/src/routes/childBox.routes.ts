@@ -50,6 +50,12 @@ router.post(
   childBoxController.createBulkMultiSizeChildBoxes
 );
 
+router.post(
+  '/reprint-log',
+  authorizePermission('child_boxes:read'),
+  childBoxController.logReprints
+);
+
 router.get(
   '/',
   validate({ query: childBoxListQuerySchema }),

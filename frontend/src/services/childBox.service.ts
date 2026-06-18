@@ -78,6 +78,14 @@ export const childBoxService = {
     return response.data;
   },
 
+  async logReprint(barcodes: string[]): Promise<void> {
+    try {
+      await api.post('/child-boxes/reprint-log', { barcodes });
+    } catch {
+      /* best-effort audit log; never block printing */
+    }
+  },
+
   getSampleCsvUrl(): string {
     const base = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1';
     return `${base}/child-boxes/bulk-upload/sample`;

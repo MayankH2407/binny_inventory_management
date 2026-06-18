@@ -128,6 +128,20 @@ export async function bulkUploadChildBoxes(
   }
 }
 
+export async function logReprints(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const { barcodes } = req.body as { barcodes?: string[] };
+    const result = await childBoxService.logChildBoxReprints(barcodes || [], req.user!.userId);
+    sendSuccess(res, result, 'Reprint logged');
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function activateChildBox(
   req: AuthenticatedRequest,
   res: Response,
