@@ -45,6 +45,8 @@ function getAgeDays(createdAt: string): number {
   return Math.floor((Date.now() - new Date(createdAt).getTime()) / (1000 * 60 * 60 * 24));
 }
 
+const REPRINT_WARN_STATUSES = ['PACKED', 'DISPATCHED'];
+
 export default function ChildBoxesPage() {
   const canCreate = useCan('child_boxes:create');
   const [page, setPage] = useState(1);
@@ -58,6 +60,8 @@ export default function ChildBoxesPage() {
   // dropping selections from other pages/searches at print time.
   const [selectedBoxes, setSelectedBoxes] = useState<Map<string, ChildBoxWithProduct>>(new Map());
   const headerCheckboxRef = useRef<HTMLInputElement>(null);
+
+  const [reprintWarn, setReprintWarn] = useState<ChildBoxWithProduct[] | null>(null);
 
   // Bulk upload state
   const [showBulkModal, setShowBulkModal] = useState(false);
@@ -173,6 +177,14 @@ export default function ChildBoxesPage() {
     URL.revokeObjectURL(url);
   };
 
+  const requestPrint = (boxes: ChildBoxWithProduct[]) => {
+    if (boxes.some((b) => REPRINT_WARN_STATUSES.includes(b.status))) {
+      setReprintWarn(boxes);      // show warning, let the user confirm
+    } else {
+      printChildBoxLabels(boxes); // nothing packed/dispatched -> print directly
+    }
+  };
+
   const closeBulkModal = () => {
     setShowBulkModal(false);
     setBulkFile(null);
@@ -192,7 +204,7 @@ export default function ChildBoxesPage() {
                 <Button
                   variant="secondary"
                   leftIcon={<Printer className="h-4 w-4" />}
-                  onClick={() => printChildBoxLabels(Array.from(selectedBoxes.values()))}
+                  onClick={() => requestPrint(Array.from(selectedBoxes.values()))}
                 >
                   Print Selected ({selectedBoxes.size})
                 </Button>
@@ -340,7 +352,7 @@ export default function ChildBoxesPage() {
                       leftIcon={<Printer className="h-4 w-4" />}
                       onClick={(e) => {
                         e.stopPropagation();
-                        printChildBoxLabels([box]);
+                        requestPrint([box]);
                       }}
                     >
                       Print Label
@@ -442,7 +454,7 @@ export default function ChildBoxesPage() {
                           leftIcon={<Printer className="h-4 w-4" />}
                           onClick={(e) => {
                             e.stopPropagation();
-                            printChildBoxLabels([box]);
+                            requestPrint([box]);
                           }}
                         >
                           Print
@@ -488,6 +500,40 @@ export default function ChildBoxesPage() {
           </>
         )}
       </Card>
+
+      {/* Reprint Warning Modal */}
+      <Modal isOpen={!!reprintWarn} onClose={() => setReprintWarn(null)} title="Reprinting packed/dispatched labels">
+        <div className="space-y-4">
+          <div className="flex items-start gap-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+            <AlertCircle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+            <div className="text-sm text-amber-800">
+              <p className="font-medium">
+                {(reprintWarn || []).filter((b) => REPRINT_WARN_STATUSES.includes(b.status)).length} of {reprintWarn?.length} label(s) belong to boxes that are already packed or dispatched.
+              </p>
+              <p className="mt-1">
+                Only reprint to replace a <strong>damaged label on the same physical box</strong>. Do not put a reprinted label on a new box &mdash; it will be rejected as &ldquo;already packed&rdquo; when scanned.
+              </p>
+            </div>
+          </div>
+          <ul className="max-h-40 overflow-y-auto border border-brand-border rounded-md divide-y divide-gray-100 text-xs">
+            {(reprintWarn || []).filter((b) => REPRINT_WARN_STATUSES.includes(b.status)).map((b) => (
+              <li key={b.id} className="px-3 py-1.5 flex justify-between">
+                <span className="font-mono text-brand-text-dark">{b.barcode}</span>
+                <span className="text-brand-text-muted">{b.status}</span>
+              </li>
+            ))}
+          </ul>
+          <div className="flex justify-end gap-3">
+            <Button variant="secondary" onClick={() => setReprintWarn(null)}>Cancel</Button>
+            <Button
+              leftIcon={<Printer className="h-4 w-4" />}
+              onClick={() => { if (reprintWarn) printChildBoxLabels(reprintWarn); setReprintWarn(null); }}
+            >
+              Print Anyway
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Bulk Upload Modal */}
       <Modal isOpen={showBulkModal} onClose={closeBulkModal} title="Bulk Import Child Boxes">
