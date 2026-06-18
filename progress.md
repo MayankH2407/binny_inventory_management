@@ -13,6 +13,15 @@
 
 ## Phase 6 — Post-QA Modifications (batched; testing deferred to after all mods)
 
+### June 18, 2026 — Clearer "already packed" scan message (names the master carton) + investigated client "duplicate barcode" report — DEPLOYED TO TEST (backend-only)
+
+**Client report:** child box `CB2KAXYE` "already packed" when scanning into a carton; suspected duplicate/phantom mapping. **Investigation (live + test DBs):**
+- **No duplicate exists** — `child_boxes.barcode` has a UNIQUE constraint; `CB2KAXYE` is ONE box. Generated Jun 16 (label printed), packed into carton `MCZ069MW` on Jun 17. So "already packed" is **correct**.
+- The Jun-17 pack: all 48 boxes in MCZ069MW share the **identical** `packed_at` because the **"Create Master Carton" flow scans boxes into a list and packs them all when the carton is created** (`createMasterCarton` accepts `child_box_barcodes`). This pattern spans every usage day (780/813 multi-box cartons) → it's normal batch-at-create, NOT a phantom map. So a 2nd physical box with that barcode = a **reprinted label** (or the box was packed at carton-creation and is being re-scanned in a separate step).
+- **⚠️ Environment finding:** the LIVE box (`binnyfootwear`/`srv1689976`) has **0 child boxes**; ALL real data (93,988 boxes incl. CB2KAXYE) is on the **TEST box** (`srv1409601`). The client is operating production on the test/UAT portal; live is empty. Flagged to user — needs decision on which env is production.
+- **FIX (backend-only, `masterCarton.service.ts`):** the already-packed rejection now **names the carton** — both the scan-to-pack (`packChildBoxByBarcode`) and create-carton scan (`createMasterCarton`) paths. e.g. *"Child box CB2KAXYE is already packed in master carton MCZ069MW. Unpack it from MCZ069MW first."* Committed `0db1adc`. tsc clean; localhost-reproduced; **DEPLOYED TO TEST** (`binny-backend` rebuilt+recreated, `BUILD_EXIT=0`) and **verified on the test portal with the real `CB2KAXYE` → message names `MCZ069MW`**. (Created one empty test carton `ce1aa386` on test during verification — harmless, can be removed.)
+- **LIVE not deployed** (client is on test; backend-only parity deploy available on request). Git: 11 commits ahead of `origin/main`, unpushed.
+
 ### June 17, 2026 — Legacy "Existing Stock" label feature COMMITTED (`5a49766`) + localhost-verified; deploying to TEST for UAT; **NEW MIGRATION**
 
 Finished the held legacy-CSV redesign (was WIP from June 16 #2). Legacy cartons now capture + render real master-carton label data instead of showing blank.
