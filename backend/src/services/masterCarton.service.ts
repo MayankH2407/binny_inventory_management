@@ -51,8 +51,19 @@ export async function createMasterCarton(
         const childBox = cbResult.rows[0];
 
         if (childBox.status !== CHILD_BOX_STATUS.FREE && childBox.status !== CHILD_BOX_STATUS.GENERATED) {
+          let detail = '';
+          if (childBox.status === CHILD_BOX_STATUS.PACKED) {
+            const loc = await client.query(
+              `SELECT mc.carton_barcode FROM carton_child_mapping ccm
+               JOIN master_cartons mc ON mc.id = ccm.master_carton_id
+               WHERE ccm.child_box_id = $1 AND ccm.is_active = true LIMIT 1`,
+              [childBox.id]
+            );
+            const inCarton = loc.rows[0]?.carton_barcode as string | undefined;
+            if (inCarton) detail = ` (already packed in master carton ${inCarton})`;
+          }
           throw new BadRequestError(
-            `Child box ${barcode} is currently ${childBox.status} and cannot be packed. Only FREE or GENERATED boxes can be packed.`
+            `Child box ${barcode} is currently ${childBox.status} and cannot be packed${detail}. Only FREE or GENERATED boxes can be packed.`
           );
         }
 
@@ -394,9 +405,20 @@ export async function packChildBoxByBarcode(
     return { carton: null, alreadyPacked: true, childBoxBarcode: normalized };
   }
 
-  // Packed elsewhere → clear conflict rather than the generic status error
+  // Packed elsewhere → clear conflict naming the carton it's currently in
   if (childBox.status === CHILD_BOX_STATUS.PACKED) {
-    throw new BadRequestError(`Child box ${normalized} is already packed in another carton. Unpack it first.`);
+    const loc = await query(
+      `SELECT mc.carton_barcode FROM carton_child_mapping ccm
+       JOIN master_cartons mc ON mc.id = ccm.master_carton_id
+       WHERE ccm.child_box_id = $1 AND ccm.is_active = true LIMIT 1`,
+      [childBox.id]
+    );
+    const inCarton = loc.rows[0]?.carton_barcode as string | undefined;
+    throw new BadRequestError(
+      inCarton
+        ? `Child box ${normalized} is already packed in master carton ${inCarton}. Unpack it from ${inCarton} first.`
+        : `Child box ${normalized} is already packed in another carton. Unpack it first.`
+    );
   }
 
   const { carton } = await packChildBox(childBox.id, masterCartonId, packedBy);
