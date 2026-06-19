@@ -13,6 +13,21 @@
 
 ## Phase 6 — Post-QA Modifications (batched; testing deferred to after all mods)
 
+### ▶ NEXT SESSION — RESUME HERE (checkpoint as of June 19, 2026)
+
+**Everything this week is DONE: committed + pushed (`origin/main` @ `35dbd8a`) + deployed & verified on BOTH test and live (full code parity).** Backend Jest suite **12/12 green**. No work in flight, no uncommitted changes.
+
+This week's shipped items (all on test AND live): child-box barcode-clip fix (16mm QR); "Print Selected" cross-page fix; responsive Size font; generate + 4 other product/customer dropdowns load full catalog ("City not showing" fix); legacy "Existing Stock" 7-col labels (+migration `20260616120001`); clearer "already packed" scan message (names carton); non-blocking reprint warning; reprint logging to DB `CHILD_LABEL_REPRINTED` (+migration `20260618120001`); legacy upload Jest tests.
+
+**Environments:** client currently OPERATES ON **TEST** (`srv1409601.hstgr.cloud/binny`, real data: ~3.6k products / ~94k child boxes). **LIVE = `binnyfootwear.basiq360.com`** (final URL) is code-ready but holds only master data so far: **products=472, customers=0, child_boxes=0**. Client plans to go **full production on LIVE within ~1–2 days**.
+
+**NEXT-SESSION TODO (priority order):**
+1. **Production cutover test→live:** load the **customer master** to live (currently 0) + confirm any other masters; operational child-box/carton data is a fresh start on live. Coordinate the switch.
+2. **LE cert auto-renewal** before mid-Aug (certs expire ~Aug 21/23; no certbot cron) — client discussing internally.
+3. Optional/low-priority backlog: JWT secret rotation (live secrets are proper 64-char but were once in a transcript); generate-page UX polish; dropdown distinct-endpoint optimization (current `limit:100000` is a stopgap); delete dead live files (`docker-compose.edge.yml`+`edge/`); add `init.sql` mount for DB-rebuild resilience; fix/remove broken `seeds/003_products.ts`. **Mobile APK on hold ≥1 month.**
+
+**Caveats for next session:** LIVE admin creds were **rotated by client** → cannot drive live UI / authed live APIs from here; verify live via `docker exec` artifact greps + DB + health. A few harmless empty throwaway cartons exist on TEST from verification (client said keep test data as-is). Deploy recipes: test = [[project_deployment]], live = [[live-deployment-server]] (live needs BOTH frontends rebuilt with `--env-file .env`).
+
 ### June 19, 2026 — Reprint logging verified on TEST + **FULL LIVE PARITY DEPLOY** (all test-only fixes brought to live)
 
 - **Reprint logging — DEPLOYED TO TEST & VERIFIED:** `binny-backend`+`binny-frontend` rebuilt+recreated, migration `20260618120001` applied; endpoint `POST /child-boxes/reprint-log` returns `{logged:1}`; DB row confirmed: *"Label reprinted for CB2KAXYE (status: PACKED, in carton MCZ069MW)"*.
