@@ -13,6 +13,13 @@
 
 ## Phase 6 — Post-QA Modifications (batched; testing deferred to after all mods)
 
+### June 19, 2026 — Reprint logging verified on TEST + **FULL LIVE PARITY DEPLOY** (all test-only fixes brought to live)
+
+- **Reprint logging — DEPLOYED TO TEST & VERIFIED:** `binny-backend`+`binny-frontend` rebuilt+recreated, migration `20260618120001` applied; endpoint `POST /child-boxes/reprint-log` returns `{logged:1}`; DB row confirmed: *"Label reprinted for CB2KAXYE (status: PACKED, in carton MCZ069MW)"*.
+- **🚀 LIVE PARITY DEPLOY DONE & VERIFIED (`srv1689976` / binnyfootwear + hstgr fallback):** brought live up to `main` HEAD. Live had only received (earlier, frontend-only) the barcode-clip / Print-Selected / Repack-print / responsive-font / article-list / 4-dropdown fixes; this deploy added the **4 remaining items**: (1) legacy "Existing Stock" labels [backend+frontend], (2) clearer "already packed" scan message [backend], (3) reprint warning [frontend], (4) reprint logging [backend+frontend]. Synced backend/src+migrations+frontend/src (clean-slate); rebuilt **all 3 images** (`binny-backend`+`binny-frontend`+`binny-frontend-root`, `--env-file .env` so 1500/2000 caps stay baked, `BUILD_EXIT=0`, host load ~0.14); `up -d --force-recreate` all 3; **`migrate:up` applied `20260616120001`+`20260618120001`**. **Verified:** all 3 running images == fresh `:latest` (no stale trap); backend dist has scan-msg + legacy 7-col sample + reprint type; BOTH frontends have legacy "Existing Stock Details" card + reprint warning; DB has `legacy_colour`/`legacy_mrp` (2/2) + `CHILD_LABEL_REPRINTED` enum; health 200 on both URLs.
+- **State: TEST and LIVE are now in full code parity.** Live still holds 0 child-box data (client operates on the TEST box) — this was a code-parity deploy so nothing has to be re-fixed on live later.
+- **Open:** git commits unpushed to `origin`; the **test-vs-live "which is production"** decision still pending; couldn't functionally drive live UI (admin creds rotated on live) — verified via served artifacts + DB + health.
+
 ### June 18, 2026 — Clearer "already packed" scan message (names the master carton) + investigated client "duplicate barcode" report — DEPLOYED TO TEST (backend-only)
 
 **Client report:** child box `CB2KAXYE` "already packed" when scanning into a carton; suspected duplicate/phantom mapping. **Investigation (live + test DBs):**
