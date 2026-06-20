@@ -11,6 +11,7 @@ import {
   Loader2,
   Package,
   Printer,
+  Lock,
 } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
@@ -232,6 +233,9 @@ function RepackTab() {
   const [isPacking, setIsPacking] = useState(false);
   const [packedCount, setPackedCount] = useState(0);
   const [isPrintingLabel, setIsPrintingLabel] = useState(false);
+  const canClose = useCan('cartons:close');
+  const [showCloseConfirm, setShowCloseConfirm] = useState(false);
+  const [isClosing, setIsClosing] = useState(false);
 
   // ── Print the master-carton label (fetches current assortment first) ──
   const handlePrintCartonLabel = async () => {
@@ -244,6 +248,25 @@ function RepackTab() {
       toast.error('Failed to load carton contents for the label');
     } finally {
       setIsPrintingLabel(false);
+    }
+  };
+
+  // ── Close carton ──
+  const handleCloseCarton = async () => {
+    if (!carton) return;
+    setIsClosing(true);
+    try {
+      await masterCartonService.close(carton.id);
+      queryClient.invalidateQueries({ queryKey: ['master-cartons'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
+      toast.success(`Carton ${carton.carton_barcode} closed`);
+      setShowCloseConfirm(false);
+      handleReset();
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { message?: string } }; message?: string };
+      toast.error(axiosErr?.response?.data?.message ?? axiosErr?.message ?? 'Failed to close carton');
+    } finally {
+      setIsClosing(false);
     }
   };
 
@@ -539,7 +562,7 @@ function RepackTab() {
               </span>
             )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button
               variant="outline"
               size="sm"
@@ -549,6 +572,17 @@ function RepackTab() {
             >
               Print Carton Label
             </Button>
+            {canClose && (
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => setShowCloseConfirm(true)}
+                disabled={packedCount === 0 || isPacking}
+                leftIcon={<Lock className="h-4 w-4" />}
+              >
+                Close Carton
+              </Button>
+            )}
             <Button variant="secondary" size="sm" onClick={handleReset}>
               Done / Repack Another Carton
             </Button>
@@ -661,6 +695,42 @@ function RepackTab() {
           </div>
         )}
       </Card>
+
+      {/* Close Carton confirmation modal */}
+      <Modal
+        isOpen={showCloseConfirm}
+        onClose={() => setShowCloseConfirm(false)}
+        title="Close Carton"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setShowCloseConfirm(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              isLoading={isClosing}
+              onClick={() => void handleCloseCarton()}
+              leftIcon={<Lock className="h-4 w-4" />}
+            >
+              Yes, Close Carton
+            </Button>
+          </>
+        }
+      >
+        <div className="flex items-start gap-3">
+          <Lock className="h-6 w-6 text-brand-primary shrink-0 mt-0.5" />
+          <div>
+            <p className="text-brand-text-dark">
+              Seal carton{' '}
+              <strong className="font-mono">{carton?.carton_barcode}</strong> with{' '}
+              <strong>{packedCount}</strong> box{packedCount !== 1 ? 'es' : ''} packed?
+            </p>
+            <p className="mt-2 text-sm text-brand-text-muted">
+              A closed carton can no longer have boxes added or removed without unpacking it first.
+            </p>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }
