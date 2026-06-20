@@ -16,6 +16,7 @@ router.get('/dispatch-summary/export', reportController.exportDispatchCSV);
 router.get('/daily-activity', reportController.getDailyActivity);
 router.get('/daily-activity/export', reportController.exportDailyActivityCSV);
 router.get('/carton-inventory', reportController.getCartonInventoryReport);
+router.get('/carton-inventory/export', reportController.exportCartonInventoryCSV);
 router.get('/samples', reportController.getSampleReport);
 router.get('/samples/export', reportController.exportSampleReportCSV);
 router.get('/ecommerce', reportController.getEcommerceReport);

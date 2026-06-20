@@ -28,7 +28,16 @@ This week's shipped items (all on test AND live): child-box barcode-clip fix (16
 
 **Caveats for next session:** LIVE admin creds were **rotated by client** → cannot drive live UI / authed live APIs from here; verify live via `docker exec` artifact greps + DB + health. A few harmless empty throwaway cartons exist on TEST from verification (client said keep test data as-is). Deploy recipes: test = [[project_deployment]], live = [[live-deployment-server]] (live needs BOTH frontends rebuilt with `--env-file .env`).
 
-### June 20, 2026 (later) — "Close Carton" button added to the Repack box-scan phase — built + localhost-verified; NOT committed / NOT deployed
+### June 20, 2026 (later #2) — CSV export added to the Carton Inventory report (parity with the other 5 reports) — built + tested; committed; NOT deployed
+
+**Client request:** "download reports in CSV for all existing reports." Investigation found 5 of the 6 report tabs (Stock, Dispatch, Daily, Samples, E-commerce) **already** had working CSV export; only **Carton Inventory** lacked it (`renderExportButton()` had no `case 'cartons'`, and the backend had `/carton-inventory` data but no `/export`). Closed that single gap (Opus plan / Sonnet execute).
+- **Backend:** `csvExport.service.ts` `exportCartonInventoryCSV(status?)` (reuses `getCartonInventoryReport()`, optional status filter, `toCSV`); `report.controller.ts` `exportCartonInventoryCSV` (reads `?status`); `report.routes.ts` new `GET /reports/carton-inventory/export` (behind the existing `reports:view_all` guard). Columns: Carton Barcode, Status, Boxes, Max Capacity, Created By, Created At, Closed At, Dispatched At, Destination.
+- **Frontend:** `reports/page.tsx` — added `case 'cartons'` to `renderExportButton()`, passing the on-screen `cartonStatusFilter` as `?status` so the export matches the filtered view.
+- No migration. Backend+frontend tsc clean; lint clean.
+- **Tested (localhost):** backend restarted; endpoint smoke-tested via curl (200, `text/csv`, `filename="carton-inventory.csv"`, header + 510 rows; `?status=CLOSED` → 84 rows all CLOSED; no-token → 401). **E2E added to `24-reports-rbac.spec.ts`** (3 API tests: 200+CSV header, status filter, WH-operator denied; 1 UI test: Export button now renders on the Carton Inventory tab) — **whole spec 21/21 green.**
+- **COMMITTED — see below. NOT deployed.**
+
+### June 20, 2026 (later) — "Close Carton" button added to the Repack box-scan phase — built + localhost-verified; committed (`7e70869`); NOT deployed
 
 **Client request:** after packing in Repack, they could Print the carton label but had to leave to the Master Cartons module to **close/seal** the carton. Added a **Close Carton** button to the Repack box-scan summary bar (next to Print Carton Label / Done). **Frontend-only** — the close endpoint (`POST /master-cartons/:id/close`) + `masterCartonService.close()` already existed (same one the detail page uses).
 - `frontend/src/app/(dashboard)/unpack-repack/page.tsx` only: gated on `cartons:close` permission (hidden otherwise, mirrors detail page); disabled unless `packedCount > 0` and not mid-pack (backend rejects closing an empty carton); opens a confirm modal → `close(carton.id)` → toast + invalidate `master-cartons`/`dashboard-stats` → `handleReset()` back to scan-carton phase. Added `Lock` icon import; action-group made `flex-wrap` for 3 buttons.

@@ -1,5 +1,5 @@
 import { query } from '../config/database';
-import { getProductWiseReport, getDailyActivity, getSampleReport, getEcommerceReport } from './report.service';
+import { getProductWiseReport, getDailyActivity, getSampleReport, getEcommerceReport, getCartonInventoryReport } from './report.service';
 import { SampleStatus, EcommerceStatus } from '../config/constants';
 import { getCartonHierarchy } from './inventory.service';
 
@@ -238,6 +238,30 @@ export async function exportCartonHierarchyCSV(
       row.dispatched_at ? new Date(row.dispatched_at).toISOString() : '',
     ];
   });
+  return toCSV(headers, rows);
+}
+
+export async function exportCartonInventoryCSV(status?: string): Promise<string> {
+  const cartons = await getCartonInventoryReport();
+  const filtered = status ? cartons.filter((c) => c.status === status) : cartons;
+
+  const headers = [
+    'Carton Barcode', 'Status', 'Boxes', 'Max Capacity', 'Created By',
+    'Created At', 'Closed At', 'Dispatched At', 'Destination',
+  ];
+
+  const rows = filtered.map((c) => [
+    String(c.carton_barcode ?? ''),
+    String(c.status ?? ''),
+    String(c.child_count ?? ''),
+    String(c.max_capacity ?? ''),
+    String(c.created_by_name ?? ''),
+    c.created_at ? new Date(c.created_at).toISOString() : '',
+    c.closed_at ? new Date(c.closed_at).toISOString() : '',
+    c.dispatched_at ? new Date(c.dispatched_at).toISOString() : '',
+    String(c.destination ?? ''),
+  ]);
+
   return toCSV(headers, rows);
 }
 

@@ -248,6 +248,22 @@ export default function ReportsPage() {
             Export CSV
           </Button>
         );
+      case 'cartons':
+        return (
+          <Button
+            variant="secondary"
+            leftIcon={<Download className="h-4 w-4" />}
+            onClick={() =>
+              handleExport(
+                '/reports/carton-inventory/export',
+                `carton-inventory-${today}.csv`,
+                cartonStatusFilter ? { status: cartonStatusFilter } : undefined
+              )
+            }
+          >
+            Export CSV
+          </Button>
+        );
       case 'dispatch':
         return (
           <Button

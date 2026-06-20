@@ -289,6 +289,41 @@ test.describe.serial('Reports RBAC Suite', () => {
       const contentType = res.headers()['content-type'] || '';
       expect(contentType).toMatch(/csv|text\/plain|application\/octet-stream/i);
     });
+
+    test('TC-RPT-API-011: Admin GET /reports/carton-inventory/export → 200, CSV with header row', async ({ request }) => {
+      const res = await request.get(`${BASE_API}/reports/carton-inventory/export`, {
+        headers: { Authorization: `Bearer ${tokens.admin}` },
+      });
+      expect(res.status()).toBe(200);
+
+      const contentType = res.headers()['content-type'] || '';
+      expect(contentType).toMatch(/csv|text\/plain|application\/octet-stream/i);
+
+      // First line is the column header
+      const body = await res.text();
+      expect(body.split('\n')[0]).toContain('Carton Barcode');
+    });
+
+    test('TC-RPT-API-011b: carton-inventory export with ?status=CLOSED returns only CLOSED rows', async ({ request }) => {
+      const res = await request.get(`${BASE_API}/reports/carton-inventory/export?status=CLOSED`, {
+        headers: { Authorization: `Bearer ${tokens.admin}` },
+      });
+      expect(res.status()).toBe(200);
+
+      const lines = (await res.text()).trim().split('\n');
+      // Every data row's Status column (2nd CSV field) must be CLOSED
+      for (const line of lines.slice(1).filter((l) => l.length > 0)) {
+        expect(line).toMatch(/^"[^"]*","CLOSED"/);
+      }
+    });
+
+    test('TC-RPT-API-011c: Warehouse Operator GET /reports/carton-inventory/export → denied', async ({ request }) => {
+      const res = await request.get(`${BASE_API}/reports/carton-inventory/export`, {
+        headers: { Authorization: `Bearer ${tokens.warehouse}` },
+      });
+      expect(res.ok(), `expected non-2xx for WH operator, got ${res.status()}`).toBeFalsy();
+      expect([401, 403]).toContain(res.status());
+    });
   });
 
   // =========================================================================
@@ -356,6 +391,25 @@ test.describe.serial('Reports RBAC Suite', () => {
       // The Export CSV button is tab-dependent; it renders for stock/dispatch/daily tabs.
       // Wait for the page to mount the export control before asserting.
       const exportBtn = page.getByRole('button', { name: /export|download|csv/i }).first();
+      await expect(exportBtn).toBeVisible({ timeout: 15000 });
+    });
+
+    test('TC-RPT-E2E-003b: Export CSV button also renders on the Carton Inventory tab', async ({ page }) => {
+      await page.addInitScript(
+        ({ token, email }) => {
+          localStorage.setItem('binny_token', token);
+          localStorage.setItem('binny_user', JSON.stringify({ email, role: 'Admin' }));
+        },
+        { token: tokens.admin, email: ADMIN_EMAIL },
+      );
+
+      await page.goto('/reports');
+      await page.waitForLoadState('networkidle');
+
+      // Switch to the Carton Inventory tab (previously had no export button)
+      await page.getByRole('button', { name: 'Carton Inventory' }).click();
+
+      const exportBtn = page.getByRole('button', { name: /export csv/i });
       await expect(exportBtn).toBeVisible({ timeout: 15000 });
     });
 

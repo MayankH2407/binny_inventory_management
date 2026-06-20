@@ -78,6 +78,22 @@ export async function getCartonInventoryReport(
   }
 }
 
+export async function exportCartonInventoryCSV(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const { status } = req.query as { status?: string };
+    const csv = await csvExportService.exportCartonInventoryCSV(status);
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="carton-inventory.csv"');
+    res.send(csv);
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function exportInventoryCSV(
   _req: AuthenticatedRequest,
   res: Response,
