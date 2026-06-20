@@ -13,9 +13,9 @@
 
 ## Phase 6 — Post-QA Modifications (batched; testing deferred to after all mods)
 
-### ▶ NEXT SESSION — RESUME HERE (checkpoint as of June 19, 2026)
+### ▶ NEXT SESSION — RESUME HERE (checkpoint as of June 20, 2026)
 
-**Everything this week is DONE: committed + pushed (`origin/main` @ `35dbd8a`) + deployed & verified on BOTH test and live (full code parity).** Backend Jest suite **12/12 green**. No work in flight, no uncommitted changes.
+**⚠️ UNCOMMITTED WORK IN TREE (June 20):** Legacy "Pairs per Carton" field — built (Opus plan / Sonnet execute), tsc+lint+jest clean, migration applied to localhost — but **NOT committed, NOT deployed**. See the June 20 entry below. Everything *before* this is committed + pushed (`origin/main` @ `35dbd8a`) + deployed on BOTH test and live (full code parity).
 
 This week's shipped items (all on test AND live): child-box barcode-clip fix (16mm QR); "Print Selected" cross-page fix; responsive Size font; generate + 4 other product/customer dropdowns load full catalog ("City not showing" fix); legacy "Existing Stock" 7-col labels (+migration `20260616120001`); clearer "already packed" scan message (names carton); non-blocking reprint warning; reprint logging to DB `CHILD_LABEL_REPRINTED` (+migration `20260618120001`); legacy upload Jest tests.
 
@@ -27,6 +27,21 @@ This week's shipped items (all on test AND live): child-box barcode-clip fix (16
 3. Optional/low-priority backlog: JWT secret rotation (live secrets are proper 64-char but were once in a transcript); generate-page UX polish; dropdown distinct-endpoint optimization (current `limit:100000` is a stopgap); delete dead live files (`docker-compose.edge.yml`+`edge/`); add `init.sql` mount for DB-rebuild resilience; fix/remove broken `seeds/003_products.ts`. **Mobile APK on hold ≥1 month.**
 
 **Caveats for next session:** LIVE admin creds were **rotated by client** → cannot drive live UI / authed live APIs from here; verify live via `docker exec` artifact greps + DB + health. A few harmless empty throwaway cartons exist on TEST from verification (client said keep test data as-is). Deploy recipes: test = [[project_deployment]], live = [[live-deployment-server]] (live needs BOTH frontends rebuilt with `--env-file .env`).
+
+### June 20, 2026 — Legacy "Pairs per Carton" field added (Opus plan / Sonnet execute) — built + localhost-verified; **NEW MIGRATION**; NOT committed / NOT deployed
+
+**Client request:** add a field to the legacy "Existing Stock" upload to record **the number of pairs packed in each master carton** (legacy cartons were opaque count-only records with no pairs/total). Locked product decisions (via AskUserQuestion): field = **"Pairs per Carton"**; shown on **label + detail card**; **required** CSV column.
+
+- **CSV is now 8 columns** — appended `PAIRS PER CARTON` after `MASTER CARTON QUANTITY`: `SECTION,CATEGORY,ARTICLE NAME,COLOUR,MRP,SIZE RANGE,MASTER CARTON QUANTITY,PAIRS PER CARTON`. `MASTER CARTON QUANTITY` = how many identical cartons; `PAIRS PER CARTON` = pairs inside each one. Must be a positive integer (≥1) or the row errors (mirrors the qty validation).
+- **Storage:** new nullable `integer` column **`legacy_pairs`** on `master_cartons` (mirrors `legacy_colour`/`legacy_mrp` — deliberately NOT reusing `child_count`, which stays 0 so capacity/unpack logic that keys off real tracked child boxes is untouched). **NEW MIGRATION `backend/migrations/20260620120001_add-legacy-carton-pairs.js`** — **run `migrate:up` on TEST and LIVE.**
+- **Backend:** `legacyCarton.service.ts` (required-header + parse/validate `pairs` + INSERT `legacy_pairs=$10` + audit-log `newValues`); `masterCarton.controller.ts` sample CSV (8-col header + `,48` on both rows). `masterCarton.schema.ts` unchanged (zod request schemas only, no row type). `getMasterCartonById` uses `SELECT *` so reads pick up the new column automatically.
+- **Frontend:** `types/index.ts` `MasterCarton.legacy_pairs?: number|null`; `lib/masterCartonLabel.ts` — legacy label now renders a single centred **`TOTAL: N PAIRS`** line (styled `.assortment-hdr`) where the assortment grid would be (falls back to nothing if null); `master-cartons/[id]/page.tsx` — "Pairs per Carton" cell added to the Existing Stock Details card; `LegacyUploadButton.tsx` — both column-list strings + helper text updated.
+- **Verified:** backend `tsc --noEmit` clean; frontend `tsc --noEmit` clean on `src/` (pre-existing `e2e/` errors only); `next lint` clean (pre-existing warnings only); **jest legacy suite 3/3 green** (asserts `legacy_pairs === 48`); **migration APPLIED to localhost** (`ALTER TABLE master_cartons ADD legacy_pairs integer`).
+- **Two follow-up fixes from localhost testing (same uncommitted bundle):**
+  1. **Excel date coercion** — client opened the sample in Excel and `6-10` auto-converted to `6-Oct-2025`. Fix (client's chosen approach): **split the single `SIZE RANGE` column into two — `SIZE FROM` + `SIZE TO`** (single numbers don't coerce). Service combines them back into the existing `size_group` string (`"6"+"10" → "6-10"`), so the DB column / label / detail page are UNCHANGED. CSV is now **9 columns**: `SECTION,CATEGORY,ARTICLE NAME,COLOUR,MRP,SIZE FROM,SIZE TO,MASTER CARTON QUANTITY,PAIRS PER CARTON`. Old single-`SIZE RANGE` files now rejected ("Missing required columns: size from, size to").
+  2. **Legacy box count showed `0/50`** — client says legacy cartons are full at their pair count, so it should read e.g. `48/48`. Fix is **DISPLAY-ONLY** (3 spots: master-carton list mobile card + desktop table, detail Capacity card): for legacy cartons with `legacy_pairs` set, show `legacy_pairs / legacy_pairs`. Deliberately did NOT touch DB `child_count`/`max_capacity` (unpack / "Open for Repacking" / inventory rollups key off real tracked boxes; a fake child_count would try to unpack nonexistent boxes).
+- **Localhost smoke-tested end-to-end** (backend restarted; DB verified): sample CSV = 9-col split format; upload `6/10` → `size_group="6-10"`, `legacy_pairs=48`, `child_count=0` untouched; invalid pairs (0/blank) rejected; old format rejected. jest legacy suite **3/3 green** (asserts `size_group==='6-10'` + `legacy_pairs===48`). Test cartons `ZLOCAL_SPLIT TEST` (MC7HGZA6, MC4NXRJ1) left on localhost for client UI review — delete after.
+- **Status: ~9 files changed + 1 new migration, ALL UNCOMMITTED in working tree. Nothing pushed, nothing deployed.** Next: commit → deploy to TEST (client operates on test) for UAT → LIVE. Deploy needs backend+frontend rebuild + **`migrate:up` for `20260620120001`** on each target (LIVE = both frontends, `--env-file .env`).
 
 ### June 19, 2026 — Reprint logging verified on TEST + **FULL LIVE PARITY DEPLOY** (all test-only fixes brought to live)
 

@@ -217,9 +217,9 @@ export function downloadLegacySampleCsv(
   // COLOUR / MRP cells may hold multiple comma-separated values, so they are
   // CSV-quoted here (Excel does this automatically when the cell has a comma).
   const csv = [
-    'SECTION,CATEGORY,ARTICLE NAME,COLOUR,MRP,SIZE RANGE,MASTER CARTON QUANTITY',
-    'Hawaii,Ladies,ALIA PLUS,"black, red","100, 150",6-10,20',
-    'Hawaii,Gents,BUSKER 01-20,brown,349,6-10,10',
+    'SECTION,CATEGORY,ARTICLE NAME,COLOUR,MRP,SIZE FROM,SIZE TO,MASTER CARTON QUANTITY,PAIRS PER CARTON',
+    'Hawaii,Ladies,ALIA PLUS,"black, red","100, 150",6,10,20,48',
+    'Hawaii,Gents,BUSKER 01-20,brown,349,6,10,10,48',
   ].join('\n');
 
   res.setHeader('Content-Type', 'text/csv');

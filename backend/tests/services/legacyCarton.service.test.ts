@@ -31,12 +31,12 @@ afterAll(async () => {
   await cleanup();
 });
 
-describe('legacyCarton.service — new 7-column format', () => {
-  it('creates cartons and stores article/colour/mrp/size-range (multi-values normalized); skips qty 0', async () => {
+describe('legacyCarton.service — new 9-column format', () => {
+  it('creates cartons and stores article/colour/mrp/size-range/pairs (multi-values normalized); skips qty 0', async () => {
     const csv = [
-      'SECTION,CATEGORY,ARTICLE NAME,COLOUR,MRP,SIZE RANGE,MASTER CARTON QUANTITY',
-      `Hawaii,Ladies,${ART_ALIA},"black,red","100,150",6-10,2`,
-      `Hawaii,Gents,${ART_BUSKER},brown,349,6-10,0`,
+      'SECTION,CATEGORY,ARTICLE NAME,COLOUR,MRP,SIZE FROM,SIZE TO,MASTER CARTON QUANTITY,PAIRS PER CARTON',
+      `Hawaii,Ladies,${ART_ALIA},"black,red","100,150",6,10,2,48`,
+      `Hawaii,Gents,${ART_BUSKER},brown,349,6,10,0,48`,
     ].join('\n');
 
     const result = await bulkCreateLegacyCartons(Buffer.from(csv, 'utf8'), userId);
@@ -46,7 +46,7 @@ describe('legacyCarton.service — new 7-column format', () => {
     expect(result.errors).toHaveLength(0);
 
     const rows = (await query(
-      `SELECT category, article_group, size_group, legacy_colour, legacy_mrp, status, is_legacy, child_count
+      `SELECT category, article_group, size_group, legacy_colour, legacy_mrp, legacy_pairs, status, is_legacy, child_count
        FROM master_cartons WHERE is_legacy = true AND article_group = $1`,
       [ART_ALIA]
     )).rows;
@@ -61,6 +61,7 @@ describe('legacyCarton.service — new 7-column format', () => {
       // comma-separated multi-values normalized to ", " spacing
       expect(r.legacy_colour).toBe('black, red');
       expect(r.legacy_mrp).toBe('100, 150');
+      expect(r.legacy_pairs).toBe(48);
     }
   });
 
@@ -76,7 +77,7 @@ describe('legacyCarton.service — new 7-column format', () => {
   });
 
   it('rejects an empty file', async () => {
-    const headerOnly = 'SECTION,CATEGORY,ARTICLE NAME,COLOUR,MRP,SIZE RANGE,MASTER CARTON QUANTITY';
+    const headerOnly = 'SECTION,CATEGORY,ARTICLE NAME,COLOUR,MRP,SIZE FROM,SIZE TO,MASTER CARTON QUANTITY,PAIRS PER CARTON';
     await expect(bulkCreateLegacyCartons(Buffer.from(headerOnly, 'utf8'), userId)).rejects.toThrow(
       /empty/i
     );

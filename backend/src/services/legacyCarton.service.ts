@@ -136,8 +136,10 @@ const REQUIRED_HEADERS = [
   'article name',
   'colour',
   'mrp',
-  'size range',
+  'size from',
+  'size to',
   'master carton quantity',
+  'pairs per carton',
 ];
 
 // ─── Bulk create ─────────────────────────────────────────────────────────────
@@ -217,8 +219,10 @@ export async function bulkCreateLegacyCartons(
     const rawArticleName = row['article name'] ?? '';
     const rawColour = row['colour'] ?? '';
     const rawMrp = row['mrp'] ?? '';
-    const rawSizeRange = row['size range'] ?? '';
+    const rawSizeFrom = row['size from'] ?? '';
+    const rawSizeTo = row['size to'] ?? '';
     const rawQty = row['master carton quantity'] ?? '';
+    const rawPairs = row['pairs per carton'] ?? '';
 
     // Parse quantity
     const qty = parseInt(rawQty, 10);
@@ -236,6 +240,20 @@ export async function bulkCreateLegacyCartons(
 
     if (qty === 0) {
       rows_skipped_zero++;
+      continue;
+    }
+
+    // Parse pairs per carton
+    const pairs = parseInt(rawPairs, 10);
+    if (isNaN(pairs) || pairs < 1) {
+      errors.push({
+        row: rowNum,
+        status: 'error',
+        section: rawSection,
+        category: rawCategory,
+        article_group: rawArticleName,
+        error: `Invalid pairs per carton "${rawPairs}": must be a positive integer`,
+      });
       continue;
     }
 
@@ -264,7 +282,8 @@ export async function bulkCreateLegacyCartons(
     // Article name (label headline) + size range come from dedicated columns now.
     // Colour / MRP are free-text, multi-value cells normalized for the label.
     const article_group = rawArticleName.trim();
-    const size_group = rawSizeRange.trim() || null;
+    const sizeParts = [rawSizeFrom.trim(), rawSizeTo.trim()].filter((p) => p.length > 0);
+    const size_group = sizeParts.length > 0 ? sizeParts.join('-') : null;
     const legacy_colour = normalizeMultiValue(rawColour);
     const legacy_mrp = normalizeMultiValue(rawMrp);
 
@@ -282,10 +301,10 @@ export async function bulkCreateLegacyCartons(
           `INSERT INTO master_cartons
              (id, carton_barcode, status, child_count, max_capacity,
               is_legacy, section, category, article_group, size_group,
-              legacy_colour, legacy_mrp, created_by)
-           VALUES ($1, $2, 'CLOSED', 0, 50, true, $3, $4, $5, $6, $7, $8, $9)`,
+              legacy_colour, legacy_mrp, legacy_pairs, created_by)
+           VALUES ($1, $2, 'CLOSED', 0, 50, true, $3, $4, $5, $6, $7, $8, $9, $10)`,
           [id, cartonBarcode, section, category, article_group, size_group,
-           legacy_colour, legacy_mrp, createdBy]
+           legacy_colour, legacy_mrp, pairs, createdBy]
         );
         insertedIds.push(id);
       }
@@ -304,6 +323,7 @@ export async function bulkCreateLegacyCartons(
           size_group,
           legacy_colour,
           legacy_mrp,
+          legacy_pairs: pairs,
           quantity: qty,
           cartons_created: insertedIds.length,
         },

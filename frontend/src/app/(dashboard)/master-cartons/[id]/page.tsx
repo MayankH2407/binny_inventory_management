@@ -300,6 +300,10 @@ export default function MasterCartonDetailPage() {
               <p className="font-medium text-brand-text-dark">{carton.size_group || '—'}</p>
             </div>
             <div>
+              <p className="text-brand-text-muted">Pairs per Carton</p>
+              <p className="font-medium text-brand-text-dark">{carton.legacy_pairs ?? '—'}</p>
+            </div>
+            <div>
               <p className="text-brand-text-muted">Section</p>
               <p className="font-medium text-brand-text-dark">{carton.section || '—'}</p>
             </div>
@@ -320,7 +324,7 @@ export default function MasterCartonDetailPage() {
         <Card className="p-6">
           <p className="text-sm text-brand-text-muted mb-1">Capacity</p>
           <p className="text-2xl font-bold text-brand-text-dark">
-            {carton.child_count} / {carton.max_capacity}
+            {carton.is_legacy && carton.legacy_pairs != null ? carton.legacy_pairs : carton.child_count} / {carton.is_legacy && carton.legacy_pairs != null ? carton.legacy_pairs : carton.max_capacity}
           </p>
         </Card>
         <Card className="p-6">

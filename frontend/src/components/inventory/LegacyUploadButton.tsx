@@ -84,7 +84,7 @@ export default function LegacyUploadButton() {
             <div className="flex-1">
               <p className="text-sm font-medium text-blue-900">Download sample CSV</p>
               <p className="text-xs text-blue-700">
-                SECTION, CATEGORY, ARTICLE NAME, COLOUR, MRP, SIZE RANGE, MASTER CARTON QUANTITY
+                SECTION, CATEGORY, ARTICLE NAME, COLOUR, MRP, SIZE FROM, SIZE TO, MASTER CARTON QUANTITY, PAIRS PER CARTON
               </p>
             </div>
             <button
@@ -98,11 +98,13 @@ export default function LegacyUploadButton() {
           {/* Column info */}
           <div className="text-xs text-brand-text-muted">
             <p className="font-medium mb-1">Required columns:</p>
-            <p>SECTION, CATEGORY, ARTICLE NAME, COLOUR, MRP, SIZE RANGE, MASTER CARTON QUANTITY</p>
+            <p>SECTION, CATEGORY, ARTICLE NAME, COLOUR, MRP, SIZE FROM, SIZE TO, MASTER CARTON QUANTITY, PAIRS PER CARTON</p>
             <p className="mt-1">
               COLOUR and MRP may list several values separated by commas (e.g. <em>black, red</em>
               {' '}and <em>100, 150</em>) — keep them in one cell; the printed label shows them as entered.
-              SIZE RANGE is a range like <em>6-10</em>. Each row creates the given number of identical cartons.
+              SIZE FROM and SIZE TO are the start and end sizes (e.g. 6 and 10) — kept as separate columns so Excel doesn&apos;t turn them into dates.
+              Each row creates the given number of identical cartons.
+              PAIRS PER CARTON is the number of pairs inside each carton.
             </p>
             <p className="mt-1">
               Rows with quantity 0 are skipped. Upload is additive — re-uploading the same section

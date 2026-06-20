@@ -118,6 +118,7 @@ export interface MasterCarton {
   size_group?: string | null;
   legacy_colour?: string | null;
   legacy_mrp?: string | null;
+  legacy_pairs?: number | null;
 }
 
 // ---------- SampleRecord ----------

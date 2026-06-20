@@ -79,9 +79,12 @@ export function printMasterCartonLabel(
   const sizeQtys = sizes.map((s) => `<td>${sizeMap[s]}</td>`).join('');
 
   // The per-size assortment grid only applies to tracked cartons. Legacy cartons
-  // carry just a size range (no per-size counts), so the grid is omitted for them.
+  // carry just a size range (no per-size counts), so instead of the full grid
+  // a single centred total-pairs line is shown (if legacy_pairs is set).
   const assortmentTable = isLegacy
-    ? ''
+    ? (carton.legacy_pairs != null
+        ? `<table class="assortment-grid"><tr style="height:12mm"><td class="assortment-hdr">TOTAL: ${carton.legacy_pairs} PAIRS</td></tr></table>`
+        : '')
     : `
         <table class="assortment-grid">
           <colgroup>

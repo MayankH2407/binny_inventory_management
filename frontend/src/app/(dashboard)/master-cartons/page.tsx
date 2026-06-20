@@ -111,7 +111,10 @@ export default function MasterCartonsPage() {
           <>
             {/* Mobile cards */}
             <div className="block md:hidden divide-y divide-brand-border">
-              {data.data.map((carton) => (
+              {data.data.map((carton) => {
+                const boxesCurrent = carton.is_legacy && carton.legacy_pairs != null ? carton.legacy_pairs : carton.child_count;
+                const boxesMax = carton.is_legacy && carton.legacy_pairs != null ? carton.legacy_pairs : carton.max_capacity;
+                return (
                 <div
                   key={carton.id}
                   className="p-4 cursor-pointer hover:bg-gray-50 transition-colors"
@@ -150,12 +153,13 @@ export default function MasterCartonsPage() {
                   )}
                   <div className="flex items-center gap-3 text-xs text-brand-text-muted">
                     <span className="font-semibold text-brand-text-dark">
-                      {carton.child_count} / {carton.max_capacity} boxes
+                      {boxesCurrent} / {boxesMax} boxes
                     </span>
                     <span>{formatDateTime(carton.created_at)}</span>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
 
             {/* Desktop table */}
@@ -171,7 +175,10 @@ export default function MasterCartonsPage() {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {data.data.map((carton) => (
+                  {data.data.map((carton) => {
+                    const boxesCurrent = carton.is_legacy && carton.legacy_pairs != null ? carton.legacy_pairs : carton.child_count;
+                    const boxesMax = carton.is_legacy && carton.legacy_pairs != null ? carton.legacy_pairs : carton.max_capacity;
+                    return (
                     <TableRow
                       key={carton.id}
                       clickable
@@ -200,8 +207,8 @@ export default function MasterCartonsPage() {
                         <StatusBadge status={carton.status} size="sm" />
                       </TableCell>
                       <TableCell>
-                        <span className="font-semibold">{carton.child_count}</span>
-                        <span className="text-brand-text-muted"> / {carton.max_capacity}</span>
+                        <span className="font-semibold">{boxesCurrent}</span>
+                        <span className="text-brand-text-muted"> / {boxesMax}</span>
                       </TableCell>
                       <TableCell className="text-brand-text-muted text-xs">
                         {formatDateTime(carton.created_at)}
@@ -210,7 +217,8 @@ export default function MasterCartonsPage() {
                         {carton.closed_at ? formatDateTime(carton.closed_at) : '-'}
                       </TableCell>
                     </TableRow>
-                  ))}
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>
