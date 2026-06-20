@@ -15,7 +15,7 @@
 
 ### ▶ NEXT SESSION — RESUME HERE (checkpoint as of June 20, 2026)
 
-**June 20 work DEPLOYED TO BOTH TEST AND LIVE & VERIFIED** (commits `20fe77a`+`dd709c4` on local `main`, **NOT yet pushed to origin** — origin still @ `35dbd8a`). Legacy "Pairs per Carton" + SIZE FROM/TO split + legacy box-count display fix. Full code parity restored across test + live. **Open: push to origin** (local `main` ahead by 3). Client UAT can proceed on either env.
+**June 20 — ALL work DEPLOYED TO BOTH TEST AND LIVE & VERIFIED; pushed to `origin/main` @ `e74f492`.** Three features shipped today, full code parity across test + live: (1) Legacy "Pairs per Carton" + SIZE FROM/TO split + box-count display (`20fe77a`, +migration `20260620120001`); (2) "Close Carton" in Repack (`7e70869`, frontend-only); (3) CSV export for the Carton Inventory report (`e74f492`, backend+frontend). No work in flight. Also produced a one-off **test inventory CSV** (1,129 master cartons, gitignored at repo root `test-master-cartons-20260620.csv`).
 
 This week's shipped items (all on test AND live): child-box barcode-clip fix (16mm QR); "Print Selected" cross-page fix; responsive Size font; generate + 4 other product/customer dropdowns load full catalog ("City not showing" fix); legacy "Existing Stock" 7-col labels (+migration `20260616120001`); clearer "already packed" scan message (names carton); non-blocking reprint warning; reprint logging to DB `CHILD_LABEL_REPRINTED` (+migration `20260618120001`); legacy upload Jest tests.
 
@@ -35,9 +35,9 @@ This week's shipped items (all on test AND live): child-box barcode-clip fix (16
 - **Frontend:** `reports/page.tsx` — added `case 'cartons'` to `renderExportButton()`, passing the on-screen `cartonStatusFilter` as `?status` so the export matches the filtered view.
 - No migration. Backend+frontend tsc clean; lint clean.
 - **Tested (localhost):** backend restarted; endpoint smoke-tested via curl (200, `text/csv`, `filename="carton-inventory.csv"`, header + 510 rows; `?status=CLOSED` → 84 rows all CLOSED; no-token → 401). **E2E added to `24-reports-rbac.spec.ts`** (3 API tests: 200+CSV header, status filter, WH-operator denied; 1 UI test: Export button now renders on the Carton Inventory tab) — **whole spec 21/21 green.**
-- **COMMITTED — see below. NOT deployed.**
+- **COMMITTED `e74f492` + DEPLOYED TO TEST & LIVE & VERIFIED (2026-06-20).** Test: `binny-backend`+`binny-frontend` rebuilt, images == `:latest`, dist has `exportCartonInventoryCSV`, frontend has `carton-inventory/export`, health 200. Live (`srv1689976`): all 3 images rebuilt `--env-file .env` (caps stay 1500/2000), images == `:latest`, both frontends have `carton-inventory/export`, `/reports` 200 on both URLs, backend dist has the export. No migration. Pushed to `origin/main`.
 
-### June 20, 2026 (later) — "Close Carton" button added to the Repack box-scan phase — built + localhost-verified; committed (`7e70869`); NOT deployed
+### June 20, 2026 (later) — "Close Carton" button added to the Repack box-scan phase — built + localhost-verified + e2e (5 tests); committed (`7e70869`); DEPLOYED TO TEST & LIVE & VERIFIED
 
 **Client request:** after packing in Repack, they could Print the carton label but had to leave to the Master Cartons module to **close/seal** the carton. Added a **Close Carton** button to the Repack box-scan summary bar (next to Print Carton Label / Done). **Frontend-only** — the close endpoint (`POST /master-cartons/:id/close`) + `masterCartonService.close()` already existed (same one the detail page uses).
 - `frontend/src/app/(dashboard)/unpack-repack/page.tsx` only: gated on `cartons:close` permission (hidden otherwise, mirrors detail page); disabled unless `packedCount > 0` and not mid-pack (backend rejects closing an empty carton); opens a confirm modal → `close(carton.id)` → toast + invalidate `master-cartons`/`dashboard-stats` → `handleReset()` back to scan-carton phase. Added `Lock` icon import; action-group made `flex-wrap` for 3 buttons.
