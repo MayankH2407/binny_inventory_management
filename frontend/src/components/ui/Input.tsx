@@ -12,7 +12,7 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
 }
 
 const Input = forwardRef<HTMLInputElement, InputProps>(
-  ({ className, label, error, helperText, leftIcon, rightIcon, id, ...props }, ref) => {
+  ({ className, label, error, helperText, leftIcon, rightIcon, id, type, onWheel, ...props }, ref) => {
     const inputId = id || label?.toLowerCase().replace(/\s+/g, '-');
 
     return (
@@ -34,6 +34,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
           <input
             ref={ref}
             id={inputId}
+            type={type}
             className={cn(
               'w-full rounded-lg border bg-gray-50/50 px-4 py-2.5 text-sm text-brand-text-dark',
               'placeholder:text-brand-text-muted',
@@ -45,6 +46,13 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
               rightIcon && 'pr-10',
               className
             )}
+            onWheel={(e) => {
+              // Number inputs change value on mouse-wheel scroll while focused, which
+              // silently corrupts typed values (e.g. 200 -> 198). Blur so the page
+              // scrolls instead of mutating the field.
+              if (type === 'number') e.currentTarget.blur();
+              onWheel?.(e);
+            }}
             {...props}
           />
           {rightIcon && (
