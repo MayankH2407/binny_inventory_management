@@ -546,9 +546,9 @@ export default function ProductsPage() {
                           </div>
                         )}
                       </TableCell>
-                      <TableCell className="font-mono text-xs">{p.sku}</TableCell>
-                      <TableCell className="font-medium">{p.article_name}</TableCell>
-                      <TableCell>{p.colour}</TableCell>
+                      <TableCell className="font-mono text-xs uppercase">{p.sku}</TableCell>
+                      <TableCell className="font-medium uppercase">{p.article_name}</TableCell>
+                      <TableCell className="uppercase">{p.colour}</TableCell>
                       <TableCell>{p.size}</TableCell>
                       <TableCell>{formatCurrency(p.mrp)}</TableCell>
                       <TableCell>{p.category || '-'}</TableCell>
@@ -599,12 +599,12 @@ export default function ProductsPage() {
                     )}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="font-semibold text-brand-text-dark truncate">{p.article_name}</span>
+                        <span className="font-semibold text-brand-text-dark truncate uppercase">{p.article_name}</span>
                         <Badge variant={p.is_active ? 'green' : 'gray'}>{p.is_active ? 'Active' : 'Inactive'}</Badge>
                       </div>
-                      <p className="text-xs font-mono text-brand-text-muted">{p.sku}</p>
+                      <p className="text-xs font-mono text-brand-text-muted uppercase">{p.sku}</p>
                       <p className="text-xs text-brand-text-muted">
-                        {p.colour} | Size {p.size} | {formatCurrency(p.mrp)}
+                        <span className="uppercase">{p.colour}</span> | Size {p.size} | {formatCurrency(p.mrp)}
                         {p.category ? ` | ${p.category}` : ''}
                       </p>
                     </div>
@@ -646,7 +646,7 @@ export default function ProductsPage() {
           {editingProduct && (
             <div className="rounded-lg bg-gray-50 border border-brand-border px-4 py-3">
               <p className="text-xs text-brand-text-muted mb-0.5">SKU (auto-generated)</p>
-              <p className="font-mono text-sm font-semibold text-brand-text-dark">{editingProduct.sku}</p>
+              <p className="font-mono text-sm font-semibold text-brand-text-dark uppercase">{editingProduct.sku}</p>
               <p className="text-xs text-brand-text-muted mt-1">SKU is auto-generated from Section, Article Name, Category, and Colour</p>
             </div>
           )}
