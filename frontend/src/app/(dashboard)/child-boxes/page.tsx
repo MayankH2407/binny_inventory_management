@@ -326,7 +326,7 @@ export default function ChildBoxesPage() {
                         onChange={() => toggleSelectOne(box)}
                         onClick={(e) => e.stopPropagation()}
                       />
-                      <span className="font-mono text-xs text-brand-text-dark">
+                      <span className="font-mono text-xs text-brand-text-dark uppercase">
                         {box.barcode}
                       </span>
                     </div>
@@ -341,12 +341,12 @@ export default function ChildBoxesPage() {
                       )}
                     </div>
                   </div>
-                  <p className="font-medium text-sm text-brand-text-dark">
+                  <p className="font-medium text-sm text-brand-text-dark uppercase">
                     {box.article_name}
                   </p>
                   <div className="flex items-center gap-3 mt-1 text-xs text-brand-text-muted">
-                    <span>{box.sku}</span>
-                    <span>{box.colour}</span>
+                    <span className="uppercase">{box.sku}</span>
+                    <span className="uppercase">{box.colour}</span>
                     <span>Size {box.size}</span>
                     <span>{formatCurrency(box.mrp)}</span>
                   </div>
@@ -430,11 +430,11 @@ export default function ChildBoxesPage() {
                         />
                       </TableCell>
                       <TableCell>
-                        <span className="font-mono text-xs">{box.barcode}</span>
+                        <span className="font-mono text-xs uppercase">{box.barcode}</span>
                       </TableCell>
-                      <TableCell className="font-medium">{box.article_name}</TableCell>
-                      <TableCell>{box.sku}</TableCell>
-                      <TableCell>{box.colour}</TableCell>
+                      <TableCell className="font-medium uppercase">{box.article_name}</TableCell>
+                      <TableCell className="uppercase">{box.sku}</TableCell>
+                      <TableCell className="uppercase">{box.colour}</TableCell>
                       <TableCell>{box.size}</TableCell>
                       <TableCell>{formatCurrency(box.mrp)}</TableCell>
                       <TableCell>

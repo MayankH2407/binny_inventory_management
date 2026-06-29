@@ -128,8 +128,8 @@ export function printChildBoxLabels(boxes: ChildBoxWithProduct[]): void {
             .label-empty { visibility: hidden; }
             table.main { width: 100%; height: 100%; border-collapse: collapse; table-layout: fixed; }
             table.main td { border: 0.5px solid #000; padding: 1mm 1.5mm; vertical-align: middle; overflow: hidden; }
-            .article-row { font-weight: bold; font-size: 11pt; vertical-align: middle; padding: 0.5mm 1.5mm; line-height: 1.05; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center; }
-            .colour-row { font-size: 9pt; font-weight: bold; padding: 0.5mm 1.5mm; line-height: 1; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .article-row { font-weight: bold; font-size: 11pt; vertical-align: middle; padding: 0.5mm 1.5mm; line-height: 1.05; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center; text-transform: uppercase; }
+            .colour-row { font-size: 9pt; font-weight: bold; padding: 0.5mm 1.5mm; line-height: 1; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-transform: uppercase; }
             .mrp-row { vertical-align: middle; padding: 0.3mm 1mm; text-align: center; white-space: nowrap; overflow: hidden; }
             .mrp-label { font-weight: bold; font-size: 7pt; line-height: 1; }
             .mrp-value { font-weight: 900; font-size: 12pt; line-height: 1; }
@@ -143,7 +143,7 @@ export function printChildBoxLabels(boxes: ChildBoxWithProduct[]): void {
                at 18mm the caption spilled past the label bottom and was clipped. */
             .qr-cell svg { width: 16mm; height: 16mm; display: block; margin: 0 auto; }
             .footer-row { font-size: 5pt; line-height: 1; padding: 0.3mm 1.5mm; vertical-align: middle; border-top: 1px solid #000; }
-            .qr-cell .barcode-text { font-family: Arial, Helvetica, sans-serif; font-weight: bold; font-size: 8pt; margin-top: 0.3mm; text-align: center; white-space: nowrap; }
+            .qr-cell .barcode-text { font-family: Arial, Helvetica, sans-serif; font-weight: bold; font-size: 8pt; margin-top: 0.3mm; text-align: center; white-space: nowrap; text-transform: uppercase; }
           </style>
         </head>
         <body>

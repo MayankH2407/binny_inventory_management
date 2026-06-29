@@ -283,11 +283,11 @@ export default function MasterCartonDetailPage() {
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
             <div>
               <p className="text-brand-text-muted">Article</p>
-              <p className="font-medium text-brand-text-dark">{carton.article_group || '—'}</p>
+              <p className="font-medium text-brand-text-dark uppercase">{carton.article_group || '—'}</p>
             </div>
             <div>
               <p className="text-brand-text-muted">Colour</p>
-              <p className="font-medium text-brand-text-dark">{carton.legacy_colour || '—'}</p>
+              <p className="font-medium text-brand-text-dark uppercase">{carton.legacy_colour || '—'}</p>
             </div>
             <div>
               <p className="text-brand-text-muted">MRP</p>
@@ -471,9 +471,9 @@ export default function MasterCartonDetailPage() {
           <div className="block md:hidden divide-y divide-brand-border">
             {assortment.map((item, index) => (
               <div key={`${item.article_name}-${item.colour}-${item.size}`} className="p-4">
-                <p className="text-sm font-medium">{item.article_name}</p>
+                <p className="text-sm font-medium uppercase">{item.article_name}</p>
                 <div className="flex gap-3 text-xs text-brand-text-muted mt-1">
-                  <span>{item.colour}</span>
+                  <span className="uppercase">{item.colour}</span>
                   <span>Size {item.size}</span>
                   <span>{formatCurrency(item.mrp)}</span>
                 </div>
@@ -502,8 +502,8 @@ export default function MasterCartonDetailPage() {
               <TableBody>
                 {assortment.map((item) => (
                   <TableRow key={`${item.article_name}-${item.colour}-${item.size}`}>
-                    <TableCell className="font-medium">{item.article_name}</TableCell>
-                    <TableCell>{item.colour}</TableCell>
+                    <TableCell className="font-medium uppercase">{item.article_name}</TableCell>
+                    <TableCell className="uppercase">{item.colour}</TableCell>
                     <TableCell>{item.size}</TableCell>
                     <TableCell>{formatCurrency(item.mrp)}</TableCell>
                     <TableCell className="text-right font-bold">{item.count}</TableCell>
@@ -545,11 +545,11 @@ export default function MasterCartonDetailPage() {
                     <span className="text-xs text-brand-text-muted">#{index + 1}</span>
                     <StatusBadge status={box.status} size="sm" />
                   </div>
-                  <p className="font-mono text-xs mb-1">{box.barcode}</p>
-                  <p className="text-sm font-medium">{box.article_name}</p>
+                  <p className="font-mono text-xs mb-1 uppercase">{box.barcode}</p>
+                  <p className="text-sm font-medium uppercase">{box.article_name}</p>
                   <div className="flex gap-3 text-xs text-brand-text-muted mt-1">
-                    <span>{box.sku}</span>
-                    <span>{box.colour}</span>
+                    <span className="uppercase">{box.sku}</span>
+                    <span className="uppercase">{box.colour}</span>
                     <span>Size {box.size}</span>
                     <span>{formatCurrency(box.mrp)}</span>
                   </div>
@@ -577,11 +577,11 @@ export default function MasterCartonDetailPage() {
                     <TableRow key={box.id}>
                       <TableCell className="text-brand-text-muted">{index + 1}</TableCell>
                       <TableCell>
-                        <span className="font-mono text-xs">{box.barcode}</span>
+                        <span className="font-mono text-xs uppercase">{box.barcode}</span>
                       </TableCell>
-                      <TableCell>{box.sku}</TableCell>
-                      <TableCell className="font-medium">{box.article_name}</TableCell>
-                      <TableCell>{box.colour}</TableCell>
+                      <TableCell className="uppercase">{box.sku}</TableCell>
+                      <TableCell className="font-medium uppercase">{box.article_name}</TableCell>
+                      <TableCell className="uppercase">{box.colour}</TableCell>
                       <TableCell>{box.size}</TableCell>
                       <TableCell>{formatCurrency(box.mrp)}</TableCell>
                       <TableCell>

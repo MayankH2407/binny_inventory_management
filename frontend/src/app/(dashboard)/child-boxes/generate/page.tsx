@@ -211,7 +211,7 @@ export default function GenerateQRPage() {
               {generatedBoxes.length} Labels Generated
             </p>
             {effectiveProduct && (
-              <p className="text-sm text-brand-text-muted text-center">
+              <p className="text-sm text-brand-text-muted text-center uppercase">
                 {effectiveProduct.article_name} | {effectiveProduct.colour}
               </p>
             )}
@@ -234,8 +234,8 @@ export default function GenerateQRPage() {
                 className="p-3 bg-gray-50 rounded-lg border border-brand-border text-center"
               >
                 <QrCode className="h-8 w-8 mx-auto mb-2 text-brand-text-muted" />
-                <p className="text-xs font-mono text-brand-text-dark truncate">{box.barcode}</p>
-                <p className="text-[10px] text-brand-text-muted mt-1">{box.sku} | Size {box.size}</p>
+                <p className="text-xs font-mono text-brand-text-dark truncate uppercase">{box.barcode}</p>
+                <p className="text-[10px] text-brand-text-muted mt-1"><span className="uppercase">{box.sku}</span> | Size {box.size}</p>
               </div>
             ))}
             {generatedBoxes.length > 16 && (
@@ -393,12 +393,12 @@ export default function GenerateQRPage() {
             {/* Product info card */}
             {effectiveProduct && colourProductId && (
               <div className="p-4 bg-gray-50 rounded-lg border border-brand-border">
-                <p className="text-sm font-semibold text-brand-text-dark mb-1">
+                <p className="text-sm font-semibold text-brand-text-dark mb-1 uppercase">
                   {effectiveProduct.article_name}
                 </p>
                 <div className="grid grid-cols-2 gap-2 text-xs text-brand-text-muted">
                   <span>Article Code: {effectiveProduct.article_code}</span>
-                  <span>Colour: {effectiveProduct.colour}</span>
+                  <span>Colour: <span className="uppercase">{effectiveProduct.colour}</span></span>
                   <span>MRP: {formatCurrency(effectiveProduct.mrp)}</span>
                   {effectiveProduct.category && <span>Category: {effectiveProduct.category}</span>}
                   {effectiveProduct.section && <span>Section: {effectiveProduct.section}</span>}

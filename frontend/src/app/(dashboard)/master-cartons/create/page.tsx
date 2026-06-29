@@ -217,8 +217,8 @@ export default function CreateMasterCartonPage() {
                           </span>
                           {details && (
                             <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
-                              <span className="text-xs text-brand-text-muted">{details.article_name}</span>
-                              <span className="text-xs text-brand-text-muted">{details.colour}</span>
+                              <span className="text-xs text-brand-text-muted uppercase">{details.article_name}</span>
+                              <span className="text-xs text-brand-text-muted uppercase">{details.colour}</span>
                               <span className="text-xs text-brand-text-muted">Size {details.size}</span>
                               <span className="text-xs text-brand-text-muted">{formatCurrency(details.mrp)}</span>
                             </div>

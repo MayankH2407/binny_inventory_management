@@ -126,8 +126,8 @@ export function printMasterCartonLabel(
         table { border-collapse: collapse; table-layout: fixed; width: 146mm; }
         td { border: 0.5px solid #000; vertical-align: middle; overflow: hidden; padding: 0.8mm 1.5mm; }
         .top-margin-cell { border-left: 0.5px solid #000; border-right: 0.5px solid #000; border-top: 0.5px solid #000; border-bottom: 0.5px solid #000; }
-        .article-cell { font-size: 20pt; font-weight: bold; text-align: center; white-space: nowrap; text-overflow: ellipsis; line-height: 1; }
-        .colour-cell { font-size: 18pt; font-weight: bold; text-align: center; white-space: nowrap; text-overflow: ellipsis; line-height: 1; }
+        .article-cell { font-size: 20pt; font-weight: bold; text-align: center; white-space: nowrap; text-overflow: ellipsis; line-height: 1; text-transform: uppercase; }
+        .colour-cell { font-size: 18pt; font-weight: bold; text-align: center; white-space: nowrap; text-overflow: ellipsis; line-height: 1; text-transform: uppercase; }
         .size-summary-cell { font-size: 20pt; font-weight: bold; text-align: center; line-height: 1; }
         .mrp-cell { text-align: center; line-height: 1.1; padding: 1mm 1mm; }
         .mrp-main { font-size: 16pt; font-weight: bold; white-space: nowrap; }
@@ -139,7 +139,7 @@ export function printMasterCartonLabel(
         .packed-date { font-size: 14pt; font-weight: bold; }
         .qr-num-cell { text-align: center; vertical-align: top; padding: 1mm; font-size: 7pt; }
         .qr-num-cell .sub-label { font-weight: bold; font-size: 8pt; display: block; margin-bottom: 1.2mm; }
-        .qr-num { font-family: Arial, Helvetica, sans-serif; font-size: 13pt; font-weight: bold; }
+        .qr-num { font-family: Arial, Helvetica, sans-serif; font-size: 13pt; font-weight: bold; text-transform: uppercase; }
         .assortment-hdr { font-size: 13pt; font-weight: bold; text-align: center; letter-spacing: 0.6mm; line-height: 1; }
         table.assortment-grid tr.size-hdr-row td { font-size: 17pt; font-weight: bold; text-align: center; background: #f5f5f5; line-height: 1; padding: 0; }
         table.assortment-grid tr.size-qty-row td { font-size: 22pt; font-weight: bold; text-align: center; line-height: 1; padding: 0; }

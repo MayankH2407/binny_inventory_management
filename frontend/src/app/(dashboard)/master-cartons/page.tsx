@@ -125,7 +125,7 @@ export default function MasterCartonsPage() {
                       <span className="text-sm font-medium text-brand-text-dark">{carton.article_summary}</span>
                     ) : (
                       <>
-                        <span className="font-mono text-xs text-brand-text-dark">{carton.carton_barcode}</span>
+                        <span className="font-mono text-xs text-brand-text-dark uppercase">{carton.carton_barcode}</span>
                         {carton.is_legacy && (
                           <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded bg-amber-100 border border-amber-300 text-amber-800 text-[10px] font-medium align-middle">
                             Legacy
@@ -137,13 +137,13 @@ export default function MasterCartonsPage() {
                   </div>
                   {carton.article_summary && (
                     <p className="text-xs text-brand-text-muted mb-1">
-                      {[carton.colour_summary, carton.size_summary].filter(Boolean).join(' | ')}
+                      <span className="uppercase">{[carton.colour_summary, carton.size_summary].filter(Boolean).join(' | ')}</span>
                       {carton.mrp_summary != null ? ` | ${formatCurrency(carton.mrp_summary)}` : ''}
                     </p>
                   )}
                   {carton.article_summary && (
                     <p className="font-mono text-xs text-brand-text-muted mb-1">
-                      {carton.carton_barcode}
+                      <span className="uppercase">{carton.carton_barcode}</span>
                       {carton.is_legacy && (
                         <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded bg-amber-100 border border-amber-300 text-amber-800 text-[10px] font-medium align-middle">
                           Legacy
@@ -191,11 +191,11 @@ export default function MasterCartonsPage() {
                           )}
                           {(carton.colour_summary || carton.size_summary) && (
                             <p className="text-xs text-brand-text-muted">
-                              {[carton.colour_summary, carton.size_summary].filter(Boolean).join(' | ')}
+                              <span className="uppercase">{[carton.colour_summary, carton.size_summary].filter(Boolean).join(' | ')}</span>
                               {carton.mrp_summary != null ? ` | ${formatCurrency(carton.mrp_summary)}` : ''}
                             </p>
                           )}
-                          <span className="font-mono text-xs text-brand-text-muted">{carton.carton_barcode}</span>
+                          <span className="font-mono text-xs text-brand-text-muted uppercase">{carton.carton_barcode}</span>
                           {carton.is_legacy && (
                             <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded bg-amber-100 border border-amber-300 text-amber-800 text-[10px] font-medium align-middle">
                               Legacy
