@@ -402,6 +402,54 @@ test.describe.serial('TC-RBAC: Role Manager & RBAC E2E', () => {
   });
 
   // =========================================================================
+  // TC-RBAC-009b: PATCH a non-admin role with valid catalog permissions → 200
+  // Regression guard: after packing:repack was removed from the permission
+  // catalog, saving a role with any remaining valid permission must still
+  // succeed. The Supervisor role is used (default roles CAN have their
+  // permissions edited, they just cannot be renamed/deleted).
+  // =========================================================================
+
+  test('TC-RBAC-009b: PATCH Supervisor role with valid catalog permission returns 200', async ({ request }) => {
+    expect(supervisorRoleId, 'Supervisor role ID must be resolved in SETUP-002').toBeTruthy();
+
+    // products:read is in the catalog and is not a protected permission — safe to set.
+    const res = await request.patch(`${BASE_API}/roles/${supervisorRoleId}`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+      data: {
+        permissions: [{ permission: 'products:read', max_stage: null }],
+      },
+    });
+    expect(res.status()).toBe(200);
+
+    const body = await res.json();
+    expect(body.success).toBe(true);
+  });
+
+  // =========================================================================
+  // TC-RBAC-009c: PATCH a role with a non-catalog (invalid) permission → 400
+  // Regression guard: packing:repack was a valid permission before June 2026
+  // but was purged from the catalog when the repack module was removed.
+  // The backend must now reject it with HTTP 400.
+  // =========================================================================
+
+  test('TC-RBAC-009c: PATCH role with non-catalog permission (packing:repack) returns 400', async ({ request }) => {
+    expect(supervisorRoleId, 'Supervisor role ID must be resolved in SETUP-002').toBeTruthy();
+
+    const res = await request.patch(`${BASE_API}/roles/${supervisorRoleId}`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+      data: {
+        permissions: [{ permission: 'packing:repack', max_stage: null }],
+      },
+    });
+    expect(res.status()).toBe(400);
+
+    const body = await res.json();
+    const msg: string = body.message ?? body.error ?? '';
+    // The error must mention the invalid permission and reference the catalog
+    expect(msg.toLowerCase()).toMatch(/invalid permission|packing:repack|catalog/i);
+  });
+
+  // =========================================================================
   // TC-RBAC-010: Default Supervisor role cannot be deleted
   // =========================================================================
 
