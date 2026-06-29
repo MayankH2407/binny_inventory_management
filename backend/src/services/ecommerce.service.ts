@@ -216,7 +216,7 @@ export async function getEcommerceRecords(
        WHERE ebm.ecommerce_record_id = er.id AND ebm.is_active = true
      ) ps ON true
      ${whereClause}
-     ORDER BY er.created_at DESC
+     ORDER BY er.created_at DESC, er.id
      LIMIT $${paramIndex++} OFFSET $${paramIndex}`,
     values
   );

@@ -231,7 +231,7 @@ export async function getMasterCartons(
        WHERE ccm.master_carton_id = mc.id AND ccm.is_active = true
      ) ps ON true
      ${whereClause}
-     ORDER BY mc.created_at DESC
+     ORDER BY mc.created_at DESC, mc.id
      LIMIT $${paramIndex++} OFFSET $${paramIndex}`,
     values
   );

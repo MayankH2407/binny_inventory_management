@@ -558,7 +558,7 @@ export async function getDispatches(
        JOIN products p ON p.id = cb.product_id
      ) ps ON true
      ${whereClause}
-     ORDER BY dr.dispatch_date DESC, dr.created_at DESC
+     ORDER BY dr.dispatch_date DESC, dr.created_at DESC, dr.id
      LIMIT $${paramIndex++} OFFSET $${paramIndex}`,
     values
   );

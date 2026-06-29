@@ -332,7 +332,7 @@ export async function getChildBoxes(
      FROM child_boxes cb
      JOIN products p ON p.id = cb.product_id
      ${whereClause}
-     ORDER BY cb.created_at DESC
+     ORDER BY cb.created_at DESC, cb.id
      LIMIT $${paramIndex++} OFFSET $${paramIndex}`,
     values
   );
@@ -618,7 +618,7 @@ export async function getFreeChildBoxes(
      FROM child_boxes cb
      JOIN products p ON p.id = cb.product_id
      ${whereClause}
-     ORDER BY cb.created_at DESC
+     ORDER BY cb.created_at DESC, cb.id
      LIMIT $${paramIndex++} OFFSET $${paramIndex}`,
     values
   );

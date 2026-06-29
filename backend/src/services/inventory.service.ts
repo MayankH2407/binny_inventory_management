@@ -173,7 +173,7 @@ export async function getTransactions(
 
   const result = await query(
     `SELECT * FROM inventory_transactions ${whereClause}
-     ORDER BY created_at DESC
+     ORDER BY created_at DESC, id
      LIMIT $${paramIndex++} OFFSET $${paramIndex}`,
     values
   );
@@ -702,7 +702,7 @@ export async function getCartonHierarchy(
       ORDER BY cnt DESC
       LIMIT 1
     ) prim ON true
-    ORDER BY mc.created_at DESC
+    ORDER BY mc.created_at DESC, mc.id
     LIMIT $${limitParam} OFFSET $${offsetParam}
   `, values);
 

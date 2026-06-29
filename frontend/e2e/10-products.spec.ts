@@ -285,4 +285,54 @@ test.describe('TC-PRODX: Product Management', () => {
     expect(product.size_from).toBe('6');
     expect(product.size_to).toBe('10');
   });
+
+});
+
+/**
+ * TC-PRODX-023: Deterministic list ordering — pagination is stable across two identical calls.
+ *
+ * Regression guard for the "ORDER BY created_at DESC, id" tiebreaker added to all
+ * paginated queries. Before the fix, rows with the same created_at timestamp (common
+ * for bulk-seeded data) could be returned in a different order on each call, causing
+ * rows to shuffle between pages when a record was edited between requests.
+ *
+ * The test fetches GET /products?page=2&limit=25 twice and asserts the id arrays
+ * are identical. If the ORDER is non-deterministic, a concurrent insert or PG's
+ * internal row storage can produce a different sequence on the second fetch.
+ *
+ * This test is in its own describe block (no beforeEach) so it only uses the
+ * `request` fixture — it does NOT require the browser-side NEXT_PUBLIC_API_URL
+ * to be reachable (avoids the localhost LAN-IP issue).
+ */
+test.describe('TC-ORDER: Deterministic list ordering', () => {
+  test('TC-PRODX-023: paginated product list order is deterministic (stable across two identical calls)', async ({ request }) => {
+    const token = await getAuthToken(request);
+
+    const fetchPage2 = () =>
+      request.get(`${API_BASE_URL}/products`, {
+        headers: { Authorization: `Bearer ${token}` },
+        params: { page: '2', limit: '25' } as Record<string, string>,
+      });
+
+    const res1 = await fetchPage2();
+    expect(res1.status()).toBe(200);
+    const body1 = await res1.json();
+
+    const res2 = await fetchPage2();
+    expect(res2.status()).toBe(200);
+    const body2 = await res2.json();
+
+    // Extract ordered id arrays from both responses
+    const ids1: string[] = (body1.data ?? []).map((p: { id: string }) => p.id);
+    const ids2: string[] = (body2.data ?? []).map((p: { id: string }) => p.id);
+
+    // If page 2 is empty there are fewer than 26 products — skip the ordering check
+    // but still verify both calls returned the same count (both empty).
+    expect(ids1.length).toBe(ids2.length);
+
+    if (ids1.length > 0) {
+      // The id sequences must be identical — deterministic ordering with the , id tiebreaker.
+      expect(ids1).toEqual(ids2);
+    }
+  });
 });

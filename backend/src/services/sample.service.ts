@@ -320,7 +320,7 @@ export async function getSamples(
        WHERE sbm.sample_record_id = sr.id AND sbm.is_active = true
      ) ps ON true
      ${whereClause}
-     ORDER BY sr.created_at DESC
+     ORDER BY sr.created_at DESC, sr.id
      LIMIT $${paramIndex++} OFFSET $${paramIndex}`,
     values
   );

@@ -89,7 +89,7 @@ export async function getAuditLogs(
 
   const result = await query(
     `SELECT * FROM audit_logs ${whereClause}
-     ORDER BY created_at DESC
+     ORDER BY created_at DESC, id
      LIMIT $${paramIndex++} OFFSET $${paramIndex}`,
     values
   );

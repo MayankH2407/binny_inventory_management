@@ -162,7 +162,7 @@ export async function getProducts(
 
   const result = await query(
     `SELECT * FROM products ${whereClause}
-     ORDER BY created_at DESC
+     ORDER BY created_at DESC, id
      LIMIT $${paramIndex++} OFFSET $${paramIndex}`,
     values
   );

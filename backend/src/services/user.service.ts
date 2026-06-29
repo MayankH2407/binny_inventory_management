@@ -108,7 +108,7 @@ export async function getUsers(
   const result = await query(
     `SELECT ${USER_SELECT}
      FROM users u JOIN roles r ON u.role_id = r.id ${whereClause}
-     ORDER BY u.created_at DESC
+     ORDER BY u.created_at DESC, u.id
      LIMIT $${paramIndex++} OFFSET $${paramIndex}`,
     values
   );
