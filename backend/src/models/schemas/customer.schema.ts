@@ -1,7 +1,21 @@
 import { z } from 'zod';
 
 const GSTIN_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
-const MOBILE_REGEX = /^[0-9]{10,15}$/;
+
+// Mobile is stored as free-text contact info: dealer masters routinely hold
+// multiple numbers in one field (e.g. "8652144448 , 9982559181"). We only
+// require it to contain at least 10 digits, and cap it to the column width.
+const MOBILE_MIN_DIGITS = 10;
+const mobileField = z
+  .string()
+  .max(255, 'Contact mobile must not exceed 255 characters')
+  .trim()
+  .refine(
+    (v) => (v.match(/\d/g) || []).length >= MOBILE_MIN_DIGITS,
+    'Contact mobile must contain at least 10 digits'
+  )
+  .nullable()
+  .optional();
 
 export const createCustomerSchema = z.object({
   firm_name: z
@@ -19,11 +33,7 @@ export const createCustomerSchema = z.object({
   private_marka: z.string().max(255, 'Private marka must not exceed 255 characters').trim().nullable().optional(),
   gr: z.string().max(100, 'GR must not exceed 100 characters').trim().nullable().optional(),
   contact_person_name: z.string().max(150, 'Contact person name must not exceed 150 characters').trim().nullable().optional(),
-  contact_person_mobile: z
-    .string()
-    .regex(MOBILE_REGEX, 'Contact mobile must be 10-15 digits')
-    .nullable()
-    .optional(),
+  contact_person_mobile: mobileField,
   customer_type: z.enum(['Primary Dealer', 'Sub Dealer']).default('Primary Dealer'),
   primary_dealer_id: z.string().uuid('Invalid primary dealer ID').nullable().optional(),
 }).refine(
@@ -39,7 +49,7 @@ export const updateCustomerSchema = z.object({
   private_marka: z.string().max(255).trim().nullable().optional(),
   gr: z.string().max(100).trim().nullable().optional(),
   contact_person_name: z.string().max(150).trim().nullable().optional(),
-  contact_person_mobile: z.string().regex(MOBILE_REGEX, 'Contact mobile must be 10-15 digits').nullable().optional(),
+  contact_person_mobile: mobileField,
   is_active: z.boolean().optional(),
   customer_type: z.enum(['Primary Dealer', 'Sub Dealer']).optional(),
   primary_dealer_id: z.string().uuid('Invalid primary dealer ID').nullable().optional(),

@@ -7,8 +7,32 @@ import { CreateCustomerInput, UpdateCustomerInput } from '../models/schemas/cust
 import { logger } from '../utils/logger';
 
 const GSTIN_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
-const MOBILE_REGEX = /^[0-9]{10,15}$/;
+const MOBILE_MIN_DIGITS = 10;
+const MOBILE_MAX_LEN = 255;
 const CUSTOMER_TYPES = ['Primary Dealer', 'Sub Dealer'];
+
+/**
+ * Normalize a CSV header cell to the canonical snake_case column name.
+ * Clients export with spaces and occasional typos ("FIRM NAME", "COUSTMER TYPE",
+ * "PRIVATE MARK"), so we lower-case, collapse spaces/dots/dashes to underscores,
+ * then resolve known aliases.
+ */
+const HEADER_ALIASES: Record<string, string> = {
+  coustmer_type: 'customer_type',
+  costumer_type: 'customer_type',
+  customer_typ: 'customer_type',
+  private_mark: 'private_marka',
+  primary_dealer: 'primary_dealer_name',
+};
+function normalizeHeader(header: string): string {
+  const base = header
+    .toLowerCase()
+    .trim()
+    .replace(/[\s.\-]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_|_$/g, '');
+  return HEADER_ALIASES[base] ?? base;
+}
 
 /** Resolve a customer_type to its canonical casing (case-insensitive); undefined if invalid. */
 function canonicalCustomerType(value: string): string | undefined {
@@ -257,13 +281,23 @@ export async function bulkCreateCustomers(
   if (records.length === 0) {
     throw new ConflictError('CSV file is empty. Please add customer rows below the header.');
   }
-  if (records.length > 500) {
-    throw new ConflictError(`CSV contains ${records.length} rows. Maximum allowed is 500 per upload.`);
-  }
 
-  const headerKeys = Object.keys(records[0]).map((h) => h.toLowerCase().trim());
+  // Validate headers off the raw first row (spreadsheet exports normalize the same across rows).
+  const headerKeys = Object.keys(records[0]).map(normalizeHeader);
   if (!headerKeys.includes('firm_name')) {
     throw new ConflictError('Missing required column: firm_name. Download the sample file for reference.');
+  }
+
+  // Drop fully-blank rows (spreadsheet exports pad with trailing empty rows like ",,,,"),
+  // keeping each surviving row's original file line number for accurate error reporting.
+  const dataRows = records
+    .map((raw, idx) => ({ raw, rowNum: idx + 2 })) // +2: row 1 is header, data starts at 2
+    .filter(({ raw }) => Object.values(raw).some((v) => String(v ?? '').trim() !== ''));
+  if (dataRows.length === 0) {
+    throw new ConflictError('CSV file has no data rows. Please add customer rows below the header.');
+  }
+  if (dataRows.length > 500) {
+    throw new ConflictError(`CSV contains ${dataRows.length} rows. Maximum allowed is 500 per upload.`);
   }
 
   // Prefetch existing active firm names + active Primary Dealers (by lower-cased firm name).
@@ -279,11 +313,9 @@ export async function bulkCreateCustomers(
   const seenInBatch = new Set<string>();
   let created = 0;
 
-  for (let i = 0; i < records.length; i++) {
-    const raw = records[i];
-    const rowNum = i + 2; // +2: row 1 is header, data starts at 2
+  for (const { raw, rowNum } of dataRows) {
     const row: Record<string, string> = {};
-    for (const [k, v] of Object.entries(raw)) row[k.toLowerCase().trim()] = v;
+    for (const [k, v] of Object.entries(raw)) row[normalizeHeader(k)] = v;
 
     const rowErrors: string[] = [];
     const firmName = row.firm_name?.trim();
@@ -292,8 +324,15 @@ export async function bulkCreateCustomers(
     if (row.gstin?.trim() && !GSTIN_REGEX.test(row.gstin.trim())) {
       rowErrors.push('invalid GSTIN format (expected e.g. 22AAAAA0000A1Z5)');
     }
-    if (row.contact_person_mobile?.trim() && !MOBILE_REGEX.test(row.contact_person_mobile.trim())) {
-      rowErrors.push('contact_person_mobile must be 10-15 digits');
+
+    // Mobile is free-text contact info (may hold multiple numbers). Collapse
+    // whitespace, keep the whole string, and only require >=10 digits total.
+    let contactMobile: string | null = row.contact_person_mobile?.trim().replace(/\s+/g, ' ') || null;
+    if (contactMobile) {
+      if (contactMobile.length > MOBILE_MAX_LEN) contactMobile = contactMobile.slice(0, MOBILE_MAX_LEN);
+      if ((contactMobile.match(/\d/g) || []).length < MOBILE_MIN_DIGITS) {
+        rowErrors.push('contact_person_mobile must contain at least 10 digits');
+      }
     }
 
     let customerType = 'Primary Dealer';
@@ -337,7 +376,7 @@ export async function bulkCreateCustomers(
           private_marka: row.private_marka?.trim() || null,
           gr: row.gr?.trim() || null,
           contact_person_name: row.contact_person_name?.trim() || null,
-          contact_person_mobile: row.contact_person_mobile?.trim() || null,
+          contact_person_mobile: contactMobile,
           customer_type: customerType as 'Primary Dealer' | 'Sub Dealer',
           primary_dealer_id: primaryDealerId,
         },

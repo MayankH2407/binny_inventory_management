@@ -435,7 +435,8 @@ CREATE TABLE customers (
     private_marka         VARCHAR(255),          -- Customer's private label/brand mark
     gr                    VARCHAR(100),           -- Goods Receipt number
     contact_person_name   VARCHAR(150),
-    contact_person_mobile VARCHAR(15),
+    contact_person_mobile VARCHAR(255),         -- widened June 2026 — dealer masters hold multiple numbers per field
+
     is_active             BOOLEAN DEFAULT true,
     created_at            TIMESTAMPTZ DEFAULT NOW(),
     updated_at            TIMESTAMPTZ DEFAULT NOW()
