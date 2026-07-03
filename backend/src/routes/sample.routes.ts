@@ -35,6 +35,9 @@ router.get(
   sampleController.getSampleByBarcode
 );
 
+// Literal path before /:id to avoid shadowing
+router.get('/summary', sampleController.getSampleSummary);
+
 router.get(
   '/:id',
   validate({ params: sampleIdParamSchema }),

@@ -34,6 +34,56 @@
 
 **Caveats:** LIVE admin creds **rotated by client** → verify live via `docker exec` greps + DB + health only. TEST admin login still default (`admin@binny.com`/`Admin@123` — autoSeed keeps it). Deploy recipes: test = [[project_deployment]], live = [[live-deployment-server]] (live needs BOTH frontends rebuilt with `--env-file .env`). Migration details in [[project_live_inventory_migration]].
 
+### July 3, 2026 — ✨ Sample & E-commerce given the Inventory drill-down UI + record-list stat cards. Built + localhost-verified; NOT deployed. Backend additive (no migration) + frontend.
+
+**Client request:** "the UI for samples and e-commerce inventory has to be similar to that of inventory." Clarified scope with the client (via questions): (a) apply to BOTH the stock/inventory views AND the record-list pages; (b) full drill-down depth; (c) REPLACE the old flat e-commerce Stock View with the drill-down; (d) samples gets a new drill-down at `/samples/inventory` labeled "Sample Stock", reached via a "Stock View" button on the Samples page.
+
+**Design:** the existing Inventory drill-down machinery (`/inventory/breakdown` + the `Inventory*` components) is now **channel-parameterized** and reused for all three views. Channels: `warehouse` (default, unchanged), `sample` (child_boxes.status=SAMPLE), `ecommerce` (status=ECOMMERCE). Sample/e-com boxes are never in cartons → their breakdown is a straight per-status roll-up (all "loose", no carton rollup, no legacy aggregation).
+
+**Backend (additive; NO migration):**
+- `inventory.schema.ts` — `inventoryBreakdownQuerySchema` gains `channel: enum('warehouse','sample','ecommerce').default('warehouse')`.
+- `inventory.service.ts` `getInventoryBreakdown` — early channel branch for sample/ecommerce: non-leaf query groups by the same `LEVEL_TO_COLUMN` with `pieces/child_box_count/loose_child_box_count = boxes FILTER (status=SAMPLE|ECOMMERCE)`, `master_carton_count=0`, **`HAVING COUNT(...)>0`** so only branches that actually hold channel stock show (no full-catalog 0-cards). Leaf branch returns `{master_cartons:[], loose_stock: <status boxes>}`. Warehouse path untouched → no regression. Channel status inlined (validated enum, SQL-safe).
+- New record-summary endpoints for the list-page stat cards: `getSampleSummary`/`getEcommerceSummary` (COUNT by status + SUM(child_count)) → controllers → routes `GET /samples/summary` & `GET /ecommerce/summary` (both placed **before** `/:id` to avoid shadowing).
+
+**Frontend:**
+- New `components/inventory/channelConfig.ts` (`ChannelConfig` = {channel, basePath, rootLabel}; `CHANNEL_CONFIG` for the 3 channels).
+- Threaded an optional `config` prop (default warehouse) through `InventoryDrillView`, `InventoryBreadcrumb`, `InventorySearchBar`, `InventorySummaryCards`, `InventoryLeafTable` (+ `LeafPlaceholder`). `InventoryCardGrid`/`InventoryFilters` unchanged (path/pathname-driven). Breakdown/leaf fetchers send `?channel=` only when non-warehouse (keeps warehouse cache/URL identical). SummaryCards: non-warehouse computes Pairs/Boxes-allocated from items (or leaf loose_stock); LeafTable hides the Master Cartons section for channels, retitles "Loose Stock"→"Boxes", channel-specific CSV filename. `StatCard`/`StatCardProps` exported from `InventorySummaryCards` for reuse.
+- New routes: `samples/inventory/{page,[...path]/page}.tsx` (channel=sample) and **rewrote** `ecommerce/stock/{page,[...path]/page}.tsx` (channel=ecommerce, drill-down; the old flat allocated-vs-available table is gone). Both have a "Back to …" link + PageHeader mirroring `/inventory`.
+- `ROUTES.SAMPLES_INVENTORY` added; "Stock View" button added to the Samples list header (mirrors the existing e-commerce one).
+- Record-list restyle: `/samples` & `/ecommerce` list pages now show a 4-up inventory-style `StatCard` row (Total / Active / Dispatched / Boxes Allocated) above the filter+table, backed by the new summary endpoints (`sampleService.getSummary` / `ecommerceService.getSummary`).
+
+**Verified on localhost:** backend `tsc` clean; frontend `tsc` clean (only the pre-existing e2e-spec errors remain); `next lint` 0 errors (only pre-existing `<img>` warnings); **`next build` succeeds — all 4 new routes present**. Restarted `binny_backend` and smoke-tested via admin JWT: `/samples/summary`→200 `{total:123,...totalBoxes:45}`, `/ecommerce/summary`→200, `breakdown?channel=sample&level=section`→200 (only Hawaii/Pu — HAVING works), `channel=ecommerce`→200 (only Hawaii), **warehouse default still returns cartons+legacy (no regression)**, `channel=sample&level=leaf`→200 `{master_cartons:[],loose_stock:...}`. Client reviewed on localhost — **approved**. **NOT deployed** (frontend-touching → needs FE rebuild; follow deploy order localhost→TEST→UAT→LIVE). NOT committed.
+
+> **Localhost dev-env note:** the dev `docker-compose.yml` runs the frontend as a hot-reload `npm run dev` server with `./frontend/src` mounted (NOT a prod image) — src edits reflect live, no rebuild needed; only the backend needs a container restart (nodemon in-container doesn't reload reliably). The compose bakes the browser-side `NEXT_PUBLIC_API_URL` to the LAN IP `192.168.100.68:3001` (for other LAN devices), which a browser on the host can't reach → added a local-only, untracked `docker-compose.override.yml` pointing it at `localhost:3001/api/v1` and recreated `binny_frontend`. (This refines the older "frontend is a prod image" note.)
+
+### July 3, 2026 (later #2) — ✨ Product BULK-UPDATE-by-SKU uploader + "Download current products" CSV export. Built + localhost end-to-end verified; NOT deployed. Backend additive (no migration) + frontend.
+
+**Client request:** "need a bulk uploader in product for updation of existing products." Clarified (via questions): (a) match rows to existing products **by SKU**; (b) editable fields = **MRP + a safe set** (description, hsn_code, location, article_group, is_active) — identity fields (article_code/article_name/colour/size/section/category) stay LOCKED/ignored; (c) also add a **"Download current products" CSV export** to serve as the edit-and-re-upload template. (Opus plan / Sonnet exec.)
+
+**Semantics:** empty cell = leave field unchanged (so a user can export, edit only the columns they want, re-upload safely). Rows are matched case-insensitively on SKU; unknown SKU / duplicate-SKU-in-file / no-editable-field-present / bad mrp|location|is_active → per-row error (whole file is NOT rejected). Per-row `UPDATE_PRODUCT` audit log written (keeps price changes traceable).
+
+**Backend (additive; NO migration) — mirrors the existing bulk-CREATE:**
+- `product.service.ts` — `exportProductsCsv()` (all products active+inactive → CSV: `sku,article_code,article_name,colour,size,section,category,mrp,hsn_code,location,article_group,description,is_active`, proper quote/comma/newline escaping via a `csvCell` helper) + `bulkUpdateProducts(csvBuffer, updatedBy)` (same csv-parse opts + `PRODUCT_CSV_MAX_ROWS` cap as create; requires `sku` column; validates/collects only the 6 editable fields; batch-fetches by `UPPER(sku)=ANY($1)`; per-row UPDATE + audit in a try/catch so one bad row doesn't sink the batch; returns `{updated, errors}`).
+- `product.controller.ts` — `exportProductsCsv` (text/csv, `products_export.csv`) + `bulkUpdateProducts` (200, message `Bulk update complete: N updated[, M errors]`).
+- `product.routes.ts` — `GET /products/export` (`products:read`, before `/:id`) + `POST /products/bulk-update` (`products:update`, `csvUpload.single('file')`).
+
+**Frontend:**
+- `product.service.ts` — `bulkUpdate(file)`, `getExportCsvUrl()`, `BulkUpdateResult` type.
+- `products/page.tsx` — new **"Update via CSV"** header button (gated `products:update`, between Bulk Import & Add Product; header action now shows for `canCreate || canUpdate`) opening a "Bulk Update Products" modal that mirrors Bulk Import: intro (match-by-SKU + editable/locked columns + empty=unchanged), a **"Download current products (CSV)"** button, `sku`-required note, file input, "Upload & Update Products", and an updated-count + per-row-errors result panel.
+
+**Verified on localhost (end-to-end, real admin JWT):** backend `tsc` clean; frontend `tsc` clean (only pre-existing e2e-spec errors); `next lint` 0 errors in changed files; dev server compiled `/products` cleanly (200). Restarted `binny_backend`; `GET /products/export`→200 (1344 products, CSV escaping correct incl. the leftover XSS-named e2e test product). Uploaded a 1-row update for `HAWAII-BATCHTEST411061A0-GENTS-01-BLACK` (mrp 299→310, plus an `article_name` column) → **"1 products updated"**, DB read-back confirmed **mrp=310.00 and article_name UNCHANGED** (identity column correctly ignored). Negative CSV → `SKU not found` + `no updatable fields provided` per-row errors, 0 updated. **Reverted mrp 310→299** — localhost data clean. **NOT deployed / NOT committed** — bundles with the same-day inventory work for localhost→TEST→UAT→LIVE. ⚠️ Live already sets `PRODUCT_CSV_MAX_ROWS=2000`, which now also caps this update uploader (fine).
+
+### July 3, 2026 (later) — ✅ Main Inventory cards now highlight CARTONS (pairs/pieces secondary). Samples/E-com stock views unchanged. Frontend-only; localhost-verified, NOT deployed.
+
+**Client request:** "the inventory module should highlight cartons instead of pairs — main inventory view: highlight Cartons, secondary Pairs/pieces below; only in main inventory, not in samples or e-com inventory." (Opus plan / Sonnet exec.)
+
+**Change (gated on `config.channel === 'warehouse'`, so sample/ecom stock views — which have 0 cartons — are untouched):**
+- `InventoryCardGrid.tsx` — new `highlightCartons` prop. When true: the big `text-3xl` headline is `master_carton_count` ("carton(s)") with a smaller `{pieces} pairs` secondary line below; the redundant "cartons" footer chip is dropped (boxes/loose stay); grid sorts by cartons-desc then pieces-desc. When false (sample/ecom): unchanged (pieces headline). `isZero` still keyed on `pieces === 0`.
+- `InventoryDrillView.tsx` — passes `highlightCartons={config.channel === 'warehouse'}`; warehouse count line now reads `{n} items • {cartons} cartons • {pieces} pairs total` (non-warehouse keeps `… pieces total`); legacy-carton pill untouched.
+- `InventorySummaryCards.tsx` — warehouse-only `RootSummaryCards`/`MidSummaryCards` reordered to lead with Master/Total Cartons (`ChannelSummaryCards` for sample/ecom + `LeafSummaryCards` untouched).
+
+**Verified on localhost:** frontend `tsc` clean (only pre-existing e2e errors); `next lint` 0 errors/0 warnings in the 3 changed files; dev server hot-recompiled `/inventory` cleanly; `/inventory`, `/samples/inventory`, `/ecommerce/stock` all 200. **NOT deployed / NOT committed** — bundle with the same-day drill-down work for the localhost→TEST→UAT→LIVE deploy.
+
 ### June 29, 2026 (later #2) — ✅ Label fields Title Case → ALL CAPS (Barcode/Product/SKU/Colour), portal + print, child box + master carton. DEPLOYED TO LIVE & VERIFIED. Frontend-only.
 
 **Client request:** show label info in ALL CAPS (was Title Case) — **Barcode, Product (article_name), SKU, Colour** — on both the on-screen portal AND the printed labels, for both **child box** and **master carton**. (article_name/colour are stored Title Case since the June-5 normalization; barcode/SKU were already uppercase but included for completeness.)

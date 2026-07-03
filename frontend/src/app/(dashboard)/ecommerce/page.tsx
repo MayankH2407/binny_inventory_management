@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Plus, Search, ShoppingCart, BarChart3 } from 'lucide-react';
+import { Plus, Search, ShoppingCart, BarChart3, Activity, Truck, Package } from 'lucide-react';
+import { StatCard } from '@/components/inventory/InventorySummaryCards';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import Select from '@/components/ui/Select';
@@ -40,6 +41,8 @@ export default function EcommercePage() {
     { placeholderData: keepPreviousData }
   );
 
+  const { data: summary } = useApiQuery(['ecommerce-summary'], () => ecommerceService.getSummary());
+
   return (
     <div>
       <PageHeader
@@ -58,6 +61,15 @@ export default function EcommercePage() {
           </div>
         }
       />
+
+      {summary && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+          <StatCard label="Total Records" value={summary.total} icon={ShoppingCart} accent="#2D2A6E" iconColor="text-binny-navy" />
+          <StatCard label="Active" value={summary.active} icon={Activity} accent="#16A34A" iconColor="text-green-600" />
+          <StatCard label="Dispatched" value={summary.dispatched} icon={Truck} accent="#6B7280" iconColor="text-gray-500" />
+          <StatCard label="Boxes Allocated" value={summary.totalBoxes} icon={Package} accent="#2563EB" iconColor="text-blue-600" />
+        </div>
+      )}
 
       <Card padding={false}>
         <div className="p-4 border-b border-brand-border bg-binny-navy-50/50">

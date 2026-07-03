@@ -2,9 +2,14 @@
 
 import Link from 'next/link';
 import { ChevronRight } from 'lucide-react';
+import {
+  type ChannelConfig,
+  DEFAULT_CHANNEL_CONFIG,
+} from '@/components/inventory/channelConfig';
 
 interface InventoryBreadcrumbProps {
   pathSegments: string[];
+  config?: ChannelConfig;
 }
 
 /** Maps a raw path segment to a human-readable label.
@@ -21,31 +26,34 @@ function segmentLabel(segment: string): string {
  *  idempotent: it produces a correct URL whether the input is already
  *  encoded or not. Without this, names containing spaces (e.g. "City 01")
  *  would double-encode to "City%2520" and break back-navigation. */
-function buildHref(segments: string[], depth: number): string {
-  if (depth === 0) return '/inventory';
+function buildHref(basePath: string, segments: string[], depth: number): string {
+  if (depth === 0) return basePath;
   const encoded = segments
     .slice(0, depth)
     .map((s) => encodeURIComponent(decodeURIComponent(s)));
-  return `/inventory/${encoded.join('/')}`;
+  return `${basePath}/${encoded.join('/')}`;
 }
 
-export default function InventoryBreadcrumb({ pathSegments }: InventoryBreadcrumbProps) {
+export default function InventoryBreadcrumb({
+  pathSegments,
+  config = DEFAULT_CHANNEL_CONFIG,
+}: InventoryBreadcrumbProps) {
   // Breadcrumb items: root + one per segment
-  const totalItems = pathSegments.length + 1; // +1 for "Inventory" root
+  const totalItems = pathSegments.length + 1; // +1 for the root crumb
 
   return (
     <nav aria-label="Inventory breadcrumb" className="flex items-center gap-1 flex-wrap mb-5">
       {/* Root item */}
       {totalItems === 1 ? (
         <span className="px-2.5 py-1 rounded-md text-sm font-medium bg-binny-navy text-white">
-          Inventory
+          {config.rootLabel}
         </span>
       ) : (
         <Link
-          href="/inventory"
+          href={config.basePath}
           className="px-2.5 py-1 rounded-md text-sm text-brand-text-muted hover:text-brand-text-dark hover:bg-gray-100 transition-colors"
         >
-          Inventory
+          {config.rootLabel}
         </Link>
       )}
 
@@ -61,7 +69,7 @@ export default function InventoryBreadcrumb({ pathSegments }: InventoryBreadcrum
               </span>
             ) : (
               <Link
-                href={buildHref(pathSegments, idx + 1)}
+                href={buildHref(config.basePath, pathSegments, idx + 1)}
                 className="px-2.5 py-1 rounded-md text-sm text-brand-text-muted hover:text-brand-text-dark hover:bg-gray-100 transition-colors"
               >
                 {label}

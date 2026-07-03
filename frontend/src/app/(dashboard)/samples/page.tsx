@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Plus, Search, FlaskConical } from 'lucide-react';
+import { Plus, Search, FlaskConical, BarChart3, Activity, Truck, Package } from 'lucide-react';
+import { StatCard } from '@/components/inventory/InventorySummaryCards';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import Select from '@/components/ui/Select';
@@ -38,19 +39,35 @@ export default function SamplesPage() {
     { placeholderData: keepPreviousData }
   );
 
+  const { data: summary } = useApiQuery(['samples-summary'], () => sampleService.getSummary());
+
   return (
     <div>
       <PageHeader
         title="Samples"
         description="Manage sample batches sent to dealers, exhibitions, and internal QC"
         action={
-          canCreate ? (
-            <Link href={ROUTES.SAMPLES_CREATE}>
-              <Button leftIcon={<Plus className="h-4 w-4" />}>Create Sample</Button>
+          <div className="flex gap-2">
+            <Link href={ROUTES.SAMPLES_INVENTORY}>
+              <Button variant="outline" leftIcon={<BarChart3 className="h-4 w-4" />}>Stock View</Button>
             </Link>
-          ) : undefined
+            {canCreate && (
+              <Link href={ROUTES.SAMPLES_CREATE}>
+                <Button leftIcon={<Plus className="h-4 w-4" />}>Create Sample</Button>
+              </Link>
+            )}
+          </div>
         }
       />
+
+      {summary && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+          <StatCard label="Total Samples" value={summary.total} icon={FlaskConical} accent="#2D2A6E" iconColor="text-binny-navy" />
+          <StatCard label="Active" value={summary.active} icon={Activity} accent="#16A34A" iconColor="text-green-600" />
+          <StatCard label="Dispatched" value={summary.dispatched} icon={Truck} accent="#6B7280" iconColor="text-gray-500" />
+          <StatCard label="Boxes Allocated" value={summary.totalBoxes} icon={Package} accent="#2563EB" iconColor="text-blue-600" />
+        </div>
+      )}
 
       <Card padding={false}>
         <div className="p-4 border-b border-brand-border bg-binny-navy-50/50">

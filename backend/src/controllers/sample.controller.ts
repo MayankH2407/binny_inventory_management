@@ -16,6 +16,19 @@ export async function createSample(
   }
 }
 
+export async function getSampleSummary(
+  _req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const summary = await sampleService.getSampleSummary();
+    sendSuccess(res, summary, 'Sample summary retrieved successfully');
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function getSamples(
   req: AuthenticatedRequest,
   res: Response,

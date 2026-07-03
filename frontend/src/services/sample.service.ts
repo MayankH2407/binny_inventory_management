@@ -9,6 +9,15 @@ export interface SampleListResponse {
   totalPages: number;
 }
 
+export interface SampleSummary {
+  total: number;
+  created: number;
+  active: number;
+  closed: number;
+  dispatched: number;
+  totalBoxes: number;
+}
+
 export const sampleService = {
   async getAll(params?: {
     page?: number;
@@ -18,6 +27,11 @@ export const sampleService = {
     customer_id?: string;
   }): Promise<SampleListResponse> {
     const response = await api.get<SampleListResponse>('/samples', { params });
+    return response.data;
+  },
+
+  async getSummary(): Promise<SampleSummary> {
+    const response = await api.get<SampleSummary>('/samples/summary');
     return response.data;
   },
 

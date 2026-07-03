@@ -4,6 +4,10 @@ import { Package, Boxes, ShoppingBag, Truck, LayoutGrid, PackageOpen } from 'luc
 import { useApiQuery } from '@/hooks/useApi';
 import api from '@/services/api';
 import type { InventoryBreakdownItem } from './InventoryCardGrid';
+import {
+  type ChannelConfig,
+  DEFAULT_CHANNEL_CONFIG,
+} from '@/components/inventory/channelConfig';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -29,11 +33,13 @@ interface InventorySummaryCardsProps {
   items?: InventoryBreakdownItem[];
   /** Leaf data (depth 6) */
   leafData?: LeafData;
+  /** Which stock channel (default: warehouse inventory) */
+  config?: ChannelConfig;
 }
 
 // ─── Stat card sub-component ──────────────────────────────────────────────────
 
-interface StatCardProps {
+export interface StatCardProps {
   label: string;
   value: number | string;
   icon: React.ElementType;
@@ -42,7 +48,7 @@ interface StatCardProps {
   subtitle?: string;
 }
 
-function StatCard({ label, value, icon: Icon, accent, iconColor, subtitle }: StatCardProps) {
+export function StatCard({ label, value, icon: Icon, accent, iconColor, subtitle }: StatCardProps) {
   return (
     <div className="bg-white rounded-xl border border-gray-100 shadow-card p-4 flex items-start gap-3">
       <div
@@ -93,6 +99,13 @@ function RootSummaryCards() {
 
   const cards: StatCardProps[] = [
     {
+      label: 'Master Cartons',
+      value: data.totalCartons,
+      icon: Boxes,
+      accent: '#2563EB',
+      iconColor: 'text-blue-600',
+    },
+    {
       label: 'Total Products',
       value: data.totalProducts,
       icon: LayoutGrid,
@@ -112,13 +125,6 @@ function RootSummaryCards() {
       icon: Truck,
       accent: '#6B7280',
       iconColor: 'text-gray-500',
-    },
-    {
-      label: 'Master Cartons',
-      value: data.totalCartons,
-      icon: Boxes,
-      accent: '#2563EB',
-      iconColor: 'text-blue-600',
     },
   ];
 
@@ -141,6 +147,13 @@ function MidSummaryCards({ items }: { items: InventoryBreakdownItem[] }) {
 
   const cards: StatCardProps[] = [
     {
+      label: 'Total Cartons',
+      value: totalCartons,
+      icon: Boxes,
+      accent: '#16A34A',
+      iconColor: 'text-green-600',
+    },
+    {
       label: 'Total Pieces',
       value: totalPieces,
       icon: ShoppingBag,
@@ -153,13 +166,6 @@ function MidSummaryCards({ items }: { items: InventoryBreakdownItem[] }) {
       icon: Package,
       accent: '#2563EB',
       iconColor: 'text-blue-600',
-    },
-    {
-      label: 'Total Cartons',
-      value: totalCartons,
-      icon: Boxes,
-      accent: '#16A34A',
-      iconColor: 'text-green-600',
     },
     {
       label: 'Loose Boxes',
@@ -221,13 +227,77 @@ function LeafSummaryCards({ leafData }: { leafData: LeafData }) {
   );
 }
 
+// ─── Channel (sample / ecommerce): computed from items or leaf loose stock ────
+// Sample/e-commerce boxes are never in cartons, so these views only ever have
+// "loose" boxes — the summary shows pairs + boxes allocated to the channel.
+
+function ChannelSummaryCards({
+  label,
+  items,
+  leafData,
+}: {
+  label: string;
+  items?: InventoryBreakdownItem[];
+  leafData?: LeafData;
+}) {
+  let totalPieces = 0;
+  let totalBoxes = 0;
+
+  if (leafData) {
+    totalPieces = leafData.loose_stock.reduce((s, ls) => s + ls.pieces, 0);
+    totalBoxes = leafData.loose_stock.length;
+  } else if (items) {
+    totalPieces = items.reduce((s, it) => s + it.pieces, 0);
+    totalBoxes = items.reduce((s, it) => s + it.child_box_count, 0);
+  }
+
+  const cards: StatCardProps[] = [
+    {
+      label: `Pairs Allocated to ${label}`,
+      value: totalPieces,
+      icon: ShoppingBag,
+      accent: '#2D2A6E',
+      iconColor: 'text-binny-navy',
+    },
+    {
+      label: 'Boxes Allocated',
+      value: totalBoxes,
+      icon: Package,
+      accent: '#2563EB',
+      iconColor: 'text-blue-600',
+    },
+  ];
+
+  return (
+    <div className="grid grid-cols-2 gap-3 mb-6">
+      {cards.map((c) => (
+        <StatCard key={c.label} {...c} />
+      ))}
+    </div>
+  );
+}
+
 // ─── Main export ──────────────────────────────────────────────────────────────
 
 export default function InventorySummaryCards({
   depth,
   items,
   leafData,
+  config = DEFAULT_CHANNEL_CONFIG,
 }: InventorySummaryCardsProps) {
+  // Sample / e-commerce channels: always compute from the fetched data
+  // (no global warehouse summary endpoint applies).
+  if (config.channel !== 'warehouse') {
+    const label = config.channel === 'sample' ? 'Samples' : 'E-commerce';
+    if (depth >= 6 && leafData) {
+      return <ChannelSummaryCards label={label} leafData={leafData} />;
+    }
+    if (items) {
+      return <ChannelSummaryCards label={label} items={items} />;
+    }
+    return null;
+  }
+
   if (depth === 0) {
     return <RootSummaryCards />;
   }

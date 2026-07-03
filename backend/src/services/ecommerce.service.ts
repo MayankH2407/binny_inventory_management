@@ -225,6 +225,41 @@ export async function getEcommerceRecords(
 }
 
 // ---------------------------------------------------------------------------
+// getEcommerceSummary — aggregate status counts + total boxes for the stat
+// cards on the e-commerce list page.
+// ---------------------------------------------------------------------------
+export interface EcommerceSummary {
+  total: number;
+  created: number;
+  active: number;
+  closed: number;
+  dispatched: number;
+  totalBoxes: number;
+}
+
+export async function getEcommerceSummary(): Promise<EcommerceSummary> {
+  const result = await query(`
+    SELECT
+      COUNT(*)::int                                        AS total,
+      COUNT(*) FILTER (WHERE status = 'CREATED')::int      AS created,
+      COUNT(*) FILTER (WHERE status = 'ACTIVE')::int       AS active,
+      COUNT(*) FILTER (WHERE status = 'CLOSED')::int       AS closed,
+      COUNT(*) FILTER (WHERE status = 'DISPATCHED')::int   AS dispatched,
+      COALESCE(SUM(child_count), 0)::int                   AS total_boxes
+    FROM ecommerce_records
+  `);
+  const row = result.rows[0];
+  return {
+    total:      parseInt(row.total, 10),
+    created:    parseInt(row.created, 10),
+    active:     parseInt(row.active, 10),
+    closed:     parseInt(row.closed, 10),
+    dispatched: parseInt(row.dispatched, 10),
+    totalBoxes: parseInt(row.total_boxes, 10),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // getEcommerceChildren
 // ---------------------------------------------------------------------------
 export async function getEcommerceChildren(ecommerceId: string): Promise<Record<string, unknown>[]> {

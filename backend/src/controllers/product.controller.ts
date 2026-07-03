@@ -161,6 +161,40 @@ export async function bulkUploadProducts(
   }
 }
 
+export async function bulkUpdateProducts(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const file = (req as AuthenticatedRequest & { file?: { buffer: Buffer } }).file;
+    if (!file) {
+      res.status(400).json({ success: false, message: 'No CSV file provided' });
+      return;
+    }
+
+    const result = await productService.bulkUpdateProducts(file.buffer, req.user!.userId);
+    sendSuccess(res, result, `Bulk update complete: ${result.updated} products updated${result.errors.length > 0 ? `, ${result.errors.length} errors` : ''}`);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function exportProductsCsv(
+  _req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const csv = await productService.exportProductsCsv();
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename=products_export.csv');
+    res.send(csv);
+  } catch (error) {
+    next(error);
+  }
+}
+
 export function downloadSampleCsv(
   _req: AuthenticatedRequest,
   res: Response,

@@ -22,6 +22,11 @@ export interface BulkUploadResult {
   errors: BulkRowError[];
 }
 
+export interface BulkUpdateResult {
+  updated: number;
+  errors: BulkRowError[];
+}
+
 export const productService = {
   async getAll(params?: {
     page?: number;
@@ -100,5 +105,19 @@ export const productService = {
   getSampleCsvUrl(): string {
     const base = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1';
     return `${base}/products/bulk-upload/sample`;
+  },
+
+  async bulkUpdate(file: File): Promise<BulkUpdateResult> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await api.post<BulkUpdateResult>('/products/bulk-update', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  },
+
+  getExportCsvUrl(): string {
+    const base = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1';
+    return `${base}/products/export`;
   },
 };

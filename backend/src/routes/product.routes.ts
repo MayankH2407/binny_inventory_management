@@ -22,11 +22,24 @@ router.get(
   productController.downloadSampleCsv
 );
 
+router.get(
+  '/export',
+  authorizePermission('products:read'),
+  productController.exportProductsCsv
+);
+
 router.post(
   '/bulk-upload',
   authorizePermission('products:create'),
   csvUpload.single('file'),
   productController.bulkUploadProducts
+);
+
+router.post(
+  '/bulk-update',
+  authorizePermission('products:update'),
+  csvUpload.single('file'),
+  productController.bulkUpdateProducts
 );
 
 router.post(

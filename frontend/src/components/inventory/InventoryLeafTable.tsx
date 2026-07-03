@@ -7,6 +7,10 @@ import api from '@/services/api';
 import StatusBadge from '@/components/ui/StatusBadge';
 import InventoryBreadcrumb from '@/components/inventory/InventoryBreadcrumb';
 import InventorySummaryCards from '@/components/inventory/InventorySummaryCards';
+import {
+  type ChannelConfig,
+  DEFAULT_CHANNEL_CONFIG,
+} from '@/components/inventory/channelConfig';
 import { SkeletonCard } from '@/components/ui/Spinner';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -44,9 +48,15 @@ interface LeafResponse {
 
 const PATH_KEYS = ['section', 'category', 'group', 'article', 'colour', 'size_group'] as const;
 
-async function fetchLeaf(decodedValues: string[]): Promise<LeafResponse> {
+async function fetchLeaf(
+  decodedValues: string[],
+  channel: ChannelConfig['channel']
+): Promise<LeafResponse> {
   const params = new URLSearchParams();
   params.set('level', 'leaf');
+  if (channel !== 'warehouse') {
+    params.set('channel', channel);
+  }
   decodedValues.forEach((val, idx) => {
     params.set(`path[${PATH_KEYS[idx]}]`, val);
   });
@@ -77,7 +87,7 @@ function formatSizeBreakdown(sb: SizeBreakdownEntry[]): string {
   return sb.map((e) => `${e.size}×${e.pairs}`).join(', ');
 }
 
-function exportCsv(decodedValues: string[], data: LeafResponse) {
+function exportCsv(decodedValues: string[], data: LeafResponse, filePrefix: string) {
   const rows: string[] = [
     ['Type', 'Barcode/ID', 'Size(s)', 'Child Boxes', 'Pieces', 'MRP', 'Status']
       .map(csvCell)
@@ -122,7 +132,7 @@ function exportCsv(decodedValues: string[], data: LeafResponse) {
   const a = document.createElement('a');
   const sluggedParts = decodedValues.map((v) => slugify(v || 'ungrouped'));
   a.href = url;
-  a.download = `inventory-${sluggedParts.join('-')}.csv`;
+  a.download = `${filePrefix}-${sluggedParts.join('-')}.csv`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -294,20 +304,30 @@ function LooseStockTable({ rows }: { rows: LooseStockRow[] }) {
 interface InventoryLeafTableProps {
   /** URL-encoded path segments (length must be >= 6) */
   rawSegments: string[];
+  /** Which stock channel (default: warehouse inventory) */
+  config?: ChannelConfig;
 }
 
-export default function InventoryLeafTable({ rawSegments }: InventoryLeafTableProps) {
+export default function InventoryLeafTable({
+  rawSegments,
+  config = DEFAULT_CHANNEL_CONFIG,
+}: InventoryLeafTableProps) {
   const decodedValues = rawSegments.map(decodeURIComponent);
+  const isWarehouse = config.channel === 'warehouse';
+  const csvPrefix =
+    config.channel === 'sample' ? 'sample-stock'
+    : config.channel === 'ecommerce' ? 'ecommerce-stock'
+    : 'inventory';
 
   const { data, isLoading, error } = useApiQuery<LeafResponse>(
-    ['inventory-leaf', ...decodedValues],
-    () => fetchLeaf(decodedValues)
+    ['inventory-leaf', config.channel, ...decodedValues],
+    () => fetchLeaf(decodedValues, config.channel)
   );
 
   if (isLoading) {
     return (
       <>
-        <InventoryBreadcrumb pathSegments={rawSegments} />
+        <InventoryBreadcrumb pathSegments={rawSegments} config={config} />
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
           {[1, 2, 3].map((i) => <SkeletonCard key={i} />)}
         </div>
@@ -323,7 +343,7 @@ export default function InventoryLeafTable({ rawSegments }: InventoryLeafTablePr
   if (error || !data) {
     return (
       <>
-        <InventoryBreadcrumb pathSegments={rawSegments} />
+        <InventoryBreadcrumb pathSegments={rawSegments} config={config} />
         <div className="flex flex-col items-center justify-center py-16 gap-3 text-brand-text-muted">
           <AlertCircle className="h-10 w-10 text-red-400" />
           <p className="text-lg font-medium text-brand-text-dark">Failed to load leaf data</p>
@@ -335,23 +355,30 @@ export default function InventoryLeafTable({ rawSegments }: InventoryLeafTablePr
 
   const bothEmpty =
     data.master_cartons.length === 0 && data.loose_stock.length === 0;
+  // Section title for the loose-box table: "Loose Stock" reads oddly for the
+  // sample / e-commerce channels where every box is loose by definition.
+  const looseTitle = isWarehouse ? 'Loose Stock' : 'Boxes';
 
   return (
     <>
-      <InventoryBreadcrumb pathSegments={rawSegments} />
+      <InventoryBreadcrumb pathSegments={rawSegments} config={config} />
 
       {/* Summary cards */}
-      <InventorySummaryCards depth={6} leafData={data} />
+      <InventorySummaryCards depth={6} leafData={data} config={config} />
 
       {/* Header row with export button */}
       <div className="flex items-center justify-between mb-4">
         <p className="text-sm text-brand-text-muted">
-          {data.master_cartons.length} carton{data.master_cartons.length !== 1 ? 's' : ''} &bull;{' '}
-          {data.loose_stock.length} loose box{data.loose_stock.length !== 1 ? 'es' : ''}
+          {isWarehouse && (
+            <>
+              {data.master_cartons.length} carton{data.master_cartons.length !== 1 ? 's' : ''} &bull;{' '}
+            </>
+          )}
+          {data.loose_stock.length} box{data.loose_stock.length !== 1 ? 'es' : ''}
         </p>
         {!bothEmpty && (
           <button
-            onClick={() => exportCsv(decodedValues, data)}
+            onClick={() => exportCsv(decodedValues, data, csvPrefix)}
             className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 bg-white text-brand-text-dark hover:bg-gray-50 hover:border-gray-300 transition-all duration-150 shadow-sm"
           >
             <Download className="h-3.5 w-3.5" />
@@ -364,15 +391,17 @@ export default function InventoryLeafTable({ rawSegments }: InventoryLeafTablePr
       {bothEmpty && (
         <div className="text-center py-16 text-brand-text-muted">
           <Package className="h-12 w-12 mx-auto mb-3 opacity-30" />
-          <p className="text-lg font-medium">No inventory at this combination.</p>
+          <p className="text-lg font-medium">No stock at this combination.</p>
           <p className="text-sm mt-1 max-w-sm mx-auto">
-            There are no master cartons or loose boxes for this section/category/group/article/colour/size combination.
+            {isWarehouse
+              ? 'There are no master cartons or loose boxes for this section/category/group/article/colour/size combination.'
+              : 'There are no boxes allocated to this channel for this section/category/group/article/colour/size combination.'}
           </p>
         </div>
       )}
 
-      {/* Master Cartons section */}
-      {!bothEmpty && (
+      {/* Master Cartons section — warehouse only (sample/e-commerce boxes are never in cartons) */}
+      {!bothEmpty && isWarehouse && (
         <div className="bg-white rounded-xl border border-gray-100 shadow-card mb-6">
           <div className="flex items-center gap-2 px-4 py-3.5 border-b border-gray-100">
             <Boxes className="h-4 w-4 text-blue-500" />
@@ -387,12 +416,12 @@ export default function InventoryLeafTable({ rawSegments }: InventoryLeafTablePr
         </div>
       )}
 
-      {/* Loose Stock section */}
+      {/* Loose Stock / Boxes section */}
       {!bothEmpty && (
         <div className="bg-white rounded-xl border border-gray-100 shadow-card">
           <div className="flex items-center gap-2 px-4 py-3.5 border-b border-gray-100">
             <Package className="h-4 w-4 text-amber-500" />
-            <h2 className="text-sm font-semibold text-brand-text-dark">Loose Stock</h2>
+            <h2 className="text-sm font-semibold text-brand-text-dark">{looseTitle}</h2>
             <span className="ml-auto text-xs text-brand-text-muted">
               {data.loose_stock.length}
             </span>

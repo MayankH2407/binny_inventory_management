@@ -36,10 +36,15 @@ router.get(
   ecommerceController.getEcommerceByBarcode
 );
 
-// Literal path before /:id to avoid shadowing
+// Literal paths before /:id to avoid shadowing
 router.get(
   '/stock-summary',
   ecommerceController.getEcommerceStockSummary
+);
+
+router.get(
+  '/summary',
+  ecommerceController.getEcommerceSummary
 );
 
 router.get(

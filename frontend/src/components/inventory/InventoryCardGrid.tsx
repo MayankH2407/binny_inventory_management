@@ -26,6 +26,8 @@ interface InventoryCardGridProps {
   pathPrefix: string;
   /** The current drill level — used to choose the icon */
   level: DrillLevel;
+  /** When true, highlight master carton count as the primary headline number (warehouse channel only) */
+  highlightCartons?: boolean;
 }
 
 // ─── Level config ─────────────────────────────────────────────────────────────
@@ -80,9 +82,10 @@ interface CardProps {
   item: InventoryBreakdownItem;
   href: string;
   level: DrillLevel;
+  highlightCartons?: boolean;
 }
 
-function InventoryCard({ item, href, level }: CardProps) {
+function InventoryCard({ item, href, level, highlightCartons }: CardProps) {
   const meta = LEVEL_META[level];
   const { Icon, gradient } = meta;
   const displayName = item.value === '' ? '(Ungrouped)' : item.value;
@@ -92,7 +95,7 @@ function InventoryCard({ item, href, level }: CardProps) {
     { label: 'boxes', value: item.child_box_count },
     { label: 'cartons', value: item.master_carton_count },
     { label: 'loose', value: item.loose_child_box_count },
-  ].filter((s) => s.value > 0);
+  ].filter((s) => s.value > 0 && !(highlightCartons && s.label === 'cartons'));
 
   return (
     <Link
@@ -127,14 +130,34 @@ function InventoryCard({ item, href, level }: CardProps) {
 
       {/* Piece count */}
       <div className="px-4 pb-3">
-        <p
-          className={`text-3xl font-bold tabular-nums ${
-            isZero ? 'text-gray-400' : 'text-brand-text-dark'
-          }`}
-        >
-          {item.pieces.toLocaleString('en-IN')}
-        </p>
-        <p className="text-xs text-brand-text-muted mt-0.5">pieces</p>
+        {highlightCartons ? (
+          <>
+            <p
+              className={`text-3xl font-bold tabular-nums ${
+                isZero ? 'text-gray-400' : 'text-brand-text-dark'
+              }`}
+            >
+              {item.master_carton_count.toLocaleString('en-IN')}
+            </p>
+            <p className="text-xs text-brand-text-muted mt-0.5">
+              carton{item.master_carton_count !== 1 ? 's' : ''}
+            </p>
+            <p className="text-sm font-semibold text-brand-text-muted mt-1 tabular-nums">
+              {item.pieces.toLocaleString('en-IN')} pairs
+            </p>
+          </>
+        ) : (
+          <>
+            <p
+              className={`text-3xl font-bold tabular-nums ${
+                isZero ? 'text-gray-400' : 'text-brand-text-dark'
+              }`}
+            >
+              {item.pieces.toLocaleString('en-IN')}
+            </p>
+            <p className="text-xs text-brand-text-muted mt-0.5">pieces</p>
+          </>
+        )}
       </div>
 
       {/* Legacy carton pill */}
@@ -182,13 +205,18 @@ export default function InventoryCardGrid({
   items,
   pathPrefix,
   level,
+  highlightCartons = false,
 }: InventoryCardGridProps) {
   const searchParams = useSearchParams();
   const stockFilter = (searchParams.get('stock_filter') || null) as StockFilter;
 
   // Apply stock filter, then sort: non-zero pieces first (descending), then zero-stock items
   const filtered = applyStockFilter(items, stockFilter);
-  const sorted = [...filtered].sort((a, b) => b.pieces - a.pieces);
+  const sorted = [...filtered].sort((a, b) =>
+    highlightCartons
+      ? b.master_carton_count - a.master_carton_count || b.pieces - a.pieces
+      : b.pieces - a.pieces
+  );
 
   if (sorted.length === 0) {
     const isFiltered = stockFilter !== null && items.length > 0;
@@ -218,6 +246,7 @@ export default function InventoryCardGrid({
             item={item}
             href={href}
             level={level}
+            highlightCartons={highlightCartons}
           />
         );
       })}

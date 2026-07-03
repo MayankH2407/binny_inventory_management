@@ -22,6 +22,15 @@ export interface EcommerceStockRow {
   available_pairs: number;
 }
 
+export interface EcommerceSummary {
+  total: number;
+  created: number;
+  active: number;
+  closed: number;
+  dispatched: number;
+  totalBoxes: number;
+}
+
 export const ecommerceService = {
   async getAll(params?: {
     page?: number;
@@ -89,6 +98,11 @@ export const ecommerceService = {
 
   async getStockSummary(): Promise<EcommerceStockRow[]> {
     const response = await api.get<EcommerceStockRow[]>('/ecommerce/stock-summary');
+    return response.data;
+  },
+
+  async getSummary(): Promise<EcommerceSummary> {
+    const response = await api.get<EcommerceSummary>('/ecommerce/summary');
     return response.data;
   },
 

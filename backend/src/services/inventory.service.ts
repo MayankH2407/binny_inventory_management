@@ -2,7 +2,7 @@ import { query } from '../config/database';
 import { InventoryTransaction } from '../types';
 import { CHILD_BOX_STATUS, MASTER_CARTON_STATUS } from '../config/constants';
 import { NotFoundError } from '../utils/errors';
-import { BreakdownLevel, BreakdownPath } from '../models/schemas/inventory.schema';
+import { BreakdownLevel, BreakdownPath, BreakdownChannel } from '../models/schemas/inventory.schema';
 
 export interface InventoryDashboard {
   totalChildBoxes: number;
@@ -868,8 +868,10 @@ const PATH_KEY_TO_COLUMN: Record<keyof BreakdownPath, string> = {
 export async function getInventoryBreakdown(input: {
   level: BreakdownLevel;
   path: BreakdownPath;
+  channel?: BreakdownChannel;
 }): Promise<BreakdownResult> {
   const { level, path } = input;
+  const channel: BreakdownChannel = input.channel ?? 'warehouse';
 
   // Build path filter conditions
   const conditions: string[] = ['p.is_active = true'];
@@ -884,6 +886,76 @@ export async function getInventoryBreakdown(input: {
   }
 
   const whereClause = conditions.join(' AND ');
+
+  // ── Channel scoping (sample / ecommerce) ────────────────────────────────────
+  // Sample- and e-commerce-allocated boxes carry a single child_boxes.status
+  // (SAMPLE / ECOMMERCE) and are never inside a master carton (the pack/scan
+  // flows move a box out of its carton when it is allocated). So the breakdown
+  // for these channels is a straight per-status roll-up: every matching box is
+  // "loose", there are no cartons, and legacy sealed cartons don't apply.
+  // CHANNEL_STATUS values come from a validated enum → safe to inline in SQL.
+  if (channel !== 'warehouse') {
+    const st = channel === 'sample' ? 'SAMPLE' : 'ECOMMERCE';
+
+    if (level === 'leaf') {
+      const looseResult = await query(`
+        SELECT
+          cb.id          AS child_box_id,
+          cb.barcode,
+          cb.quantity    AS pieces,
+          p.mrp::numeric AS mrp,
+          p.size         AS size
+        FROM child_boxes cb
+        JOIN products p ON p.id = cb.product_id
+        WHERE cb.status = '${st}'
+          AND ${whereClause}
+        ORDER BY
+          CASE WHEN p.size ~ '^[0-9]+$' THEN p.size::int ELSE 9999 END,
+          p.size,
+          cb.created_at DESC
+      `, values);
+
+      return {
+        master_cartons: [],
+        loose_stock: looseResult.rows.map(r => ({
+          child_box_id: String(r.child_box_id),
+          barcode:      String(r.barcode),
+          pieces:       parseInt(r.pieces, 10),
+          mrp:          parseFloat(r.mrp),
+          size:         String(r.size ?? ''),
+        })),
+      };
+    }
+
+    const chanGroupCol = LEVEL_TO_COLUMN[level];
+    const chanResult = await query(`
+      SELECT
+        ${chanGroupCol} AS value,
+        COALESCE(SUM(cb.quantity) FILTER (WHERE cb.status = '${st}'), 0)::int AS pieces,
+        COUNT(cb.id) FILTER (WHERE cb.status = '${st}')::int                 AS child_box_count,
+        0::int                                                                AS master_carton_count,
+        COUNT(cb.id) FILTER (WHERE cb.status = '${st}')::int                 AS loose_child_box_count
+      FROM products p
+      LEFT JOIN child_boxes cb ON cb.product_id = p.id
+      WHERE ${whereClause}
+      GROUP BY ${chanGroupCol}
+      -- Only surface branches that actually hold stock in this channel; unlike
+      -- the warehouse view we don't want the full catalog padded with 0-cards.
+      HAVING COUNT(cb.id) FILTER (WHERE cb.status = '${st}') > 0
+      ORDER BY pieces DESC NULLS LAST
+    `, values);
+
+    const chanItems: BreakdownItem[] = chanResult.rows.map(r => ({
+      value:                 String(r.value ?? ''),
+      pieces:                parseInt(r.pieces, 10),
+      child_box_count:       parseInt(r.child_box_count, 10),
+      master_carton_count:   parseInt(r.master_carton_count, 10),
+      loose_child_box_count: parseInt(r.loose_child_box_count, 10),
+      legacy_carton_count:   0,
+    }));
+
+    return { items: chanItems };
+  }
 
   // ── Leaf level ─────────────────────────────────────────────────────────────
   if (level === 'leaf') {

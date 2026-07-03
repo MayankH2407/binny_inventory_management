@@ -51,6 +51,19 @@ export async function getEcommerceStockSummary(
   }
 }
 
+export async function getEcommerceSummary(
+  _req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const summary = await ecommerceService.getEcommerceSummary();
+    sendSuccess(res, summary, 'E-commerce summary retrieved successfully');
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function getEcommerceById(
   req: AuthenticatedRequest,
   res: Response,

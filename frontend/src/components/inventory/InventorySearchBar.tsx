@@ -4,6 +4,10 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Search, X } from 'lucide-react';
 import api from '@/services/api';
+import {
+  type ChannelConfig,
+  DEFAULT_CHANNEL_CONFIG,
+} from '@/components/inventory/channelConfig';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -23,7 +27,7 @@ interface ProductListResponse {
 
 // ─── Helper: build the drill path for a product ───────────────────────────────
 
-function buildDrillPath(product: Product): string {
+function buildDrillPath(basePath: string, product: Product): string {
   const group = product.article_group || '(Ungrouped)';
   const segments = [
     product.section,
@@ -31,7 +35,7 @@ function buildDrillPath(product: Product): string {
     group,
     product.article_name,
   ].map(encodeURIComponent);
-  return `/inventory/${segments.join('/')}`;
+  return `${basePath}/${segments.join('/')}`;
 }
 
 // ─── Debounce hook ────────────────────────────────────────────────────────────
@@ -47,7 +51,11 @@ function useDebounce<T>(value: T, delay: number): T {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function InventorySearchBar() {
+export default function InventorySearchBar({
+  config = DEFAULT_CHANNEL_CONFIG,
+}: {
+  config?: ChannelConfig;
+} = {}) {
   const router = useRouter();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Product[]>([]);
@@ -113,7 +121,7 @@ export default function InventorySearchBar() {
   }, []);
 
   function handleSelect(product: Product) {
-    const path = buildDrillPath(product);
+    const path = buildDrillPath(config.basePath, product);
     setQuery('');
     setIsOpen(false);
     router.push(path);

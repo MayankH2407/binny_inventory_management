@@ -613,3 +613,214 @@ export async function bulkCreateProducts(
   logger.info(`Bulk product upload: ${created} created, ${errors.length} errors`);
   return { created, errors };
 }
+
+/** Escape a single CSV cell: quote it (doubling any internal quotes) if it contains a comma, quote, or newline. */
+function csvCell(v: unknown): string {
+  if (v === null || v === undefined) return '';
+  const s = String(v);
+  if (/["\n,]/.test(s)) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+  return s;
+}
+
+export async function exportProductsCsv(): Promise<string> {
+  const columns = [
+    'sku', 'article_code', 'article_name', 'colour', 'size', 'section', 'category',
+    'mrp', 'hsn_code', 'location', 'article_group', 'description', 'is_active',
+  ];
+
+  const result = await query(
+    `SELECT sku, article_code, article_name, colour, size, section, category, mrp, hsn_code, location, article_group, description, is_active
+     FROM products
+     ORDER BY article_name, colour, size`
+  );
+
+  const lines = [columns.join(',')];
+  for (const row of result.rows) {
+    const cells = columns.map((col) => {
+      if (col === 'is_active') return row[col] ? 'true' : 'false';
+      return csvCell(row[col]);
+    });
+    lines.push(cells.join(','));
+  }
+
+  return lines.join('\n');
+}
+
+export async function bulkUpdateProducts(
+  csvBuffer: Buffer,
+  updatedBy: string
+): Promise<{ updated: number; errors: BulkRowResult[] }> {
+  let records: Record<string, string>[];
+  try {
+    records = parse(csvBuffer, {
+      columns: true,
+      skip_empty_lines: true,
+      trim: true,
+      bom: true,
+    });
+  } catch {
+    throw new ConflictError('Invalid CSV format. Please ensure the file is a valid CSV with headers.');
+  }
+
+  if (records.length === 0) {
+    throw new ConflictError('CSV file is empty. Please add product rows below the header.');
+  }
+
+  // Env-driven cap: default 500 (test/local); live sets PRODUCT_CSV_MAX_ROWS=2000.
+  const maxRows = Number(process.env.PRODUCT_CSV_MAX_ROWS) || 500;
+  if (records.length > maxRows) {
+    throw new ConflictError(`CSV contains ${records.length} rows. Maximum allowed is ${maxRows} per upload.`);
+  }
+
+  const headerKeys = Object.keys(records[0]).map((h) => h.toLowerCase().trim());
+  if (!headerKeys.includes('sku')) {
+    throw new ConflictError('Missing required column: sku. Download the current products file for reference.');
+  }
+
+  const errors: BulkRowResult[] = [];
+
+  interface ValidUpdateRow {
+    rowNum: number;
+    sku: string;
+    updates: Record<string, unknown>;
+  }
+  const valid: ValidUpdateRow[] = [];
+  const seenSkus = new Set<string>();
+
+  for (let i = 0; i < records.length; i++) {
+    const raw = records[i];
+    const rowNum = i + 2; // +2 because row 1 is header, data starts at 2
+
+    const row: Record<string, string> = {};
+    for (const [key, val] of Object.entries(raw)) {
+      row[key.toLowerCase().trim()] = val;
+    }
+
+    // Skip fully-blank rows silently (not counted as errors)
+    const allBlank = Object.values(row).every((v) => !v || !v.trim());
+    if (allBlank) continue;
+
+    if (!row.sku?.trim()) {
+      errors.push({ row: rowNum, status: 'error', error: 'sku is empty' });
+      continue;
+    }
+    const sku = row.sku.trim().toUpperCase();
+
+    if (seenSkus.has(sku)) {
+      errors.push({ row: rowNum, status: 'error', sku, error: 'duplicate SKU in file' });
+      continue;
+    }
+
+    const rowErrors: string[] = [];
+    const updates: Record<string, unknown> = {};
+
+    if (row.mrp?.trim()) {
+      const mrp = parseFloat(row.mrp);
+      if (isNaN(mrp) || mrp <= 0) {
+        rowErrors.push('mrp must be a positive number');
+      } else {
+        updates.mrp = mrp;
+      }
+    }
+
+    if (row.description?.trim()) {
+      updates.description = stripHtml(row.description.trim());
+    }
+
+    if (row.hsn_code?.trim()) {
+      updates.hsn_code = row.hsn_code.trim();
+    }
+
+    if (row.location?.trim()) {
+      const canonicalLoc = canonicalLocation(row.location);
+      if (!canonicalLoc) {
+        rowErrors.push(`location must be one of: ${VALID_LOCATIONS.join(', ')}`);
+      } else {
+        updates.location = canonicalLoc;
+      }
+    }
+
+    if (row.article_group?.trim()) {
+      updates.article_group = toTitleCase(row.article_group.trim());
+    }
+
+    if (row.is_active?.trim()) {
+      const v = row.is_active.trim().toLowerCase();
+      if (['true', '1', 'yes', 'active'].includes(v)) {
+        updates.is_active = true;
+      } else if (['false', '0', 'no', 'inactive'].includes(v)) {
+        updates.is_active = false;
+      } else {
+        rowErrors.push('is_active must be true/false');
+      }
+    }
+
+    if (rowErrors.length > 0) {
+      errors.push({ row: rowNum, status: 'error', sku, error: rowErrors.join('; ') });
+      continue;
+    }
+
+    if (Object.keys(updates).length === 0) {
+      errors.push({ row: rowNum, status: 'error', sku, error: 'no updatable fields provided (only identity columns present)' });
+      continue;
+    }
+
+    seenSkus.add(sku);
+    valid.push({ rowNum, sku, updates });
+  }
+
+  if (valid.length === 0) {
+    logger.info(`Bulk product update: 0 updated, ${errors.length} errors`);
+    return { updated: 0, errors };
+  }
+
+  const skus = valid.map((v) => v.sku);
+  const existingResult = await query('SELECT * FROM products WHERE UPPER(sku) = ANY($1)', [skus]);
+  const productMap = new Map<string, Record<string, unknown>>();
+  for (const r of existingResult.rows) {
+    productMap.set(String(r.sku).toUpperCase(), r);
+  }
+
+  let updated = 0;
+  for (const v of valid) {
+    const existing = productMap.get(v.sku);
+    if (!existing) {
+      errors.push({ row: v.rowNum, status: 'error', sku: v.sku, error: 'SKU not found' });
+      continue;
+    }
+
+    try {
+      const fields: string[] = [];
+      const values: unknown[] = [];
+      let paramIndex = 1;
+      for (const [col, val] of Object.entries(v.updates)) {
+        fields.push(`${col} = $${paramIndex++}`);
+        values.push(val);
+      }
+      fields.push('updated_at = NOW()');
+      values.push(existing.id);
+
+      await query(`UPDATE products SET ${fields.join(', ')} WHERE id = $${paramIndex}`, values);
+
+      await createAuditLog({
+        userId: updatedBy,
+        action: 'UPDATE_PRODUCT',
+        entityType: 'product',
+        entityId: existing.id as string,
+        oldValues: existing,
+        newValues: v.updates,
+      });
+
+      updated++;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      errors.push({ row: v.rowNum, status: 'error', sku: v.sku, error: message });
+    }
+  }
+
+  errors.sort((a, b) => a.row - b.row);
+  logger.info(`Bulk product update: ${updated} updated, ${errors.length} errors`);
+  return { updated, errors };
+}

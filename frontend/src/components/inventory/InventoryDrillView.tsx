@@ -12,6 +12,10 @@ import InventorySummaryCards from '@/components/inventory/InventorySummaryCards'
 import InventorySearchBar from '@/components/inventory/InventorySearchBar';
 import InventoryFilters from '@/components/inventory/InventoryFilters';
 import InventoryLeafTable from '@/components/inventory/InventoryLeafTable';
+import {
+  type ChannelConfig,
+  DEFAULT_CHANNEL_CONFIG,
+} from '@/components/inventory/channelConfig';
 import { AlertCircle } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -39,10 +43,16 @@ const PATH_KEYS = ['section', 'category', 'group', 'article', 'colour'] as const
 
 async function fetchBreakdown(
   level: DrillLevel,
-  pathValues: string[]
+  pathValues: string[],
+  channel: ChannelConfig['channel']
 ): Promise<BreakdownResponse> {
   const params = new URLSearchParams();
   params.set('level', level);
+  // Only send channel when non-default so the warehouse view's request URL
+  // (and its react-query cache) is unchanged.
+  if (channel !== 'warehouse') {
+    params.set('channel', channel);
+  }
   pathValues.forEach((val, idx) => {
     params.set(`path[${PATH_KEYS[idx]}]`, val);
   });
@@ -77,10 +87,16 @@ function ErrorState({ message }: { message: string }) {
 
 // ─── Leaf view (level 6) ──────────────────────────────────────────────────────
 
-export function LeafPlaceholder({ rawSegments }: { rawSegments: string[] }) {
+export function LeafPlaceholder({
+  rawSegments,
+  config = DEFAULT_CHANNEL_CONFIG,
+}: {
+  rawSegments: string[];
+  config?: ChannelConfig;
+}) {
   // Note: kept as LeafPlaceholder for backward-compat with the page.tsx import,
   // but now renders the real leaf table.
-  return <InventoryLeafTable rawSegments={rawSegments} />;
+  return <InventoryLeafTable rawSegments={rawSegments} config={config} />;
 }
 
 // ─── Drill-down view (levels 0–5) ─────────────────────────────────────────────
@@ -88,9 +104,14 @@ export function LeafPlaceholder({ rawSegments }: { rawSegments: string[] }) {
 interface DrillDownViewProps {
   /** URL-encoded path segments as they appear in the URL */
   rawSegments: string[];
+  /** Which stock channel to render (default: warehouse inventory) */
+  config?: ChannelConfig;
 }
 
-export default function DrillDownView({ rawSegments }: DrillDownViewProps) {
+export default function DrillDownView({
+  rawSegments,
+  config = DEFAULT_CHANNEL_CONFIG,
+}: DrillDownViewProps) {
   // Decode URL-encoded segments to raw values for the API
   const decodedValues = rawSegments.map(decodeURIComponent);
 
@@ -98,29 +119,30 @@ export default function DrillDownView({ rawSegments }: DrillDownViewProps) {
   const level = LEVEL_BY_DEPTH[depth];
 
   const { data, isLoading, error } = useApiQuery<BreakdownResponse>(
-    ['inventory-breakdown', level, ...decodedValues],
-    () => fetchBreakdown(level, decodedValues)
+    ['inventory-breakdown', config.channel, level, ...decodedValues],
+    () => fetchBreakdown(level, decodedValues, config.channel)
   );
 
   // Build the path prefix for card hrefs (all segments are already URL-encoded)
   const pathPrefix =
     rawSegments.length === 0
-      ? '/inventory'
-      : `/inventory/${rawSegments.join('/')}`;
+      ? config.basePath
+      : `${config.basePath}/${rawSegments.join('/')}`;
 
   return (
     <>
-      <InventoryBreadcrumb pathSegments={rawSegments} />
+      <InventoryBreadcrumb pathSegments={rawSegments} config={config} />
 
       {/* Summary cards — always shown (root fetches global, mid-levels compute from items) */}
       <InventorySummaryCards
         depth={depth}
         items={data?.items}
+        config={config}
       />
 
       {/* Search + filter bar */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-5">
-        <InventorySearchBar />
+        <InventorySearchBar config={config} />
         <div className="sm:ml-auto">
           <InventoryFilters />
         </div>
@@ -130,10 +152,29 @@ export default function DrillDownView({ rawSegments }: DrillDownViewProps) {
       {!isLoading && data && (
         <p className="text-sm text-brand-text-muted mb-4 px-1">
           {data.items.length} item{data.items.length !== 1 ? 's' : ''} &bull;{' '}
-          {data.items
-            .reduce((sum, it) => sum + it.pieces, 0)
-            .toLocaleString('en-IN')}{' '}
-          pieces total
+          {config.channel === 'warehouse' ? (
+            <>
+              {data.items
+                .reduce((sum, it) => sum + it.master_carton_count, 0)
+                .toLocaleString('en-IN')}{' '}
+              carton
+              {data.items.reduce((sum, it) => sum + it.master_carton_count, 0) !== 1
+                ? 's'
+                : ''}{' '}
+              &bull;{' '}
+              {data.items
+                .reduce((sum, it) => sum + it.pieces, 0)
+                .toLocaleString('en-IN')}{' '}
+              pairs total
+            </>
+          ) : (
+            <>
+              {data.items
+                .reduce((sum, it) => sum + it.pieces, 0)
+                .toLocaleString('en-IN')}{' '}
+              pieces total
+            </>
+          )}
           {(() => {
             const legacyTotal = data.items.reduce(
               (sum, it) => sum + (it.legacy_carton_count ?? 0),
@@ -165,6 +206,7 @@ export default function DrillDownView({ rawSegments }: DrillDownViewProps) {
           items={data.items}
           pathPrefix={pathPrefix}
           level={level}
+          highlightCartons={config.channel === 'warehouse'}
         />
       )}
     </>

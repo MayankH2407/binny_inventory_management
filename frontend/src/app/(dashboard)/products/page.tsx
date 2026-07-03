@@ -16,7 +16,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useCan } from '@/hooks/useCan';
 import { useApiQuery, useApiMutation } from '@/hooks/useApi';
 import { useDebounce } from '@/hooks/useDebounce';
-import { productService, BulkUploadResult, BulkRowError } from '@/services/product.service';
+import { productService, BulkUploadResult, BulkUpdateResult, BulkRowError } from '@/services/product.service';
 import { formatCurrency } from '@/lib/utils';
 import type { Product } from '@/types';
 import toast from 'react-hot-toast';
@@ -74,6 +74,12 @@ export default function ProductsPage() {
   const [bulkUploading, setBulkUploading] = useState(false);
   const [bulkResult, setBulkResult] = useState<BulkUploadResult | null>(null);
   const bulkFileRef = useRef<HTMLInputElement>(null);
+
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
+  const [updateFile, setUpdateFile] = useState<File | null>(null);
+  const [updateUploading, setUpdateUploading] = useState(false);
+  const [updateResult, setUpdateResult] = useState<BulkUpdateResult | null>(null);
+  const updateFileRef = useRef<HTMLInputElement>(null);
   const debouncedSearch = useDebounce(search);
 
   // Sections from API
@@ -326,6 +332,50 @@ export default function ProductsPage() {
     if (bulkFileRef.current) bulkFileRef.current.value = '';
   };
 
+  const handleBulkUpdate = async () => {
+    if (!updateFile) return;
+    setUpdateUploading(true);
+    try {
+      const result = await productService.bulkUpdate(updateFile);
+      setUpdateResult(result);
+      if (result.updated > 0) {
+        toast.success(`${result.updated} products updated successfully`);
+        refetch();
+      }
+      if (result.errors.length > 0) {
+        toast.error(`${result.errors.length} rows had errors — see details below`);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Upload failed';
+      toast.error(message);
+    } finally {
+      setUpdateUploading(false);
+    }
+  };
+
+  const handleDownloadExport = () => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('binny_token') : null;
+    const url = productService.getExportCsvUrl();
+    const a = document.createElement('a');
+    // Use fetch with auth header to download
+    fetch(url, { headers: { Authorization: `Bearer ${token || ''}` } })
+      .then((r) => r.blob())
+      .then((blob) => {
+        a.href = URL.createObjectURL(blob);
+        a.download = 'products_export.csv';
+        a.click();
+        URL.revokeObjectURL(a.href);
+      })
+      .catch(() => toast.error('Failed to download export file'));
+  };
+
+  const closeUpdateModal = () => {
+    setShowUpdateModal(false);
+    setUpdateFile(null);
+    setUpdateResult(null);
+    if (updateFileRef.current) updateFileRef.current.value = '';
+  };
+
   const activeFilterCount = Object.values(filters).filter(Boolean).length;
 
   if (!isManager) {
@@ -344,11 +394,16 @@ export default function ProductsPage() {
         title="Products"
         description="Manage product master (SKU catalog)"
         action={
-          (canCreate) ? (
+          (canCreate || canUpdate) ? (
             <div className="flex gap-2">
               {canCreate && (
                 <Button variant="outline" leftIcon={<Upload className="h-4 w-4" />} onClick={() => setShowBulkModal(true)}>
                   Bulk Import
+                </Button>
+              )}
+              {canUpdate && (
+                <Button variant="outline" leftIcon={<Upload className="h-4 w-4" />} onClick={() => setShowUpdateModal(true)}>
+                  Update via CSV
                 </Button>
               )}
               {canCreate && (
@@ -872,6 +927,100 @@ export default function ProductsPage() {
                 >
                   Upload Another File
                 </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      </Modal>
+
+      {/* Bulk Update Modal */}
+      <Modal isOpen={showUpdateModal} onClose={closeUpdateModal} title="Bulk Update Products">
+        <div className="space-y-4">
+          <p className="text-sm text-brand-text-muted">
+            Upload a CSV to update EXISTING products. Rows are matched by SKU. Editable columns: mrp, description, hsn_code, location, article_group, is_active. Identity columns (article_code, article_name, colour, size, section, category) are ignored. Empty cells are left unchanged.
+          </p>
+
+          {/* Export download */}
+          <div className="flex items-center gap-3 p-3 bg-blue-50 border border-blue-100 rounded-lg">
+            <FileSpreadsheet className="h-5 w-5 text-blue-600 flex-shrink-0" />
+            <div className="flex-1">
+              <p className="text-sm font-medium text-blue-900">Download current products (CSV)</p>
+              <p className="text-xs text-blue-700">Edit the cells you want to change, then re-upload.</p>
+            </div>
+            <button
+              onClick={handleDownloadExport}
+              className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-blue-700 bg-white border border-blue-200 rounded-md hover:bg-blue-50"
+            >
+              <Download className="h-3 w-3" /> Download
+            </button>
+          </div>
+
+          {/* Required columns info */}
+          <div className="text-xs text-brand-text-muted">
+            <p className="font-medium mb-1">Required column: sku.</p>
+            <p className="mt-1">Maximum {MAX_CSV_ROWS} rows per upload.</p>
+          </div>
+
+          {/* File input */}
+          {!updateResult && (
+            <>
+              <div className="border-2 border-dashed border-brand-border rounded-lg p-6 text-center">
+                <Upload className="h-8 w-8 text-brand-text-muted mx-auto mb-2" />
+                <input
+                  ref={updateFileRef}
+                  type="file"
+                  accept=".csv"
+                  onChange={(e) => setUpdateFile(e.target.files?.[0] || null)}
+                  className="block w-full text-sm text-brand-text-muted file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-binny-navy file:text-white hover:file:bg-binny-navy/90 mx-auto"
+                />
+                {updateFile && (
+                  <p className="mt-2 text-sm text-brand-text-dark font-medium">{updateFile.name}</p>
+                )}
+              </div>
+
+              <div className="flex justify-end gap-3">
+                <Button variant="secondary" onClick={closeUpdateModal}>Cancel</Button>
+                <Button
+                  onClick={handleBulkUpdate}
+                  isLoading={updateUploading}
+                  disabled={!updateFile || updateUploading}
+                  leftIcon={<Upload className="h-4 w-4" />}
+                >
+                  Upload & Update Products
+                </Button>
+              </div>
+            </>
+          )}
+
+          {/* Results */}
+          {updateResult && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+                <CheckCircle className="h-5 w-5 text-green-600 flex-shrink-0" />
+                <p className="text-sm font-medium text-green-900">{updateResult.updated} products updated successfully</p>
+              </div>
+
+              {updateResult.errors.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-red-700">
+                    <AlertCircle className="h-4 w-4" />
+                    <p className="text-sm font-medium">{updateResult.errors.length} rows failed</p>
+                  </div>
+                  <div className="max-h-48 overflow-y-auto border border-red-200 rounded-lg divide-y divide-red-100">
+                    {updateResult.errors.map((err: BulkRowError, i: number) => (
+                      <div key={i} className="px-3 py-2 text-xs">
+                        <span className="font-medium text-red-800">Row {err.row}</span>
+                        {err.sku && <span className="text-red-600"> ({err.sku})</span>}
+                        {err.article_name && <span className="text-red-600"> ({err.article_name})</span>}
+                        <span className="text-red-600">: {err.error}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3">
+                <Button variant="secondary" onClick={closeUpdateModal}>Close</Button>
               </div>
             </div>
           )}

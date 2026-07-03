@@ -1,20 +1,26 @@
 'use client';
 
+import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, ShoppingCart } from 'lucide-react';
 import PageHeader from '@/components/layout/PageHeader';
-import DrillDownView from '@/components/inventory/InventoryDrillView';
+import DrillDownView, { LeafPlaceholder } from '@/components/inventory/InventoryDrillView';
 import { CHANNEL_CONFIG } from '@/components/inventory/channelConfig';
 import { ROUTES } from '@/constants';
 import { useCan } from '@/hooks/useCan';
 
-/**
- * E-commerce Stock — root drill-down over boxes currently allocated to
- * e-commerce (child_boxes.status = ECOMMERCE). Depths 1–6 are handled by the
- * [...path] catch-all route. Mirrors the main Inventory drill-down UI.
- */
-export default function EcommerceStockPage() {
+export default function EcommerceStockDrillPage() {
   const canRead = useCan('ecommerce:read');
+  const params = useParams();
+  const rawSegments = Array.isArray(params.path) ? params.path : [];
+  const depth = rawSegments.length;
+  const isLeaf = depth >= 6;
+
+  const lastSegment =
+    rawSegments.length > 0
+      ? decodeURIComponent(rawSegments[rawSegments.length - 1]) || '(Ungrouped)'
+      : null;
+  const pageTitle = lastSegment ? `E-commerce Stock › ${lastSegment}` : 'E-commerce Stock';
 
   if (!canRead) {
     return (
@@ -36,10 +42,15 @@ export default function EcommerceStockPage() {
       </Link>
 
       <PageHeader
-        title="E-commerce Stock"
-        description="Drill down into stock currently allocated to e-commerce by section, category, article, colour, and size"
+        title={pageTitle}
+        description="Drill down into stock currently allocated to e-commerce by category, article, colour, and size"
       />
-      <DrillDownView rawSegments={[]} config={CHANNEL_CONFIG.ecommerce} />
+
+      {isLeaf ? (
+        <LeafPlaceholder rawSegments={rawSegments} config={CHANNEL_CONFIG.ecommerce} />
+      ) : (
+        <DrillDownView rawSegments={rawSegments} config={CHANNEL_CONFIG.ecommerce} />
+      )}
     </div>
   );
 }

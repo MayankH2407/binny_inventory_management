@@ -48,9 +48,19 @@ const breakdownPathSchema = z.object({
 
 export type BreakdownPath = z.infer<typeof breakdownPathSchema>;
 
+/**
+ * channel scopes which child boxes are counted:
+ *   warehouse  → in-stock boxes (PACKED-in-carton + FREE loose) — the default
+ *   sample     → boxes currently allocated to samples (status = SAMPLE)
+ *   ecommerce  → boxes currently allocated to e-commerce (status = ECOMMERCE)
+ */
+export const BREAKDOWN_CHANNELS = ['warehouse', 'sample', 'ecommerce'] as const;
+export type BreakdownChannel = (typeof BREAKDOWN_CHANNELS)[number];
+
 export const inventoryBreakdownQuerySchema = z.object({
-  level: z.enum(BREAKDOWN_LEVELS),
-  path:  breakdownPathSchema.optional().default({}),
+  level:   z.enum(BREAKDOWN_LEVELS),
+  channel: z.enum(BREAKDOWN_CHANNELS).optional().default('warehouse'),
+  path:    breakdownPathSchema.optional().default({}),
 }).refine(
   (data) => {
     const required = PATH_REQUIREMENTS[data.level];
