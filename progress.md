@@ -15,7 +15,7 @@
 
 ### ▶ NEXT SESSION — RESUME HERE
 
-**🔻 MOST RECENT (2026-07-04):** article_name→UPPERCASE + SKU-serial fix **DEPLOYED to TEST & LIVE & verified** (commit `6d5dc17`, migration `20260703120001` applied both). See the "July 4, 2026" entry below. **Still pending:** the uncommitted **Dispatched-Cartons** card change (in the local working tree, restored from stash) — user to decide whether/when to ship it. The June-23 block below is older go-live context.
+**🔻 MOST RECENT (2026-07-04, later):** **duplicate-variant rejection + Dispatched-Cartons card DEPLOYED to TEST & LIVE & verified** (commits `e2110b7` + `24fbf13`; code-only, no migration). Earlier same day: article_name→UPPERCASE + SKU-serial fix (`6d5dc17`, migration `20260703120001`). See the two "July 4, 2026" entries below. **No outstanding uncommitted work.** Deferred: duplicate-row cleanup merge (TEST ~3,512 / LIVE ~397); stray `MOGLI PLUS 01\`` typo row on TEST. The June-23 block below is older go-live context.
 
 **June 23 — GO-LIVE DATA WORK on LIVE DB (no code deploy; all direct DB ops via `docker exec psql`, dry-run→commit pattern).** See the four June-23 entries below for detail. Net result on LIVE (`binnyfootwear.basiq360.com`):
 - **Real inventory migrated TEST→LIVE with identical physical barcodes:** **1031 Tracked master_cartons** (349 DISPATCHED / 682 CLOSED-or-CREATED), **56,304 child_boxes** (each a physically-pasted CB barcode), 56,304 active mappings. (Was 1129 cartons right after migration; the 98 legacy were then removed — see below.)
@@ -35,6 +35,14 @@
 6. Optional backlog: durable autoSeed self-heal for default-role perms; LIVE stale `packing:repack` in role jsonb (latent Role-Manager edit risk on live); JWT rotation; generate-page UX; dropdown distinct-endpoint; dead live-file cleanup; init.sql mount; broken seed fix. **Mobile APK on hold ≥1 month.**
 
 **Caveats:** LIVE admin creds **rotated by client** → verify live via `docker exec` greps + DB + health only. TEST admin login still default (`admin@binny.com`/`Admin@123` — autoSeed keeps it). Deploy recipes: test = [[project_deployment]], live = [[live-deployment-server]] (live needs BOTH frontends rebuilt with `--env-file .env`). Migration details in [[project_live_inventory_migration]].
+
+### July 4, 2026 (later) — 🚀 DEPLOYED to TEST & LIVE & VERIFIED: duplicate-variant rejection + "Dispatched Cartons" card. Commits `e2110b7`, `24fbf13`. Code-only, NO migration.
+
+**Duplicate-variant rejection (client-requested, root-cause fix).** After the SKU-serial fix, a create-upload for an EXISTING product would succeed with a fresh SKU → a second duplicate row (this is how the ~3,512 TEST / ~397 LIVE dupes accumulated). Now a create is rejected up front if a product with the same **section+article_name+category+colour+size** (case-insensitive) already exists. Applies to single `createProduct` (409 `Product already exists: …`) and `bulkCreateProducts` (Pass-1.5 rejects existing-in-DB + duplicate-in-file rows; genuinely new sizes still create). Localhost-verified: single dup→409, new size→201; bulk with existing+new+in-file-dup → "2 created, 2 errors" with correct per-row messages; case-insensitive match confirmed.
+
+**"Dispatched Cartons" card** (from earlier 2026-07-03 build): `getStockSummary` returns `totalDispatchedCartons` (COUNT master_cartons DISPATCHED); main-inventory `RootSummaryCards` 4th card relabeled "Dispatched Cartons". Sample/e-com summaries untouched.
+
+**Deploy:** committed `e2110b7` (dup-variant) + `24fbf13` (dispatched-cartons), pushed. Fresh LIVE backup `/opt/binny/backup-pre-dupvariant-20260704.sql.gz` (15M). TEST (`srv1409601`): rebuilt backend+frontend, health ok, images==`:latest`, both fixes in dist. LIVE (`binnyfootwear.basiq360.com`): synced, rebuilt `binny-backend`+BOTH frontends `--env-file .env`, health ok both URLs, all 3 images==`:latest`, both fixes in dist, caps preserved (2000). No migration. **Client action:** re-upload the failing product file — new sizes now create; re-adding an EXISTING size is now correctly REJECTED as a duplicate (use "Update via CSV" to change an existing product). Close/reopen the app for the new SW.
 
 ### July 4, 2026 — 🚀 DEPLOYED to TEST & LIVE & VERIFIED: article_name→UPPERCASE + SKU-serial-from-MAX fix. Commit `6d5dc17`; migration `20260703120001`.
 
