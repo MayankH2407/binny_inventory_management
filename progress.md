@@ -15,7 +15,7 @@
 
 ### ▶ NEXT SESSION — RESUME HERE
 
-**🔻 MOST RECENT (2026-07-03 EOD):** resume from the **"July 3, 2026 (EOD) — ⏸️ RESUME HERE TOMORROW — article_name → UPPERCASE"** entry below (built + localhost-verified, NOT committed/deployed; backups taken; first step tomorrow = get the Dispatched-Cartons coupling decision, then commit + deploy TEST→LIVE with `migrate:up`). The June-23 block below is older go-live context.
+**🔻 MOST RECENT (2026-07-04):** article_name→UPPERCASE + SKU-serial fix **DEPLOYED to TEST & LIVE & verified** (commit `6d5dc17`, migration `20260703120001` applied both). See the "July 4, 2026" entry below. **Still pending:** the uncommitted **Dispatched-Cartons** card change (in the local working tree, restored from stash) — user to decide whether/when to ship it. The June-23 block below is older go-live context.
 
 **June 23 — GO-LIVE DATA WORK on LIVE DB (no code deploy; all direct DB ops via `docker exec psql`, dry-run→commit pattern).** See the four June-23 entries below for detail. Net result on LIVE (`binnyfootwear.basiq360.com`):
 - **Real inventory migrated TEST→LIVE with identical physical barcodes:** **1031 Tracked master_cartons** (349 DISPATCHED / 682 CLOSED-or-CREATED), **56,304 child_boxes** (each a physically-pasted CB barcode), 56,304 active mappings. (Was 1129 cartons right after migration; the 98 legacy were then removed — see below.)
@@ -36,7 +36,24 @@
 
 **Caveats:** LIVE admin creds **rotated by client** → verify live via `docker exec` greps + DB + health only. TEST admin login still default (`admin@binny.com`/`Admin@123` — autoSeed keeps it). Deploy recipes: test = [[project_deployment]], live = [[live-deployment-server]] (live needs BOTH frontends rebuilt with `--env-file .env`). Migration details in [[project_live_inventory_migration]].
 
-### July 3, 2026 (EOD) — ⏸️ RESUME HERE TOMORROW — article_name → UPPERCASE: built + localhost-verified, NOT committed, NOT deployed. Production untouched.
+### July 4, 2026 — 🚀 DEPLOYED to TEST & LIVE & VERIFIED: article_name→UPPERCASE + SKU-serial-from-MAX fix. Commit `6d5dc17`; migration `20260703120001`.
+
+**Two product-catalog fixes shipped together** (Opus end-to-end; user approved deploy-both-to-live with a fresh full backup first).
+
+**New bug this session — bulk import "Duplicate SKU already exists" (screenshot `Issue 4Jul.jpeg`, client on LIVE).** Row 2/3 (Mogli Plus 03) → `HAWAII-MOGLI-PLUS-03-BOYS-09/10-MEHANDI already exists`. **Root cause:** `generateSku` (and the bulk uploader Pass-2) set the next serial = `COUNT(*)` of the (section,article,category,colour) combo + 1. Serials go **non-contiguous** whenever a product in the combo is deleted (June-24 dedup merge / go-live cleanup). The MEHANDI combo had 8 products but serials **08–15** → `COUNT(8)+1 = 09`, which is live → collision. **Fix:** serial now = **MAX existing serial in the combo + 1** (parse serial by stripping the known `SECTION-ARTICLE-CATEGORY-` prefix + `-COLOUR` suffix), in both `skuGenerator.ts generateSku` and `product.service.ts` bulk Pass-2. Also converted 6 stray **NUL** key-separator bytes (`${r.s}\0${r.a}…`) in Pass-2 to `|` (plain ASCII; diff = only those 2 lines; behaviour identical). Localhost-verified: created serials 01-03, hard-deleted 01 (gap), bulk-import + single-create into the gapped combo → serials **04 / 05** (max+1), 0 errors (old code would have collided on 03).
+
+**article_name → UPPERCASE** (from the 2026-07-03 work): `toUpperName()` at all 4 write paths + migration backfill + case-insensitive QR-create dropdown/colour/size lookups (belt-and-braces). Scope article_name only.
+
+**Backups (fresh, pre-deploy):** LIVE `/opt/binny/backup-pre-uppercase-skufix-20260704.sql.gz` (15M), TEST (25M), both also pulled to local scratchpad `backups/`. Plus the 2026-07-03 `backup-pre-article-name-uppercase` set + git tag `pre-article-name-uppercase`@`8b8e738` (pushed).
+
+**Deploy (localhost→TEST→LIVE):** committed `6d5dc17` + pushed. **TEST** (`srv1409601`): rebuilt backend+frontend, `migrate:up` → article_name non-uppercase 0; Mogli Plus 01-05 each single UPPER entry; SKU fix in dist. **LIVE** (`binnyfootwear.basiq360.com`): backup→sync→rebuilt `binny-backend`+BOTH `binny-frontend`&`binny-frontend-root` `--env-file .env`→`migrate:up`. Verified: health ok both URLs; all 3 images == `:latest`; article_name non-uppercase **0**; Mogli Plus 01-05 single UPPER; colliding combo now serials 08-15 so **next = 16** (not 09); caps preserved (2000). LIVE admin creds rotated → verified via DB + dist + health; **client to retry the failing bulk import** (should now succeed) and UI-spot-check Mogli Plus shows once. ⚠️ PWA: client fully close/reopen app for the new SW.
+
+**⚠️ STILL PENDING (deferred, NOT shipped):**
+- **Dispatched-Cartons** card change (`inventory.service.ts` + `InventorySummaryCards.tsx`) — restored to local working tree from stash (uncommitted), user to decide whether/when to deploy.
+- **Duplicate product rows** (same code+colour+size, split inventory) — TEST ~3,512 / LIVE ~397 — still deferred to a dedicated merge exercise. NOTE: once the client re-imports, re-adding an EXISTING size now succeeds with a fresh serial (max+1) → could add MORE duplicate rows. Worth revisiting the merge soon.
+- Stray typo row on TEST `MOGLI PLUS 01\`` (trailing backtick, 0 active — invisible; minor cleanup).
+
+### July 3, 2026 (EOD) — article_name → UPPERCASE prep (SUPERSEDED by the July 4 deploy entry above; kept for detail): built + localhost-verified.
 
 **Task:** client wants ALL product article names UPPERCASE. Fixes the QR-create bug where "Mogli Plus 01/02/03" appear twice (root cause: same article stored under two `article_name` casings — `MOGLI PLUS 01` UPPERCASE vs `Mogli Plus 01` Title Case — residue of the June-5 Title-Case going-forward-only normalization; dropdown + colour/size lookups key off the exact string, so an article shows once per casing that has active rows; "04/05" looked fine only because their uppercase copies are inactive/absent). **Scope locked with user: article_name ONLY** (NOT colour/section/article_group/category). Duplicate-row merge DEFERRED (see below).
 
