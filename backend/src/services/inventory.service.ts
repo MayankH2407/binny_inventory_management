@@ -739,6 +739,7 @@ export async function getStockSummary(): Promise<{
   totalPairsDispatched: number;
   totalChildBoxes: number;
   totalCartons: number;
+  totalDispatchedCartons: number;
   sections: number;
   articles: number;
 }> {
@@ -756,8 +757,11 @@ export async function getStockSummary(): Promise<{
   `, [CHILD_BOX_STATUS.FREE, CHILD_BOX_STATUS.PACKED, CHILD_BOX_STATUS.DISPATCHED, CHILD_BOX_STATUS.SAMPLE, CHILD_BOX_STATUS.ECOMMERCE]);
 
   const cartonResult = await query(`
-    SELECT COUNT(*) as total FROM master_cartons WHERE status IN ($1, $2)
-  `, [MASTER_CARTON_STATUS.ACTIVE, MASTER_CARTON_STATUS.CLOSED]);
+    SELECT
+      COUNT(*) FILTER (WHERE status IN ($1, $2)) as total,
+      COUNT(*) FILTER (WHERE status = $3) as dispatched
+    FROM master_cartons
+  `, [MASTER_CARTON_STATUS.ACTIVE, MASTER_CARTON_STATUS.CLOSED, MASTER_CARTON_STATUS.DISPATCHED]);
 
   const row = result.rows[0];
   return {
@@ -766,6 +770,7 @@ export async function getStockSummary(): Promise<{
     totalPairsDispatched: parseInt(row.pairs_dispatched, 10),
     totalChildBoxes: parseInt(row.total_boxes, 10),
     totalCartons: parseInt(cartonResult.rows[0].total, 10),
+    totalDispatchedCartons: parseInt(cartonResult.rows[0].dispatched, 10),
     sections: parseInt(row.sections, 10),
     articles: parseInt(row.articles, 10),
   };

@@ -17,6 +17,7 @@ interface StockSummary {
   totalPairsDispatched: number;
   totalChildBoxes: number;
   totalCartons: number;
+  totalDispatchedCartons: number;
   sections: number;
   articles: number;
 }
@@ -120,8 +121,8 @@ function RootSummaryCards() {
       iconColor: 'text-green-600',
     },
     {
-      label: 'Pairs Dispatched',
-      value: data.totalPairsDispatched,
+      label: 'Dispatched Cartons',
+      value: data.totalDispatchedCartons,
       icon: Truck,
       accent: '#6B7280',
       iconColor: 'text-gray-500',
