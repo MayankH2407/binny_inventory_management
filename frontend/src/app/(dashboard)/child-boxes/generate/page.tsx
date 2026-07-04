@@ -61,9 +61,13 @@ export default function GenerateQRPage() {
 
   // Build unique article options for the first dropdown
   const articleOptions = useMemo(() => {
+    // Dedupe case-insensitively + trimmed: the same article can exist under
+    // multiple article_name casings (e.g. "MOGLI PLUS 01" vs "Mogli Plus 01",
+    // a residue of the going-forward-only Title-Case normalization). Without
+    // this, such an article appears once per casing that has active rows.
     const seen = new Map<string, Product>();
     for (const p of products) {
-      const key = p.article_name;
+      const key = p.article_name.trim().toLowerCase();
       if (!seen.has(key)) {
         seen.set(key, p);
       }

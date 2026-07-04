@@ -28,6 +28,18 @@ function toTitleCase(value: string): string {
     .join(' ');
 }
 
+/**
+ * Uppercase a name field: trim + collapse whitespace + UPPERCASE.
+ * `article_name` is stored UPPERCASE per client requirement (2026-07-03) — this
+ * replaced the earlier Title-Case treatment, whose "going-forward-only" rollout
+ * had left the catalog split across casings and duplicated articles in the
+ * QR-create dropdown / inventory grouping. (colour/section/article_group remain
+ * Title Case; category is a fixed enum; codes are uppercased separately.)
+ */
+function toUpperName(value: string): string {
+  return value.trim().replace(/\s+/g, ' ').toUpperCase();
+}
+
 /** Resolve a category to its canonical casing (case-insensitive); undefined if not a valid category. */
 function canonicalCategory(value: string): string | undefined {
   const v = value.trim().toLowerCase();
@@ -44,7 +56,7 @@ export async function createProduct(
   input: CreateProductInput,
   createdBy: string
 ): Promise<Product> {
-  input.article_name = toTitleCase(stripHtml(input.article_name) ?? input.article_name);
+  input.article_name = toUpperName(stripHtml(input.article_name) ?? input.article_name);
   input.colour = toTitleCase(input.colour);
   input.section = toTitleCase(input.section);
   input.article_code = input.article_code.trim().toUpperCase();
@@ -203,7 +215,7 @@ export async function updateProduct(
       fields.push(`${field} = $${paramIndex++}`);
       const raw = input[field];
       if (typeof raw === 'string') {
-        if (field === 'article_name') values.push(toTitleCase(stripHtml(raw) ?? raw));
+        if (field === 'article_name') values.push(toUpperName(stripHtml(raw) ?? raw));
         else if (field === 'description') values.push(stripHtml(raw));
         else if (field === 'colour' || field === 'section' || field === 'article_group') values.push(toTitleCase(raw));
         else if (field === 'article_code') values.push(raw.trim().toUpperCase());
@@ -264,8 +276,11 @@ export async function getSiblingProducts(productId: string): Promise<Product[]> 
   }
   const { article_name, colour } = productResult.rows[0];
 
+  // Case-insensitive match on article_name (belt-and-braces: article_name is
+  // now stored UPPERCASE, but this guards against any stray casing so sizes
+  // aggregate across the same article; front-end dedupes by size).
   const result = await query(
-    `SELECT * FROM products WHERE article_name = $1 AND colour = $2 AND is_active = true ORDER BY size`,
+    `SELECT * FROM products WHERE UPPER(article_name) = UPPER($1) AND colour = $2 AND is_active = true ORDER BY size`,
     [article_name, colour]
   );
   return result.rows;
@@ -278,10 +293,13 @@ export async function getColoursByProduct(productId: string): Promise<{ colour: 
   }
   const { article_name } = productResult.rows[0];
 
+  // Match article_name case-insensitively (belt-and-braces: article_name is now
+  // stored UPPERCASE, but this guards against any stray casing so an article
+  // returns ALL its colours regardless of casing). See child-boxes/generate.
   const result = await query(
     `SELECT DISTINCT ON (colour) colour, id as product_id
      FROM products
-     WHERE article_name = $1 AND is_active = true
+     WHERE UPPER(article_name) = UPPER($1) AND is_active = true
      ORDER BY colour`,
     [article_name]
   );
@@ -319,7 +337,7 @@ export async function bulkCreateProductsBySizeRange(
   input: BulkCreateBySizeRangeInput,
   createdBy: string
 ): Promise<Product[]> {
-  const articleName = toTitleCase(stripHtml(input.article_name) ?? input.article_name);
+  const articleName = toUpperName(stripHtml(input.article_name) ?? input.article_name);
   const description = input.description ? stripHtml(input.description) : input.description;
   const colour = toTitleCase(input.colour);
   const section = toTitleCase(input.section);
@@ -490,7 +508,7 @@ export async function bulkCreateProducts(
     }
 
     // Name fields stored in uniform Title Case; codes uppercased.
-    const cleanName = toTitleCase(stripHtml(row.article_name.trim()) ?? row.article_name.trim());
+    const cleanName = toUpperName(stripHtml(row.article_name.trim()) ?? row.article_name.trim());
     const cleanColour = toTitleCase(row.colour.trim());
     const cleanSection = toTitleCase(row.section.trim());
     valid.push({
@@ -518,26 +536,35 @@ export async function bulkCreateProducts(
   }
 
   // ── Pass 2: assign SKU serials per combo from ONE grouped count query ──────
-  // Mirrors generateSku: SKU = SECTION-ARTICLE-CATEGORY-serial-COLOUR, serial = existing
-  // count for the (section,article,category,colour) combo + running index within this batch.
-  const countResult = await query(
+  // Mirrors generateSku: SKU = SECTION-ARTICLE-CATEGORY-serial-COLOUR.
+  // Next serial per combo = MAX existing serial + running index (NOT COUNT):
+  // serials go non-contiguous once any product in the combo is deleted, so
+  // COUNT+1 can collide with a live SKU (the duplicate-SKU bulk-import error).
+  // Parse the serial by stripping the known prefix/suffix (safe despite hyphens).
+  const skusResult = await query(
     `SELECT UPPER(REPLACE(section, ' ', '-')) AS s,
             UPPER(REPLACE(article_name, ' ', '-')) AS a,
             UPPER(REPLACE(category, ' ', '-')) AS c,
             UPPER(REPLACE(colour, ' ', '-')) AS col,
-            COUNT(*)::int AS n
-     FROM products
-     GROUP BY 1, 2, 3, 4`
+            sku
+     FROM products`
   );
-  const comboCount = new Map<string, number>();
-  for (const r of countResult.rows) {
-    comboCount.set(`${r.s} ${r.a} ${r.c} ${r.col}`, r.n);
+  const comboMaxSerial = new Map<string, number>();
+  for (const r of skusResult.rows) {
+    const key = `${r.s}|${r.a}|${r.c}|${r.col}`;
+    const prefix = `${r.s}-${r.a}-${r.c}-`;
+    const suffix = `-${r.col}`;
+    const sku = r.sku as string;
+    if (sku.startsWith(prefix) && sku.endsWith(suffix)) {
+      const n = parseInt(sku.slice(prefix.length, sku.length - suffix.length), 10);
+      if (!isNaN(n) && n > (comboMaxSerial.get(key) ?? 0)) comboMaxSerial.set(key, n);
+    }
   }
 
   const running = new Map<string, number>();
   for (const v of valid) {
-    const key = `${v.normSection} ${v.normArticle} ${v.normCategory} ${v.normColour}`;
-    const base = running.get(key) ?? (comboCount.get(key) ?? 0);
+    const key = `${v.normSection}|${v.normArticle}|${v.normCategory}|${v.normColour}`;
+    const base = running.get(key) ?? (comboMaxSerial.get(key) ?? 0);
     const serial = base + 1;
     running.set(key, serial);
     v.sku = `${v.normSection}-${v.normArticle}-${v.normCategory}-${String(serial).padStart(2, '0')}-${v.normColour}`;
