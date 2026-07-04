@@ -62,6 +62,24 @@ export async function createProduct(
   input.article_code = input.article_code.trim().toUpperCase();
   if (input.article_group) input.article_group = toTitleCase(input.article_group);
   if (input.description) input.description = stripHtml(input.description);
+
+  // Reject an exact-variant duplicate up front: identity = section + article +
+  // category + colour + size (case-insensitive). Prevents adding a second row
+  // for a product that already exists (which would only differ by SKU serial).
+  const variantDup = await query(
+    `SELECT 1 FROM products
+     WHERE UPPER(REPLACE(section, ' ', '-'))      = UPPER(REPLACE($1, ' ', '-'))
+       AND UPPER(REPLACE(article_name, ' ', '-')) = UPPER(REPLACE($2, ' ', '-'))
+       AND UPPER(REPLACE(category, ' ', '-'))     = UPPER(REPLACE($3, ' ', '-'))
+       AND UPPER(REPLACE(colour, ' ', '-'))       = UPPER(REPLACE($4, ' ', '-'))
+       AND UPPER(size)                            = UPPER($5)
+     LIMIT 1`,
+    [input.section, input.article_name, input.category, input.colour, input.size]
+  );
+  if (variantDup.rows.length > 0) {
+    throw new ConflictError(`Product already exists: ${input.article_name} / ${input.colour} / size ${input.size}`);
+  }
+
   const sku = await generateSku(input.section, input.article_name, input.category, input.colour);
 
   const existing = await query('SELECT id FROM products WHERE sku = $1', [sku]);
@@ -546,12 +564,18 @@ export async function bulkCreateProducts(
             UPPER(REPLACE(article_name, ' ', '-')) AS a,
             UPPER(REPLACE(category, ' ', '-')) AS c,
             UPPER(REPLACE(colour, ' ', '-')) AS col,
+            UPPER(size) AS sz,
             sku
      FROM products`
   );
   const comboMaxSerial = new Map<string, number>();
+  // Identity of an existing product variant = section|article|category|colour|size
+  // (case-insensitive). Used below to REJECT rows that duplicate a product that
+  // already exists, instead of minting a new SKU for the same variant.
+  const existingVariants = new Set<string>();
   for (const r of skusResult.rows) {
     const key = `${r.s}|${r.a}|${r.c}|${r.col}`;
+    existingVariants.add(`${key}|${r.sz}`);
     const prefix = `${r.s}-${r.a}-${r.c}-`;
     const suffix = `-${r.col}`;
     const sku = r.sku as string;
@@ -561,8 +585,28 @@ export async function bulkCreateProducts(
     }
   }
 
-  const running = new Map<string, number>();
+  // ── Pass 1.5: reject duplicate variants (already in DB or earlier in file) ──
+  // A create-upload must NOT silently add a second row for an existing product;
+  // that is exactly how the catalog accumulated duplicate rows. Genuinely new
+  // sizes still pass (their variant identity isn't in the set).
+  const seenVariants = new Set<string>();
+  const freshRows: ValidRow[] = [];
   for (const v of valid) {
+    const vkey = `${v.normSection}|${v.normArticle}|${v.normCategory}|${v.normColour}|${v.size.toUpperCase()}`;
+    if (existingVariants.has(vkey)) {
+      errors.push({ row: v.rowNum, status: 'error', article_name: v.cleanName, error: `Product already exists: ${v.cleanName} / ${v.cleanColour} / size ${v.size}` });
+      continue;
+    }
+    if (seenVariants.has(vkey)) {
+      errors.push({ row: v.rowNum, status: 'error', article_name: v.cleanName, error: `Duplicate row in file: ${v.cleanName} / ${v.cleanColour} / size ${v.size}` });
+      continue;
+    }
+    seenVariants.add(vkey);
+    freshRows.push(v);
+  }
+
+  const running = new Map<string, number>();
+  for (const v of freshRows) {
     const key = `${v.normSection}|${v.normArticle}|${v.normCategory}|${v.normColour}`;
     const base = running.get(key) ?? (comboMaxSerial.get(key) ?? 0);
     const serial = base + 1;
@@ -573,13 +617,13 @@ export async function bulkCreateProducts(
   // ── Pass 3: dedup candidate SKUs against the DB (one query) + intra-batch ──
   const existingResult = await query(
     'SELECT sku FROM products WHERE sku = ANY($1::text[])',
-    [valid.map((v) => v.sku)]
+    [freshRows.map((v) => v.sku)]
   );
   const takenSkus = new Set<string>(existingResult.rows.map((r) => r.sku));
 
   const toInsert: ValidRow[] = [];
   const seenInBatch = new Set<string>();
-  for (const v of valid) {
+  for (const v of freshRows) {
     if (takenSkus.has(v.sku) || seenInBatch.has(v.sku)) {
       errors.push({ row: v.rowNum, status: 'error', sku: v.sku, article_name: v.cleanName, error: `Duplicate SKU: ${v.sku} already exists` });
       continue;
