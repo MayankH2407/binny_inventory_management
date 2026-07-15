@@ -41,4 +41,13 @@ export const dispatchService = {
     const response = await api.get<{ count: number }>('/dispatches/today/count');
     return response.data.count;
   },
+
+  // Itemized dispatch-details CSV for a date range (all source types).
+  async exportCsv(params?: { from_date?: string; to_date?: string }): Promise<Blob> {
+    const response = await api.get('/dispatches/export', {
+      params,
+      responseType: 'blob',
+    });
+    return response.data as Blob;
+  },
 };

@@ -1,6 +1,7 @@
 import { Response, NextFunction } from 'express';
 import { AuthenticatedRequest } from '../types/auth.types';
 import * as dispatchService from '../services/dispatch.service';
+import * as csvExportService from '../services/csvExport.service';
 import { sendSuccess, sendPaginated } from '../utils/response';
 
 export async function createDispatch(
@@ -32,6 +33,22 @@ export async function getDispatches(
       limit || 25
     );
     sendPaginated(res, result.data, result.total, page || 1, limit || 25, 'Dispatches retrieved successfully');
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function exportDispatches(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const { from_date, to_date } = req.query as { from_date?: string; to_date?: string };
+    const csv = await csvExportService.exportDispatchCSV(from_date, to_date);
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="dispatch-report.csv"');
+    res.send(csv);
   } catch (error) {
     next(error);
   }

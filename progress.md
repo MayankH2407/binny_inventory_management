@@ -15,7 +15,7 @@
 
 ### ▶ NEXT SESSION — RESUME HERE
 
-**🔻 MOST RECENT (2026-07-04, later):** **duplicate-variant rejection + Dispatched-Cartons card DEPLOYED to TEST & LIVE & verified** (commits `e2110b7` + `24fbf13`; code-only, no migration). Earlier same day: article_name→UPPERCASE + SKU-serial fix (`6d5dc17`, migration `20260703120001`). See the two "July 4, 2026" entries below. **No outstanding uncommitted work.** Deferred: duplicate-row cleanup merge (TEST ~3,512 / LIVE ~397); stray `MOGLI PLUS 01\`` typo row on TEST. The June-23 block below is older go-live context.
+**🔻 MOST RECENT (2026-07-15):** **Dispatch CSV report — date-range export enriched + added to Dispatch module. Built + localhost-verified; NOT committed, NOT deployed.** See the "July 15, 2026" entry below. Prior most-recent (2026-07-04, later): duplicate-variant rejection + Dispatched-Cartons card DEPLOYED to TEST & LIVE & verified (commits `e2110b7` + `24fbf13`; code-only, no migration). Earlier same day: article_name→UPPERCASE + SKU-serial fix (`6d5dc17`, migration `20260703120001`). Deferred: duplicate-row cleanup merge (TEST ~3,512 / LIVE ~397); stray `MOGLI PLUS 01\`` typo row on TEST. The June-23 block below is older go-live context.
 
 **June 23 — GO-LIVE DATA WORK on LIVE DB (no code deploy; all direct DB ops via `docker exec psql`, dry-run→commit pattern).** See the four June-23 entries below for detail. Net result on LIVE (`binnyfootwear.basiq360.com`):
 - **Real inventory migrated TEST→LIVE with identical physical barcodes:** **1031 Tracked master_cartons** (349 DISPATCHED / 682 CLOSED-or-CREATED), **56,304 child_boxes** (each a physically-pasted CB barcode), 56,304 active mappings. (Was 1129 cartons right after migration; the 98 legacy were then removed — see below.)
@@ -35,6 +35,35 @@
 6. Optional backlog: durable autoSeed self-heal for default-role perms; LIVE stale `packing:repack` in role jsonb (latent Role-Manager edit risk on live); JWT rotation; generate-page UX; dropdown distinct-endpoint; dead live-file cleanup; init.sql mount; broken seed fix. **Mobile APK on hold ≥1 month.**
 
 **Caveats:** LIVE admin creds **rotated by client** → verify live via `docker exec` greps + DB + health only. TEST admin login still default (`admin@binny.com`/`Admin@123` — autoSeed keeps it). Deploy recipes: test = [[project_deployment]], live = [[live-deployment-server]] (live needs BOTH frontends rebuilt with `--env-file .env`). Migration details in [[project_live_inventory_migration]].
+
+### July 15, 2026 — 📊 Dispatch CSV report: date-range export enriched (all 3 sources + more columns) and surfaced in the Dispatch module. Built + localhost-verified; NOT committed, NOT deployed.
+
+**Client ask (yesterday's meeting):** in the Dispatch module, a CSV export of dispatch details downloadable for a selected date range; plan the report columns.
+
+**Finding:** a date-range dispatch CSV export already existed on **Reports → Dispatch tab** (`/reports/dispatch-summary/export`, `csvExport.service.ts exportDispatchCSV`) but had two gaps: (1) inner-`JOIN master_cartons` → **sample & e-commerce dispatches silently excluded**; (2) showed Boxes only, no Pairs/value, few columns (14).
+
+**Decisions (via questions, user picked all "Recommended"):** (a) add Export CSV to the Dispatch module too (keep Reports tab); (b) itemized granularity (one row per dispatch × article/colour/size); (c) include all 3 sources.
+
+**Built:**
+- Backend `csvExport.service.ts exportDispatchCSV` — **rewritten**: itemized via a LATERAL UNION over the 3 mapping tables (carton_child / sample_box / ecommerce_box, mirrors `getDispatches` roll-up), GROUP BY dispatch/source/customer/user/product PKs. **23 columns:** Dispatch Date, Source Type, Source Barcode, Customer, GSTIN, Destination, Contact Person, Contact Mobile, Section, Article, Article Code, Colour, Size, HSN Code, Boxes, Pairs (`SUM(child_boxes.quantity)`), MRP, Total Value (pairs×MRP), Vehicle, LR Number, Transport Details, Dispatched By, Notes. (Reports tab now gets the richer report for free — same function.)
+- New endpoint `GET /dispatches/export?from_date=&to_date=` (`dispatch.controller.exportDispatches` reusing the service; route placed before `/:id`; authenticate-only, matching the list GET — so dispatch staff w/o `reports:view_all` can export).
+- Frontend `dispatch.service.ts exportCsv()` (blob); `/dispatches` page — **Export CSV** button in the header, honours the existing From/To date filters, downloads `dispatch-report-<today>.csv`.
+
+**Verified localhost (Docker up):** backend+frontend `tsc` clean (only pre-existing `e2e/*.spec.ts` errors). `GET /dispatches/export` → 200 `text/csv`, 23-col header exact. Full export **148 itemized rows = Master Carton 123 + Sample 14 + E-commerce 11** (proves samples/e-com now included). Date filter `2030` → 0 rows. Pairs/Total Value correct (e.g. 3×₹299=₹897).
+
+**NOT committed, NOT deployed.** Deploy is frontend-touching → follows localhost→TEST→UAT→LIVE; no migration. Next: commit, then deploy per user go-ahead.
+
+### July 14, 2026 — 🎨 DESIGN PROTOTYPE (not production): Order Management prototype updated per client observations. Doc-only, no app code / no deploy.
+
+Client returned hand-marked observations (`docs/prototypes/observations.jpeg`) on the Orders prototype. Updated `docs/prototypes/order-management-prototype.html` to embody all of them:
+- **Total quantity in cartons** — list + summary + detail now show cartons (with pairs as subtext); added per-article `ppc` (pairs-per-carton) to the mock catalog.
+- **Section-wise order placing** — each catalog article carries a section + rack location; New Order summary auto-groups lines into a **"Section / Location separation (auto)"** block.
+- **New order additions** — "Attach Order Screenshot" dropzone; **Item Group** filter on each line (Ladies/Gents/Kids/School) alongside item; **Remarks on every line**; Submit → **Print Order** option.
+- **3-stage status timeline (redefined)** — Confirmed (order added) → Dispatched (cartons scanned from sections) → Delivered (transporter builty/invoice/vehicle/date). Replaced the old 6-stage Pending…Delivered flow; seed orders + stat cards remapped.
+- **Dispatch workflow** — references the order number, scan-to-dispatch framing, **Mark Fully Complete** vs tick individual articles (partial dispatch leaves rest Pending), **Print Dispatch Details** (section-separated note).
+- **Delivery** — builty / invoice / vehicle / date form; shown read-only once delivered.
+- **Order Dispatch Accuracy** card — ordered articles vs dispatched articles → accuracy % (feeds the eventual Reports analysis).
+Verified by rendering all three screens headless (Chrome) — list, new-order, dispatched-detail (50% partial) and delivered-detail (100%) all correct.
 
 ### July 4, 2026 (later) — 🚀 DEPLOYED to TEST & LIVE & VERIFIED: duplicate-variant rejection + "Dispatched Cartons" card. Commits `e2110b7`, `24fbf13`. Code-only, NO migration.
 

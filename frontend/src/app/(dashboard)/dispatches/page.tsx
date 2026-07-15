@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { Search, ClipboardList, ChevronDown, ChevronUp, Truck, User, Package, FlaskConical, ShoppingCart } from 'lucide-react';
+import { Search, ClipboardList, ChevronDown, ChevronUp, Truck, User, Package, FlaskConical, ShoppingCart, Download } from 'lucide-react';
+import toast from 'react-hot-toast';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import Select from '@/components/ui/Select';
@@ -125,15 +126,53 @@ export default function DispatchesPage() {
     setExpandedCustomer((prev) => (prev === key ? null : key));
   };
 
+  const [isExporting, setIsExporting] = useState(false);
+
+  // Download the itemized dispatch-details CSV honouring the current From/To
+  // date filters (leaving them blank exports all dispatches).
+  const handleExport = async () => {
+    setIsExporting(true);
+    try {
+      const blob = await dispatchService.exportCsv({
+        from_date: fromDate || undefined,
+        to_date: toDate || undefined,
+      });
+      const url = window.URL.createObjectURL(new Blob([blob], { type: 'text/csv' }));
+      const a = document.createElement('a');
+      const today = new Date().toISOString().slice(0, 10);
+      a.href = url;
+      a.download = `dispatch-report-${today}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      toast.success('Dispatch report exported');
+    } catch {
+      toast.error('Export failed');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   return (
     <div>
       <PageHeader
         title="Dispatches"
         description="View dispatch records grouped by customer"
         action={
-          <Link href={ROUTES.DISPATCH}>
-            <Button leftIcon={<Truck className="h-4 w-4" />}>Dispatch Carton</Button>
-          </Link>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              leftIcon={<Download className="h-4 w-4" />}
+              onClick={handleExport}
+              isLoading={isExporting}
+            >
+              Export CSV
+            </Button>
+            <Link href={ROUTES.DISPATCH}>
+              <Button leftIcon={<Truck className="h-4 w-4" />}>Dispatch Carton</Button>
+            </Link>
+          </div>
         }
       />
 

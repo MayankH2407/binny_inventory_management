@@ -26,6 +26,15 @@ router.get(
   dispatchController.getDispatches
 );
 
+// CSV export of dispatch details for a date range. Placed before '/:id' so
+// 'export' is not captured as an id. Gated the same as the list (authenticate
+// only) so dispatch staff without reports:view_all can still export.
+router.get(
+  '/export',
+  validate({ query: dispatchListQuerySchema }),
+  dispatchController.exportDispatches
+);
+
 router.get(
   '/:id',
   validate({ params: dispatchIdParamSchema }),

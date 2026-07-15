@@ -52,53 +52,87 @@ export async function exportDispatchCSV(fromDate?: string, toDate?: string): Pro
 
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
+  // Itemized: one row per dispatch record × product variant, across ALL three
+  // dispatch sources (master carton / sample / e-commerce). The source's child
+  // boxes are gathered via a LATERAL UNION over the three mapping tables — mirrors
+  // the roll-up used by getDispatches() so the report matches the list.
   const result = await query(`
     SELECT
-      COALESCE(c.firm_name, 'Walk-in / No Customer') as customer_name,
       dr.dispatch_date,
+      CASE
+        WHEN dr.master_carton_id IS NOT NULL THEN 'Master Carton'
+        WHEN dr.sample_record_id IS NOT NULL THEN 'Sample'
+        WHEN dr.ecommerce_record_id IS NOT NULL THEN 'E-commerce'
+        ELSE ''
+      END AS source_type,
+      COALESCE(mc.carton_barcode, sr.sample_barcode, er.ecommerce_barcode) AS source_barcode,
+      COALESCE(c.firm_name, 'Walk-in / No Customer') AS customer_name,
+      c.gstin,
       dr.destination,
-      mc.carton_barcode,
-      mc.child_count,
+      c.contact_person_name,
+      c.contact_person_mobile,
+      p.section,
       p.article_name,
+      p.article_code,
       p.colour,
       p.size,
+      p.hsn_code,
+      COUNT(DISTINCT src.child_box_id) AS box_count,
+      COALESCE(SUM(cb.quantity), 0) AS pairs,
       p.mrp,
-      COUNT(DISTINCT ccm.child_box_id) as box_count,
+      COALESCE(SUM(cb.quantity), 0) * p.mrp AS total_value,
       dr.vehicle_number,
       dr.lr_number,
       dr.transport_details,
-      u.name as dispatched_by_name,
+      u.name AS dispatched_by_name,
       dr.notes
     FROM dispatch_records dr
-    JOIN master_cartons mc ON mc.id = dr.master_carton_id
-    JOIN users u ON u.id = dr.dispatched_by
+    LEFT JOIN master_cartons mc ON mc.id = dr.master_carton_id
+    LEFT JOIN sample_records sr ON sr.id = dr.sample_record_id
+    LEFT JOIN ecommerce_records er ON er.id = dr.ecommerce_record_id
     LEFT JOIN customers c ON c.id = dr.customer_id
-    LEFT JOIN carton_child_mapping ccm ON ccm.master_carton_id = mc.id
-    LEFT JOIN child_boxes cb ON cb.id = ccm.child_box_id
-    LEFT JOIN products p ON p.id = cb.product_id
+    JOIN users u ON u.id = dr.dispatched_by
+    JOIN LATERAL (
+      SELECT ccm.child_box_id FROM carton_child_mapping ccm WHERE ccm.master_carton_id = dr.master_carton_id
+      UNION ALL
+      SELECT sbm.child_box_id FROM sample_box_mapping sbm WHERE sbm.sample_record_id = dr.sample_record_id AND sbm.is_active = true
+      UNION ALL
+      SELECT ebm.child_box_id FROM ecommerce_box_mapping ebm WHERE ebm.ecommerce_record_id = dr.ecommerce_record_id AND ebm.is_active = true
+    ) src ON true
+    JOIN child_boxes cb ON cb.id = src.child_box_id
+    JOIN products p ON p.id = cb.product_id
     ${whereClause}
-    GROUP BY c.firm_name, dr.dispatch_date, dr.destination, mc.carton_barcode,
-             mc.child_count, p.article_name, p.colour, p.size, p.mrp,
-             dr.vehicle_number, dr.lr_number, dr.transport_details, u.name, dr.notes
-    ORDER BY c.firm_name, dr.dispatch_date DESC, mc.carton_barcode
+    GROUP BY dr.id, mc.id, sr.id, er.id, c.id, u.id, p.id
+    ORDER BY customer_name, dr.dispatch_date DESC, source_barcode, p.article_name, p.colour, p.size
   `, values);
 
   const headers = [
-    'Customer', 'Dispatch Date', 'Destination', 'Carton Barcode', 'Boxes',
-    'Article', 'Colour', 'Size', 'MRP',
-    'Vehicle', 'LR Number', 'Transport Details', 'Dispatched By', 'Notes',
+    'Dispatch Date', 'Source Type', 'Source Barcode', 'Customer', 'GSTIN', 'Destination',
+    'Contact Person', 'Contact Mobile', 'Section', 'Article', 'Article Code', 'Colour', 'Size', 'HSN Code',
+    'Boxes', 'Pairs', 'MRP', 'Total Value', 'Vehicle', 'LR Number', 'Transport Details', 'Dispatched By', 'Notes',
   ];
 
+  const num = (v: unknown) => (v === null || v === undefined ? '' : Number(v).toFixed(2));
+
   const rows = result.rows.map((r: Record<string, unknown>) => [
+    r.dispatch_date ? new Date(r.dispatch_date as string).toISOString().slice(0, 10) : '',
+    String(r.source_type ?? ''),
+    String(r.source_barcode ?? ''),
     String(r.customer_name ?? ''),
-    String(r.dispatch_date ?? ''),
+    String(r.gstin ?? ''),
     String(r.destination ?? ''),
-    String(r.carton_barcode ?? ''),
-    String(r.child_count ?? ''),
+    String(r.contact_person_name ?? ''),
+    String(r.contact_person_mobile ?? ''),
+    String(r.section ?? ''),
     String(r.article_name ?? ''),
+    String(r.article_code ?? ''),
     String(r.colour ?? ''),
     String(r.size ?? ''),
-    String(r.mrp ?? ''),
+    String(r.hsn_code ?? ''),
+    String(r.box_count ?? ''),
+    String(r.pairs ?? ''),
+    num(r.mrp),
+    num(r.total_value),
     String(r.vehicle_number ?? ''),
     String(r.lr_number ?? ''),
     String(r.transport_details ?? ''),
