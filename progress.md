@@ -15,7 +15,7 @@
 
 ### ▶ NEXT SESSION — RESUME HERE
 
-**🔻 MOST RECENT (2026-07-15):** **Dispatch CSV report — date-range export enriched + added to Dispatch module. Built + localhost-verified; NOT committed, NOT deployed.** See the "July 15, 2026" entry below. Prior most-recent (2026-07-04, later): duplicate-variant rejection + Dispatched-Cartons card DEPLOYED to TEST & LIVE & verified (commits `e2110b7` + `24fbf13`; code-only, no migration). Earlier same day: article_name→UPPERCASE + SKU-serial fix (`6d5dc17`, migration `20260703120001`). Deferred: duplicate-row cleanup merge (TEST ~3,512 / LIVE ~397); stray `MOGLI PLUS 01\`` typo row on TEST. The June-23 block below is older go-live context.
+**🔻 MOST RECENT (2026-07-15):** **Dispatch CSV report — date-range export enriched + added to Dispatch module. 🚀 DEPLOYED STRAIGHT TO LIVE & verified** (commit `05177b0`; code-only, NO migration). ⚠️ Per explicit user override, TEST + client-UAT were SKIPPED this once. See the "July 15, 2026" entry below. Prior most-recent (2026-07-04, later): duplicate-variant rejection + Dispatched-Cartons card DEPLOYED to TEST & LIVE & verified (commits `e2110b7` + `24fbf13`; code-only, no migration). Earlier same day: article_name→UPPERCASE + SKU-serial fix (`6d5dc17`, migration `20260703120001`). Deferred: duplicate-row cleanup merge (TEST ~3,512 / LIVE ~397); stray `MOGLI PLUS 01\`` typo row on TEST. The June-23 block below is older go-live context.
 
 **June 23 — GO-LIVE DATA WORK on LIVE DB (no code deploy; all direct DB ops via `docker exec psql`, dry-run→commit pattern).** See the four June-23 entries below for detail. Net result on LIVE (`binnyfootwear.basiq360.com`):
 - **Real inventory migrated TEST→LIVE with identical physical barcodes:** **1031 Tracked master_cartons** (349 DISPATCHED / 682 CLOSED-or-CREATED), **56,304 child_boxes** (each a physically-pasted CB barcode), 56,304 active mappings. (Was 1129 cartons right after migration; the 98 legacy were then removed — see below.)
@@ -51,7 +51,14 @@
 
 **Verified localhost (Docker up):** backend+frontend `tsc` clean (only pre-existing `e2e/*.spec.ts` errors). `GET /dispatches/export` → 200 `text/csv`, 23-col header exact. Full export **148 itemized rows = Master Carton 123 + Sample 14 + E-commerce 11** (proves samples/e-com now included). Date filter `2030` → 0 rows. Pairs/Total Value correct (e.g. 3×₹299=₹897).
 
-**NOT committed, NOT deployed.** Deploy is frontend-touching → follows localhost→TEST→UAT→LIVE; no migration. Next: commit, then deploy per user go-ahead.
+**🚀 DEPLOYED STRAIGHT TO LIVE (2026-07-15) & verified. Commit `05177b0`. Code-only, NO migration.**
+- **Scope isolation (important):** the working tree also holds unrelated, un-deployed prior-session work (product.* controller/schema/routes/service, child-boxes/*, dispatch/page.tsx create, reports/page.tsx, samples/create, new `SearchableSelect.tsx`, docs/*). To avoid shipping any of it, committed ONLY the 6 dispatch-report files and **deployed via `git archive HEAD`** (committed tree only) instead of tarring the dirty working tree. Confirmed `git diff --stat 24fbf13(LIVE) HEAD` = exactly the 5 src files; server grep confirmed `SearchableSelect.tsx` absent post-sync.
+- **⚠️ Workflow override:** user explicitly chose "deploy straight to LIVE now" — TEST + client-UAT SKIPPED (normally mandatory per [[feedback_deployment_workflow]]). Low-risk (code-only, localhost-verified) but noted.
+- **Backup/baseline:** git tag `pre-dispatch-csv-export-20260715` @ pre-commit HEAD (pushed); LIVE `pg_dump` gzip `/opt/binny/backup-pre-dispatch-report-20260715.sql.gz` (39M, integrity OK) also pulled to local scratchpad `backups/`.
+- **Deploy:** `git archive HEAD … | ssh … "rm -rf backend/src frontend/src && tar xf -"`; rebuilt `binny-backend` + BOTH `binny-frontend` & `binny-frontend-root` `--env-file .env` (detached to `/tmp/binny-build-20260715.log`; host calm, load 0.37). `up -d` waited on backend health then started frontends.
+- **Verified:** all 3 `:latest` images fresh (3–5 min); all 3 running containers' image IDs == `:latest` (no stale-image trap); backend `dist` has `exportDispatches`; BOTH frontends' `.next/static` contain the "Export CSV" string; health 200 on `binnyfootwear.basiq360.com` + hstgr fallback. LIVE admin creds rotated → could NOT drive the authed UI from here.
+- **CLIENT ACTION:** UI click-test on LIVE — open Dispatches, pick a From/To range, click **Export CSV**; confirm the sheet has the new columns (Source Type, GSTIN, HSN, Pairs, Total Value…) and includes sample + e-commerce dispatches. PWA: fully close/reopen the app for the new service worker or the button may not appear (cached shell).
+- **Reports → Dispatch tab** inherits the same enriched report (shared service function) automatically.
 
 ### July 14, 2026 — 🎨 DESIGN PROTOTYPE (not production): Order Management prototype updated per client observations. Doc-only, no app code / no deploy.
 
