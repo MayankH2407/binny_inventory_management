@@ -4,6 +4,7 @@ import { ECOMMERCE_STATUS, MASTER_CARTON_STATUS, CHILD_BOX_STATUS, TRANSACTION_T
 import { generateUniqueBarcode } from '../utils/barcodeGenerator';
 import { NotFoundError, BadRequestError } from '../utils/errors';
 import { createAuditLog } from './auditLog.service';
+import { assertCartonAllocatable } from './sample.service';
 import { CreateEcommerceInput, AddBoxToEcommerceInput, RemoveBoxFromEcommerceInput, EcommerceListQuery } from '../models/schemas/ecommerce.schema';
 import { logger } from '../utils/logger';
 
@@ -17,8 +18,9 @@ export async function createEcommerce(
   const id = uuidv4();
   const ecommerceBarcode = await generateUniqueBarcode('EC');
   const barcodes = input.child_box_barcodes || [];
+  const cartonBarcodes = input.carton_barcodes || [];
 
-  if (barcodes.length > 0) {
+  if (barcodes.length > 0 || cartonBarcodes.length > 0) {
     const client = await getClient();
     try {
       await client.query('BEGIN');
@@ -93,11 +95,51 @@ export async function createEcommerce(
         mappedCount++;
       }
 
-      const newStatus = mappedCount > 0 ? ECOMMERCE_STATUS.ACTIVE : ECOMMERCE_STATUS.CREATED;
+      // Whole-carton allocations — carton stays intact (no unpack, no box status change).
+      let cartonBoxesAdded = 0;
+      for (const cartonBarcode of cartonBarcodes) {
+        const mcResult = await client.query(
+          'SELECT * FROM master_cartons WHERE carton_barcode = UPPER($1) FOR UPDATE',
+          [cartonBarcode]
+        );
+        if (mcResult.rows.length === 0) {
+          throw new NotFoundError(`No master carton found with barcode ${cartonBarcode}`);
+        }
+        const carton = mcResult.rows[0];
+        if (carton.status === MASTER_CARTON_STATUS.DISPATCHED) {
+          throw new BadRequestError(`Master carton ${carton.carton_barcode} is DISPATCHED and cannot be added to an e-commerce record`);
+        }
+        if (carton.child_count === 0) {
+          throw new BadRequestError(`Master carton ${carton.carton_barcode} is empty and cannot be added to an e-commerce record`);
+        }
+
+        await assertCartonAllocatable(client, carton.id, carton.carton_barcode);
+
+        await client.query(
+          `INSERT INTO ecommerce_carton_mapping (ecommerce_record_id, master_carton_id, mapped_by)
+           VALUES ($1, $2, $3)`,
+          [id, carton.id, createdBy]
+        );
+
+        await client.query(
+          `INSERT INTO inventory_transactions (transaction_type, master_carton_id, performed_by, notes, metadata)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [
+            TRANSACTION_TYPES.CARTON_ECOMMERCED, carton.id, createdBy,
+            `Carton ${carton.carton_barcode} (intact, ${carton.child_count} boxes) added to e-commerce record ${ecommerceBarcode} at creation`,
+            JSON.stringify({ ecommerce_record_id: id, master_carton_id: carton.id, child_count: carton.child_count }),
+          ]
+        );
+
+        cartonBoxesAdded += carton.child_count;
+      }
+
+      const totalChildCount = mappedCount + cartonBoxesAdded;
+      const newStatus = totalChildCount > 0 ? ECOMMERCE_STATUS.ACTIVE : ECOMMERCE_STATUS.CREATED;
       const updatedResult = await client.query(
         `UPDATE ecommerce_records SET child_count = $1, status = $2, updated_at = NOW()
          WHERE id = $3 RETURNING *`,
-        [mappedCount, newStatus, id]
+        [totalChildCount, newStatus, id]
       );
 
       await client.query('COMMIT');
@@ -107,10 +149,10 @@ export async function createEcommerce(
         action: 'CREATE_ECOMMERCE',
         entityType: 'ecommerce_record',
         entityId: id,
-        newValues: { ecommerce_barcode: ecommerceBarcode, child_box_barcodes: barcodes },
+        newValues: { ecommerce_barcode: ecommerceBarcode, child_box_barcodes: barcodes, carton_barcodes: cartonBarcodes },
       });
 
-      logger.info(`E-commerce record created: ${ecommerceBarcode} with ${mappedCount} child boxes`);
+      logger.info(`E-commerce record created: ${ecommerceBarcode} with ${mappedCount} child boxes + ${cartonBoxesAdded} carton boxes`);
       return { ...updatedResult.rows[0], qr_barcode: ecommerceBarcode };
     } catch (error) {
       await client.query('ROLLBACK');
@@ -210,10 +252,17 @@ export async function getEcommerceRecords(
          string_agg(DISTINCT p.colour, ', ') as colour_summary,
          string_agg(DISTINCT p.size, ', ') as size_summary,
          MIN(p.mrp) as mrp_summary
-       FROM ecommerce_box_mapping ebm
-       JOIN child_boxes cb ON cb.id = ebm.child_box_id
+       FROM (
+         SELECT cb.id FROM ecommerce_box_mapping ebm JOIN child_boxes cb ON cb.id = ebm.child_box_id
+         WHERE ebm.ecommerce_record_id = er.id AND ebm.is_active = true
+         UNION ALL
+         SELECT cb.id FROM ecommerce_carton_mapping ecm
+         JOIN carton_child_mapping ccm ON ccm.master_carton_id = ecm.master_carton_id AND ccm.is_active = true
+         JOIN child_boxes cb ON cb.id = ccm.child_box_id
+         WHERE ecm.ecommerce_record_id = er.id AND ecm.is_active = true
+       ) src_boxes
+       JOIN child_boxes cb ON cb.id = src_boxes.id
        JOIN products p ON p.id = cb.product_id
-       WHERE ebm.ecommerce_record_id = er.id AND ebm.is_active = true
      ) ps ON true
      ${whereClause}
      ORDER BY er.created_at DESC, er.id
@@ -263,14 +312,38 @@ export async function getEcommerceSummary(): Promise<EcommerceSummary> {
 // getEcommerceChildren
 // ---------------------------------------------------------------------------
 export async function getEcommerceChildren(ecommerceId: string): Promise<Record<string, unknown>[]> {
+  // Union loose boxes (ecommerce_box_mapping) with boxes reached through whole-carton
+  // allocations (ecommerce_carton_mapping -> carton_child_mapping). Carton-sourced boxes
+  // stay PACKED (the carton is never emptied).
   const result = await query(
-    `SELECT ebm.*, cb.barcode, cb.status, cb.quantity,
-            p.article_name, p.article_code, p.sku, p.size, p.colour, p.mrp
+    `SELECT ebm.id, ebm.ecommerce_record_id, ebm.child_box_id, ebm.is_active,
+            ebm.mapped_at, ebm.unmapped_at, ebm.mapped_by, ebm.unmapped_by,
+            ebm.created_at, ebm.updated_at,
+            cb.barcode, cb.status, cb.quantity,
+            p.article_name, p.article_code, p.sku, p.size, p.colour, p.mrp,
+            'loose'::text AS source, NULL::varchar(100) AS carton_barcode
      FROM ecommerce_box_mapping ebm
      JOIN child_boxes cb ON cb.id = ebm.child_box_id
      JOIN products p ON p.id = cb.product_id
      WHERE ebm.ecommerce_record_id = $1 AND ebm.is_active = true
-     ORDER BY ebm.mapped_at DESC`,
+
+     UNION ALL
+
+     SELECT ccm.id, ecm.ecommerce_record_id, ccm.child_box_id, ccm.is_active,
+            ccm.packed_at AS mapped_at, ccm.unpacked_at AS unmapped_at,
+            ccm.packed_by AS mapped_by, ccm.unpacked_by AS unmapped_by,
+            ccm.created_at, ccm.updated_at,
+            cb.barcode, cb.status, cb.quantity,
+            p.article_name, p.article_code, p.sku, p.size, p.colour, p.mrp,
+            'carton'::text AS source, mc.carton_barcode
+     FROM ecommerce_carton_mapping ecm
+     JOIN carton_child_mapping ccm ON ccm.master_carton_id = ecm.master_carton_id AND ccm.is_active = true
+     JOIN master_cartons mc ON mc.id = ecm.master_carton_id
+     JOIN child_boxes cb ON cb.id = ccm.child_box_id
+     JOIN products p ON p.id = cb.product_id
+     WHERE ecm.ecommerce_record_id = $1 AND ecm.is_active = true
+
+     ORDER BY mapped_at DESC`,
     [ecommerceId]
   );
   return result.rows;
@@ -281,17 +354,37 @@ export async function getEcommerceChildren(ecommerceId: string): Promise<Record<
 // currently mapped to e-commerce) vs AVAILABLE (free/unassigned boxes).
 // ---------------------------------------------------------------------------
 export async function getEcommerceStockSummary(): Promise<Record<string, unknown>[]> {
+  // "Allocated" = boxes mapped loose (status ECOMMERCE) PLUS boxes reached through a
+  // whole-carton allocation (ecommerce_carton_mapping) — those stay PACKED status since
+  // the carton is never emptied, so a plain cb.status filter would miss them.
   const result = await query(
-    `SELECT p.id AS product_id, p.article_name, p.colour, p.size, p.sku, p.mrp,
-            COUNT(*) FILTER (WHERE cb.status = $1)::int AS allocated_boxes,
-            COALESCE(SUM(cb.quantity) FILTER (WHERE cb.status = $1), 0)::int AS allocated_pairs,
-            COUNT(*) FILTER (WHERE cb.status IN ($2, $3))::int AS available_boxes,
-            COALESCE(SUM(cb.quantity) FILTER (WHERE cb.status IN ($2, $3)), 0)::int AS available_pairs
-     FROM child_boxes cb
-     JOIN products p ON p.id = cb.product_id
-     GROUP BY p.id, p.article_name, p.colour, p.size, p.sku, p.mrp
-     HAVING COUNT(*) FILTER (WHERE cb.status = $1) > 0
-         OR COUNT(*) FILTER (WHERE cb.status IN ($2, $3)) > 0
+    `WITH allocated AS (
+       SELECT cb.id, cb.product_id, cb.quantity
+       FROM ecommerce_box_mapping ebm
+       JOIN child_boxes cb ON cb.id = ebm.child_box_id
+       WHERE ebm.is_active = true AND cb.status = $1
+       UNION ALL
+       SELECT cb.id, cb.product_id, cb.quantity
+       FROM ecommerce_carton_mapping ecm
+       JOIN carton_child_mapping ccm ON ccm.master_carton_id = ecm.master_carton_id AND ccm.is_active = true
+       JOIN child_boxes cb ON cb.id = ccm.child_box_id
+       WHERE ecm.is_active = true
+     )
+     SELECT p.id AS product_id, p.article_name, p.colour, p.size, p.sku, p.mrp,
+            COALESCE(a.cnt, 0)::int AS allocated_boxes,
+            COALESCE(a.pairs, 0)::int AS allocated_pairs,
+            COALESCE(av.cnt, 0)::int AS available_boxes,
+            COALESCE(av.pairs, 0)::int AS available_pairs
+     FROM products p
+     LEFT JOIN (
+       SELECT product_id, COUNT(*)::int AS cnt, SUM(quantity)::int AS pairs
+       FROM allocated GROUP BY product_id
+     ) a ON a.product_id = p.id
+     LEFT JOIN (
+       SELECT cb.product_id, COUNT(*)::int AS cnt, SUM(cb.quantity)::int AS pairs
+       FROM child_boxes cb WHERE cb.status IN ($2, $3) GROUP BY cb.product_id
+     ) av ON av.product_id = p.id
+     WHERE COALESCE(a.cnt, 0) > 0 OR COALESCE(av.cnt, 0) > 0
      ORDER BY p.article_name, p.colour, p.size`,
     [CHILD_BOX_STATUS.ECOMMERCE, CHILD_BOX_STATUS.FREE, CHILD_BOX_STATUS.GENERATED]
   );
@@ -415,8 +508,12 @@ export async function addBoxToEcommerce(
 }
 
 // ---------------------------------------------------------------------------
-// scanCartonToEcommerce — move ALL child boxes currently packed in a master
-// carton into an e-commerce record in one scan (atomic unpack + ecommerce).
+// scanCartonToEcommerce — add a WHOLE master carton intact to an e-commerce
+// record. The carton is NOT emptied: its child boxes stay PACKED and its
+// carton_child_mapping rows stay active. Only an ecommerce_carton_mapping row
+// is created and the record's child_count is bumped by the carton's
+// child_count. (Previously this emptied the carton into loose ECOMMERCE
+// boxes — replaced by the non-emptying model; same signature/route/return shape.)
 // ---------------------------------------------------------------------------
 export async function scanCartonToEcommerce(
   ecommerceRecordId: string,
@@ -443,7 +540,7 @@ export async function scanCartonToEcommerce(
 
     // Lock master carton by barcode
     const mcResult = await client.query(
-      'SELECT * FROM master_cartons WHERE carton_barcode = $1 FOR UPDATE',
+      'SELECT * FROM master_cartons WHERE carton_barcode = UPPER($1) FOR UPDATE',
       [cartonBarcode]
     );
     if (mcResult.rows.length === 0) {
@@ -451,69 +548,39 @@ export async function scanCartonToEcommerce(
     }
     const carton = mcResult.rows[0];
     if (carton.status === MASTER_CARTON_STATUS.DISPATCHED) {
-      throw new BadRequestError(`Master carton ${cartonBarcode} is ${carton.status} and cannot be moved to e-commerce`);
+      throw new BadRequestError(`Master carton ${carton.carton_barcode} is DISPATCHED and cannot be added to an e-commerce record`);
+    }
+    if (carton.child_count === 0) {
+      throw new BadRequestError(`Master carton ${carton.carton_barcode} is empty and cannot be added to an e-commerce record`);
     }
 
-    // All currently-packed child boxes in this carton
-    const mappings = await client.query(
-      `SELECT ccm.id AS mapping_id, ccm.child_box_id, cb.barcode
-       FROM carton_child_mapping ccm
-       JOIN child_boxes cb ON cb.id = ccm.child_box_id
-       WHERE ccm.master_carton_id = $1 AND ccm.is_active = true
-       FOR UPDATE OF ccm`,
-      [carton.id]
-    );
-    if (mappings.rows.length === 0) {
-      throw new BadRequestError(`Master carton ${cartonBarcode} has no packed child boxes to add`);
-    }
+    await assertCartonAllocatable(client, carton.id, carton.carton_barcode);
 
-    let added = 0;
-    for (const m of mappings.rows) {
-      // Unpack from carton
-      await client.query(
-        `UPDATE carton_child_mapping SET is_active = false, unpacked_at = NOW(), unpacked_by = $1 WHERE id = $2`,
-        [addedBy, m.mapping_id]
-      );
-      // Box -> ECOMMERCE
-      await client.query(
-        `UPDATE child_boxes SET status = $1, updated_at = NOW() WHERE id = $2`,
-        [CHILD_BOX_STATUS.ECOMMERCE, m.child_box_id]
-      );
-      // Map into the e-commerce record
-      await client.query(
-        `INSERT INTO ecommerce_box_mapping (ecommerce_record_id, child_box_id, mapped_by) VALUES ($1, $2, $3)`,
-        [ecommerceRecordId, m.child_box_id, addedBy]
-      );
-      // Trace both legs
-      await client.query(
-        `INSERT INTO inventory_transactions (transaction_type, child_box_id, master_carton_id, performed_by, notes)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [TRANSACTION_TYPES.CHILD_UNPACKED, m.child_box_id, carton.id, addedBy,
-         `Unpacked child box ${m.barcode} from carton ${carton.carton_barcode} (scan-to-e-commerce)`]
-      );
-      await client.query(
-        `INSERT INTO inventory_transactions (transaction_type, child_box_id, performed_by, notes)
-         VALUES ($1, $2, $3, $4)`,
-        [TRANSACTION_TYPES.CHILD_ECOMMERCED, m.child_box_id, addedBy,
-         `Added child box ${m.barcode} to e-commerce record ${record.ecommerce_barcode} (via carton ${carton.carton_barcode})`]
-      );
-      added++;
-    }
-
-    // Carton emptied by this scan
-    const newCartonCount = Math.max(0, carton.child_count - added);
-    const newCartonStatus = newCartonCount === 0 ? MASTER_CARTON_STATUS.CREATED : carton.status;
+    // Create the carton-level mapping (carton stays intact — no unpack, no box status change)
     await client.query(
-      `UPDATE master_cartons SET child_count = $1, status = $2, updated_at = NOW() WHERE id = $3`,
-      [newCartonCount, newCartonStatus, carton.id]
+      `INSERT INTO ecommerce_carton_mapping (ecommerce_record_id, master_carton_id, mapped_by)
+       VALUES ($1, $2, $3)`,
+      [ecommerceRecordId, carton.id, addedBy]
     );
 
-    // Grow the e-commerce record
-    const newRecordCount = record.child_count + added;
+    // Grow the e-commerce record by the carton's full child_count
+    const newRecordCount = record.child_count + carton.child_count;
     const newRecordStatus = record.status === ECOMMERCE_STATUS.CREATED ? ECOMMERCE_STATUS.ACTIVE : record.status;
     const updatedRecord = await client.query(
       `UPDATE ecommerce_records SET child_count = $1, status = $2, updated_at = NOW() WHERE id = $3 RETURNING *`,
       [newRecordCount, newRecordStatus, ecommerceRecordId]
+    );
+
+    // Single CARTON_ECOMMERCED transaction — the boxes themselves did not move, so no
+    // per-child transactions/unpack are logged here (unlike the old emptying flow).
+    await client.query(
+      `INSERT INTO inventory_transactions (transaction_type, master_carton_id, performed_by, notes, metadata)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [
+        TRANSACTION_TYPES.CARTON_ECOMMERCED, carton.id, addedBy,
+        `Scanned carton ${carton.carton_barcode} (intact, ${carton.child_count} boxes) into e-commerce record ${record.ecommerce_barcode}`,
+        JSON.stringify({ ecommerce_record_id: ecommerceRecordId, master_carton_id: carton.id, child_count: carton.child_count }),
+      ]
     );
 
     await client.query('COMMIT');
@@ -523,18 +590,48 @@ export async function scanCartonToEcommerce(
       action: 'SCAN_CARTON_TO_ECOMMERCE',
       entityType: 'ecommerce_record',
       entityId: ecommerceRecordId,
-      newValues: { ecommerce_record_id: ecommerceRecordId, carton_barcode: carton.carton_barcode, boxes_added: added },
+      newValues: { ecommerce_record_id: ecommerceRecordId, carton_barcode: carton.carton_barcode, boxes_added: carton.child_count },
     });
 
-    logger.info(`Scanned carton ${carton.carton_barcode} into e-commerce record ${record.ecommerce_barcode}: ${added} boxes moved`);
+    logger.info(`Scanned carton ${carton.carton_barcode} into e-commerce record ${record.ecommerce_barcode} intact: ${carton.child_count} boxes`);
 
-    return { record: updatedRecord.rows[0], added, cartonBarcode: carton.carton_barcode };
+    return { record: updatedRecord.rows[0], added: carton.child_count, cartonBarcode: carton.carton_barcode };
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;
   } finally {
     client.release();
   }
+}
+
+// ---------------------------------------------------------------------------
+// getEcommerceCartons — mapped (allocated) cartons for an e-commerce record,
+// with a per-carton product summary, for the detail-page "cartons" section.
+// ---------------------------------------------------------------------------
+export async function getEcommerceCartons(ecommerceId: string): Promise<Record<string, unknown>[]> {
+  const result = await query(
+    `SELECT
+       ecm.id AS mapping_id, ecm.mapped_at, ecm.mapped_by,
+       mc.id AS master_carton_id, mc.carton_barcode, mc.status, mc.child_count,
+       ps.article_summary, ps.colour_summary, ps.size_summary, ps.mrp_summary
+     FROM ecommerce_carton_mapping ecm
+     JOIN master_cartons mc ON mc.id = ecm.master_carton_id
+     LEFT JOIN LATERAL (
+       SELECT
+         string_agg(DISTINCT p.article_name, ', ') AS article_summary,
+         string_agg(DISTINCT p.colour, ', ') AS colour_summary,
+         string_agg(DISTINCT p.size, ', ') AS size_summary,
+         MIN(p.mrp) AS mrp_summary
+       FROM carton_child_mapping ccm
+       JOIN child_boxes cb ON cb.id = ccm.child_box_id
+       JOIN products p ON p.id = cb.product_id
+       WHERE ccm.master_carton_id = mc.id AND ccm.is_active = true
+     ) ps ON true
+     WHERE ecm.ecommerce_record_id = $1 AND ecm.is_active = true
+     ORDER BY ecm.mapped_at DESC`,
+    [ecommerceId]
+  );
+  return result.rows;
 }
 
 // ---------------------------------------------------------------------------
@@ -820,10 +917,18 @@ export async function getEcommerceAssortment(
 
   const result = await query(
     `SELECT p.article_name, p.colour, p.size, p.mrp, COUNT(*)::int as count
-     FROM ecommerce_box_mapping ebm
-     JOIN child_boxes cb ON cb.id = ebm.child_box_id
+     FROM (
+       SELECT cb.id AS child_box_id FROM ecommerce_box_mapping ebm
+       JOIN child_boxes cb ON cb.id = ebm.child_box_id
+       WHERE ebm.ecommerce_record_id = $1 AND ebm.is_active = true
+       UNION ALL
+       SELECT cb.id AS child_box_id FROM ecommerce_carton_mapping ecm
+       JOIN carton_child_mapping ccm ON ccm.master_carton_id = ecm.master_carton_id AND ccm.is_active = true
+       JOIN child_boxes cb ON cb.id = ccm.child_box_id
+       WHERE ecm.ecommerce_record_id = $1 AND ecm.is_active = true
+     ) src_boxes
+     JOIN child_boxes cb ON cb.id = src_boxes.child_box_id
      JOIN products p ON p.id = cb.product_id
-     WHERE ebm.ecommerce_record_id = $1 AND ebm.is_active = true
      GROUP BY p.article_name, p.colour, p.size, p.mrp
      ORDER BY p.article_name, p.colour, p.size`,
     [ecommerceId]

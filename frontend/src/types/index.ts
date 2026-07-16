@@ -89,6 +89,11 @@ export interface ChildBoxWithProduct extends ChildBox {
   sku: string;
   // Feet of this box currently held by active sample mappings (e.g. ['LEFT']). Present on barcode lookups.
   active_sample_feet?: ('LEFT' | 'RIGHT' | 'PAIR')[];
+  // On sample/ecommerce children endpoints: whether this box was added individually
+  // ('loose') or arrived as part of a whole scanned master carton ('carton').
+  source?: 'loose' | 'carton';
+  // Present when source === 'carton' — the barcode of the carton it came in via.
+  carton_barcode?: string;
 }
 
 // ---------- MasterCarton ----------
@@ -119,6 +124,19 @@ export interface MasterCarton {
   legacy_colour?: string | null;
   legacy_mrp?: string | null;
   legacy_pairs?: number | null;
+}
+
+// ---------- Carton membership (whole master carton scanned intact into a sample/e-commerce record) ----------
+export interface CartonMembership {
+  mapping_id: string;
+  master_carton_id: string;
+  carton_barcode: string;
+  status: MasterCartonStatus;
+  child_count: number;
+  article_summary: string | null;
+  colour_summary: string | null;
+  size_summary: string | null;
+  mrp_summary: number | null;
 }
 
 // ---------- SampleRecord ----------

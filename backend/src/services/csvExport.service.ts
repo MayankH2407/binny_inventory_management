@@ -98,6 +98,16 @@ export async function exportDispatchCSV(fromDate?: string, toDate?: string): Pro
       SELECT sbm.child_box_id FROM sample_box_mapping sbm WHERE sbm.sample_record_id = dr.sample_record_id AND sbm.is_active = true
       UNION ALL
       SELECT ebm.child_box_id FROM ecommerce_box_mapping ebm WHERE ebm.ecommerce_record_id = dr.ecommerce_record_id AND ebm.is_active = true
+      UNION ALL
+      -- Whole cartons scanned intact into a sample (carton stays PACKED; see scanCartonToSample)
+      SELECT ccm.child_box_id FROM sample_carton_mapping scm
+      JOIN carton_child_mapping ccm ON ccm.master_carton_id = scm.master_carton_id
+      WHERE scm.sample_record_id = dr.sample_record_id
+      UNION ALL
+      -- Whole cartons scanned intact into an e-commerce record (see scanCartonToEcommerce)
+      SELECT ccm.child_box_id FROM ecommerce_carton_mapping ecm
+      JOIN carton_child_mapping ccm ON ccm.master_carton_id = ecm.master_carton_id
+      WHERE ecm.ecommerce_record_id = dr.ecommerce_record_id
     ) src ON true
     JOIN child_boxes cb ON cb.id = src.child_box_id
     JOIN products p ON p.id = cb.product_id

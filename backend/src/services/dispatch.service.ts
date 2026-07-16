@@ -55,6 +55,25 @@ async function _dispatchMasterCartons(
       );
     }
 
+    // Reject any carton that is allocated intact to a sample/e-commerce record —
+    // it must be dispatched from that record instead (see _dispatchSample / _dispatchEcommerce).
+    const allocatedResult = await client.query(
+      `SELECT mc.carton_barcode
+       FROM master_cartons mc
+       WHERE mc.id IN (${cartonPlaceholders})
+         AND (
+           EXISTS (SELECT 1 FROM sample_carton_mapping scm WHERE scm.master_carton_id = mc.id AND scm.is_active = true)
+           OR EXISTS (SELECT 1 FROM ecommerce_carton_mapping ecm WHERE ecm.master_carton_id = mc.id AND ecm.is_active = true)
+         )`,
+      masterCartonIds
+    );
+    if (allocatedResult.rows.length > 0) {
+      const allocatedBarcodes = allocatedResult.rows.map((r: { carton_barcode: string }) => r.carton_barcode).join(', ');
+      throw new BadRequestError(
+        `Carton(s) ${allocatedBarcodes} are allocated to a sample/e-commerce record; dispatch them from there`
+      );
+    }
+
     const dispatchDate = input.dispatch_date ? new Date(input.dispatch_date) : new Date();
     const dispatchRecords: DispatchRecord[] = [];
 
@@ -262,7 +281,62 @@ async function _dispatchSample(
         ]
       );
     }
-    const shippedCount = shippedFeet.length;
+    let shippedCount = shippedFeet.length;
+
+    // Whole-carton allocations (sample_carton_mapping) shipping with this sample: the
+    // carton + its PACKED child boxes go DISPATCHED, but the carton_child_mapping AND
+    // the sample_carton_mapping stay ACTIVE (kept for history / the dispatch CSV report).
+    const cartonMappingsResult = await client.query(
+      `SELECT mc.id AS master_carton_id, mc.carton_barcode, mc.child_count
+       FROM sample_carton_mapping scm
+       JOIN master_cartons mc ON mc.id = scm.master_carton_id
+       WHERE scm.sample_record_id = $1 AND scm.is_active = true
+       FOR UPDATE OF mc`,
+      [sampleRecordId]
+    );
+    const dispatchedCartons: { master_carton_id: string; carton_barcode: string; box_count: number }[] = [];
+
+    for (const carton of cartonMappingsResult.rows as { master_carton_id: string; carton_barcode: string; child_count: number }[]) {
+      const cartonBoxesResult = await client.query(
+        `SELECT cb.id FROM carton_child_mapping ccm
+         JOIN child_boxes cb ON cb.id = ccm.child_box_id
+         WHERE ccm.master_carton_id = $1 AND ccm.is_active = true AND cb.status = $2`,
+        [carton.master_carton_id, CHILD_BOX_STATUS.PACKED]
+      );
+      const cartonBoxIds = cartonBoxesResult.rows.map((cb: { id: string }) => cb.id);
+
+      if (cartonBoxIds.length > 0) {
+        const cbPlaceholders = cartonBoxIds.map((_: string, i: number) => `$${i + 2}`).join(', ');
+        await client.query(
+          `UPDATE child_boxes SET status = $1, updated_at = NOW() WHERE id IN (${cbPlaceholders})`,
+          [CHILD_BOX_STATUS.DISPATCHED, ...cartonBoxIds]
+        );
+
+        for (const cbId of cartonBoxIds) {
+          await client.query(
+            `INSERT INTO inventory_transactions (transaction_type, child_box_id, master_carton_id, performed_by, notes, metadata)
+             VALUES ($1, $2, $3, $4, $5, $6)`,
+            [
+              TRANSACTION_TYPES.CHILD_DISPATCHED, cbId, carton.master_carton_id, dispatchedBy,
+              `Sample carton child box dispatched to ${destination || 'unknown'}`,
+              JSON.stringify({ sample_record_id: sampleRecordId, destination }),
+            ]
+          );
+        }
+      }
+
+      await client.query(
+        `UPDATE master_cartons SET status = $1, dispatched_at = NOW(), updated_at = NOW() WHERE id = $2`,
+        [MASTER_CARTON_STATUS.DISPATCHED, carton.master_carton_id]
+      );
+
+      dispatchedCartons.push({
+        master_carton_id: carton.master_carton_id,
+        carton_barcode: carton.carton_barcode,
+        box_count: cartonBoxIds.length,
+      });
+      shippedCount += cartonBoxIds.length;
+    }
 
     // Create dispatch record
     const dispatchResult = await client.query(
@@ -283,6 +357,24 @@ async function _dispatchSample(
         JSON.stringify({ child_box_count: shippedCount }),
       ]
     );
+
+    // Log CARTON_DISPATCHED for each whole-carton allocation shipped with this sample
+    for (const dc of dispatchedCartons) {
+      await client.query(
+        `INSERT INTO inventory_transactions (transaction_type, master_carton_id, performed_by, notes, metadata)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [
+          TRANSACTION_TYPES.CARTON_DISPATCHED, dc.master_carton_id, dispatchedBy,
+          `Carton ${dc.carton_barcode} dispatched with sample ${sample.sample_barcode} to ${destination || 'unknown'}`,
+          JSON.stringify({
+            dispatch_record_id: dispatchResult.rows[0].id,
+            sample_record_id: sampleRecordId,
+            destination,
+            box_count: dc.box_count,
+          }),
+        ]
+      );
+    }
 
     // Log SAMPLE_DISPATCHED transaction
     await client.query(
@@ -395,6 +487,62 @@ async function _dispatchEcommerce(
       }
     }
 
+    // Whole-carton allocations (ecommerce_carton_mapping) shipping with this record: the
+    // carton + its PACKED child boxes go DISPATCHED, but the carton_child_mapping AND
+    // the ecommerce_carton_mapping stay ACTIVE (kept for history / the dispatch CSV report).
+    const cartonMappingsResult = await client.query(
+      `SELECT mc.id AS master_carton_id, mc.carton_barcode, mc.child_count
+       FROM ecommerce_carton_mapping ecm
+       JOIN master_cartons mc ON mc.id = ecm.master_carton_id
+       WHERE ecm.ecommerce_record_id = $1 AND ecm.is_active = true
+       FOR UPDATE OF mc`,
+      [ecommerceRecordId]
+    );
+    const dispatchedCartons: { master_carton_id: string; carton_barcode: string; box_count: number }[] = [];
+    let totalDispatchedBoxCount = childBoxIds.length;
+
+    for (const carton of cartonMappingsResult.rows as { master_carton_id: string; carton_barcode: string; child_count: number }[]) {
+      const cartonBoxesResult = await client.query(
+        `SELECT cb.id FROM carton_child_mapping ccm
+         JOIN child_boxes cb ON cb.id = ccm.child_box_id
+         WHERE ccm.master_carton_id = $1 AND ccm.is_active = true AND cb.status = $2`,
+        [carton.master_carton_id, CHILD_BOX_STATUS.PACKED]
+      );
+      const cartonBoxIds = cartonBoxesResult.rows.map((cb: { id: string }) => cb.id);
+
+      if (cartonBoxIds.length > 0) {
+        const cbPlaceholders = cartonBoxIds.map((_: string, i: number) => `$${i + 2}`).join(', ');
+        await client.query(
+          `UPDATE child_boxes SET status = $1, updated_at = NOW() WHERE id IN (${cbPlaceholders})`,
+          [CHILD_BOX_STATUS.DISPATCHED, ...cartonBoxIds]
+        );
+
+        for (const cbId of cartonBoxIds) {
+          await client.query(
+            `INSERT INTO inventory_transactions (transaction_type, child_box_id, master_carton_id, performed_by, notes, metadata)
+             VALUES ($1, $2, $3, $4, $5, $6)`,
+            [
+              TRANSACTION_TYPES.CHILD_DISPATCHED, cbId, carton.master_carton_id, dispatchedBy,
+              `E-commerce carton child box dispatched to ${destination || 'unknown'}`,
+              JSON.stringify({ ecommerce_record_id: ecommerceRecordId, destination }),
+            ]
+          );
+        }
+      }
+
+      await client.query(
+        `UPDATE master_cartons SET status = $1, dispatched_at = NOW(), updated_at = NOW() WHERE id = $2`,
+        [MASTER_CARTON_STATUS.DISPATCHED, carton.master_carton_id]
+      );
+
+      dispatchedCartons.push({
+        master_carton_id: carton.master_carton_id,
+        carton_barcode: carton.carton_barcode,
+        box_count: cartonBoxIds.length,
+      });
+      totalDispatchedBoxCount += cartonBoxIds.length;
+    }
+
     // Create dispatch record
     const dispatchResult = await client.query(
       `INSERT INTO dispatch_records
@@ -411,9 +559,27 @@ async function _dispatchEcommerce(
         input.vehicle_number || null,
         dispatchDate,
         input.notes || null,
-        JSON.stringify({ child_box_count: childBoxIds.length }),
+        JSON.stringify({ child_box_count: totalDispatchedBoxCount }),
       ]
     );
+
+    // Log CARTON_DISPATCHED for each whole-carton allocation shipped with this record
+    for (const dc of dispatchedCartons) {
+      await client.query(
+        `INSERT INTO inventory_transactions (transaction_type, master_carton_id, performed_by, notes, metadata)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [
+          TRANSACTION_TYPES.CARTON_DISPATCHED, dc.master_carton_id, dispatchedBy,
+          `Carton ${dc.carton_barcode} dispatched with e-commerce record ${ecom.ecommerce_barcode} to ${destination || 'unknown'}`,
+          JSON.stringify({
+            dispatch_record_id: dispatchResult.rows[0].id,
+            ecommerce_record_id: ecommerceRecordId,
+            destination,
+            box_count: dc.box_count,
+          }),
+        ]
+      );
+    }
 
     // Log ECOMMERCE_DISPATCHED transaction
     await client.query(
@@ -436,7 +602,7 @@ async function _dispatchEcommerce(
         source_type: 'ecommerce',
         ecommerce_record_id: ecommerceRecordId,
         destination,
-        child_box_count: childBoxIds.length,
+        child_box_count: totalDispatchedBoxCount,
       },
     });
 

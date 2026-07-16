@@ -120,6 +120,33 @@ export async function removeBoxFromSample(
   }
 }
 
+export async function scanCartonToSample(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const { sample_record_id, carton_barcode } = req.body;
+    const result = await sampleService.scanCartonToSample(sample_record_id, carton_barcode, req.user!.userId);
+    sendSuccess(res, result, `Carton ${result.cartonBarcode} (${result.added} boxes) added intact to sample record`);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getSampleCartons(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const cartons = await sampleService.getSampleCartons(req.params.id);
+    sendSuccess(res, cartons, 'Sample cartons retrieved successfully');
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function closeSample(
   req: AuthenticatedRequest,
   res: Response,

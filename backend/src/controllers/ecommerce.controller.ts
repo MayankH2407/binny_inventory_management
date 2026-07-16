@@ -117,6 +117,19 @@ export async function scanCartonToEcommerce(
   }
 }
 
+export async function getEcommerceCartons(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const cartons = await ecommerceService.getEcommerceCartons(req.params.id);
+    sendSuccess(res, cartons, 'E-commerce cartons retrieved successfully');
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function removeBoxFromEcommerce(
   req: AuthenticatedRequest,
   res: Response,

@@ -6,6 +6,7 @@ import { MASTER_CARTON_STATUS, CHILD_BOX_STATUS, TRANSACTION_TYPES } from '../co
 import { NotFoundError, BadRequestError } from '../utils/errors';
 import { generateMasterCartonQR } from '../utils/qrGenerator';
 import { createAuditLog } from './auditLog.service';
+import { assertCartonAllocatable } from './sample.service';
 import { CreateMasterCartonInput } from '../models/schemas/masterCarton.schema';
 import { logger } from '../utils/logger';
 
@@ -295,6 +296,10 @@ export async function packChildBox(
       );
     }
 
+    // A carton allocated intact to a sample/e-commerce record must not silently grow —
+    // that record's child_count would drift out of sync with the carton's contents.
+    await assertCartonAllocatable(client, carton.id, carton.carton_barcode);
+
     if (carton.child_count >= carton.max_capacity) {
       throw new BadRequestError(
         `Master carton is full (${carton.child_count}/${carton.max_capacity})`
@@ -462,6 +467,10 @@ export async function unpackChildBox(
       throw new BadRequestError('Cannot unpack from a dispatched carton');
     }
 
+    // A carton allocated intact to a sample/e-commerce record must stay intact —
+    // unpack it from that record instead (there is no un-allocate flow).
+    await assertCartonAllocatable(client, carton.id, carton.carton_barcode);
+
     // Deactivate mapping and set unpacked_at, unpacked_by
     await client.query(
       `UPDATE carton_child_mapping SET is_active = false, unpacked_at = NOW(), unpacked_by = $1
@@ -614,6 +623,10 @@ export async function fullUnpackMasterCarton(
     if (carton.status === MASTER_CARTON_STATUS.CREATED) {
       throw new BadRequestError('Cannot unpack an empty carton');
     }
+
+    // A carton allocated intact to a sample/e-commerce record must stay intact —
+    // unpack it from that record instead (there is no un-allocate flow).
+    await assertCartonAllocatable(client, carton.id, carton.carton_barcode);
 
     // Get all active mappings
     const mappingsResult = await client.query(

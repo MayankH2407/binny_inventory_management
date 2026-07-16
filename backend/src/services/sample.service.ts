@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { PoolClient } from 'pg';
 import { query, getClient } from '../config/database';
-import { SAMPLE_STATUS, CHILD_BOX_STATUS, TRANSACTION_TYPES } from '../config/constants';
+import { SAMPLE_STATUS, MASTER_CARTON_STATUS, CHILD_BOX_STATUS, TRANSACTION_TYPES } from '../config/constants';
 import { generateUniqueBarcode } from '../utils/barcodeGenerator';
 import { NotFoundError, BadRequestError } from '../utils/errors';
 import { createAuditLog } from './auditLog.service';
@@ -95,6 +95,176 @@ function assertFootAvailable(
 }
 
 // ---------------------------------------------------------------------------
+// Carton-membership (whole-carton scan-in) — a master carton can be added
+// INTACT to a sample or e-commerce record: its boxes stay PACKED and its
+// carton_child_mapping rows stay active. Only sample_carton_mapping /
+// ecommerce_carton_mapping records the allocation. Shared across
+// sample.service.ts and ecommerce.service.ts (imported there).
+// ---------------------------------------------------------------------------
+export interface SampleCartonMapping {
+  id: string;
+  sample_record_id: string;
+  master_carton_id: string;
+  is_active: boolean;
+  mapped_at: Date;
+  unmapped_at: Date | null;
+  mapped_by: string | null;
+  unmapped_by: string | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
+// Throws if the carton is already actively allocated to ANY sample or e-commerce
+// record (a carton may be allocated to at most one such record at a time).
+export async function assertCartonAllocatable(
+  client: PoolClient,
+  cartonId: string,
+  cartonBarcode: string
+): Promise<void> {
+  const result = await client.query(
+    `SELECT
+       EXISTS (SELECT 1 FROM sample_carton_mapping WHERE master_carton_id = $1 AND is_active = true) AS sample_hit,
+       EXISTS (SELECT 1 FROM ecommerce_carton_mapping WHERE master_carton_id = $1 AND is_active = true) AS ecommerce_hit`,
+    [cartonId]
+  );
+  const { sample_hit, ecommerce_hit } = result.rows[0];
+  if (sample_hit || ecommerce_hit) {
+    throw new BadRequestError(
+      `Master carton ${cartonBarcode} is already allocated to another sample/e-commerce record`
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// scanCartonToSample — add a WHOLE master carton intact to a sample record.
+// The carton is NOT emptied: its child boxes stay PACKED and its
+// carton_child_mapping rows stay active. Only a sample_carton_mapping row is
+// created and the sample's child_count is bumped by the carton's child_count.
+// ---------------------------------------------------------------------------
+export async function scanCartonToSample(
+  sampleRecordId: string,
+  cartonBarcode: string,
+  addedBy: string
+): Promise<{ sample: SampleRecord; added: number; cartonBarcode: string }> {
+  const client = await getClient();
+
+  try {
+    await client.query('BEGIN');
+
+    // Lock sample record
+    const srResult = await client.query(
+      'SELECT * FROM sample_records WHERE id = $1 FOR UPDATE',
+      [sampleRecordId]
+    );
+    if (srResult.rows.length === 0) {
+      throw new NotFoundError('Sample record not found');
+    }
+    const sample = srResult.rows[0];
+    if (sample.status === SAMPLE_STATUS.CLOSED || sample.status === SAMPLE_STATUS.DISPATCHED) {
+      throw new BadRequestError(
+        `Sample record is ${sample.status} and cannot accept new child boxes`
+      );
+    }
+
+    // Lock master carton by barcode
+    const mcResult = await client.query(
+      'SELECT * FROM master_cartons WHERE carton_barcode = UPPER($1) FOR UPDATE',
+      [cartonBarcode]
+    );
+    if (mcResult.rows.length === 0) {
+      throw new NotFoundError(`No master carton found with barcode ${cartonBarcode}`);
+    }
+    const carton = mcResult.rows[0];
+    if (carton.status === MASTER_CARTON_STATUS.DISPATCHED) {
+      throw new BadRequestError(`Master carton ${carton.carton_barcode} is DISPATCHED and cannot be added to a sample`);
+    }
+    if (carton.child_count === 0) {
+      throw new BadRequestError(`Master carton ${carton.carton_barcode} is empty and cannot be added to a sample`);
+    }
+
+    await assertCartonAllocatable(client, carton.id, carton.carton_barcode);
+
+    // Create the carton-level mapping (carton stays intact — no unpack, no box status change)
+    await client.query(
+      `INSERT INTO sample_carton_mapping (sample_record_id, master_carton_id, mapped_by)
+       VALUES ($1, $2, $3)`,
+      [sampleRecordId, carton.id, addedBy]
+    );
+
+    // Grow the sample record by the carton's full child_count
+    const newChildCount = sample.child_count + carton.child_count;
+    const newStatus = sample.status === SAMPLE_STATUS.CREATED ? SAMPLE_STATUS.ACTIVE : sample.status;
+
+    const updatedSampleResult = await client.query(
+      `UPDATE sample_records SET child_count = $1, status = $2, updated_at = NOW()
+       WHERE id = $3 RETURNING *`,
+      [newChildCount, newStatus, sampleRecordId]
+    );
+
+    // Single CARTON_SAMPLED transaction — the boxes themselves did not move, so no
+    // per-child transactions are logged here (unlike the old emptying scan-carton flow).
+    await client.query(
+      `INSERT INTO inventory_transactions (transaction_type, master_carton_id, performed_by, notes, metadata)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [
+        TRANSACTION_TYPES.CARTON_SAMPLED, carton.id, addedBy,
+        `Scanned carton ${carton.carton_barcode} (intact, ${carton.child_count} boxes) into sample ${sample.sample_barcode}`,
+        JSON.stringify({ sample_record_id: sampleRecordId, master_carton_id: carton.id, child_count: carton.child_count }),
+      ]
+    );
+
+    await client.query('COMMIT');
+
+    await createAuditLog({
+      userId: addedBy,
+      action: 'SCAN_CARTON_TO_SAMPLE',
+      entityType: 'sample_record',
+      entityId: sampleRecordId,
+      newValues: { sample_record_id: sampleRecordId, carton_barcode: carton.carton_barcode, boxes_added: carton.child_count },
+    });
+
+    logger.info(`Scanned carton ${carton.carton_barcode} into sample ${sample.sample_barcode} intact: ${carton.child_count} boxes`);
+
+    return { sample: updatedSampleResult.rows[0], added: carton.child_count, cartonBarcode: carton.carton_barcode };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// getSampleCartons — mapped (allocated) cartons for a sample, with a per-carton
+// product summary, for the detail-page "cartons" section.
+// ---------------------------------------------------------------------------
+export async function getSampleCartons(sampleId: string): Promise<Record<string, unknown>[]> {
+  const result = await query(
+    `SELECT
+       scm.id AS mapping_id, scm.mapped_at, scm.mapped_by,
+       mc.id AS master_carton_id, mc.carton_barcode, mc.status, mc.child_count,
+       ps.article_summary, ps.colour_summary, ps.size_summary, ps.mrp_summary
+     FROM sample_carton_mapping scm
+     JOIN master_cartons mc ON mc.id = scm.master_carton_id
+     LEFT JOIN LATERAL (
+       SELECT
+         string_agg(DISTINCT p.article_name, ', ') AS article_summary,
+         string_agg(DISTINCT p.colour, ', ') AS colour_summary,
+         string_agg(DISTINCT p.size, ', ') AS size_summary,
+         MIN(p.mrp) AS mrp_summary
+       FROM carton_child_mapping ccm
+       JOIN child_boxes cb ON cb.id = ccm.child_box_id
+       JOIN products p ON p.id = cb.product_id
+       WHERE ccm.master_carton_id = mc.id AND ccm.is_active = true
+     ) ps ON true
+     WHERE scm.sample_record_id = $1 AND scm.is_active = true
+     ORDER BY scm.mapped_at DESC`,
+    [sampleId]
+  );
+  return result.rows;
+}
+
+// ---------------------------------------------------------------------------
 // createSample
 // ---------------------------------------------------------------------------
 export async function createSample(
@@ -104,6 +274,7 @@ export async function createSample(
   const id = uuidv4();
   const sampleBarcode = await generateUniqueBarcode('SR');
   const barcodes = input.child_box_barcodes || [];
+  const cartonBarcodes = input.carton_barcodes || [];
 
   // Per-barcode foot, normalized to uppercase keys to match the uppercased barcodes. Missing → PAIR.
   const footMap: Record<string, string> = {};
@@ -113,7 +284,7 @@ export async function createSample(
     }
   }
 
-  if (barcodes.length > 0) {
+  if (barcodes.length > 0 || cartonBarcodes.length > 0) {
     const client = await getClient();
     try {
       await client.query('BEGIN');
@@ -190,11 +361,51 @@ export async function createSample(
         mappedCount++;
       }
 
-      const newStatus = mappedCount > 0 ? SAMPLE_STATUS.ACTIVE : SAMPLE_STATUS.CREATED;
+      // Whole-carton allocations — carton stays intact (no unpack, no box status change).
+      let cartonBoxesAdded = 0;
+      for (const cartonBarcode of cartonBarcodes) {
+        const mcResult = await client.query(
+          'SELECT * FROM master_cartons WHERE carton_barcode = UPPER($1) FOR UPDATE',
+          [cartonBarcode]
+        );
+        if (mcResult.rows.length === 0) {
+          throw new NotFoundError(`No master carton found with barcode ${cartonBarcode}`);
+        }
+        const carton = mcResult.rows[0];
+        if (carton.status === MASTER_CARTON_STATUS.DISPATCHED) {
+          throw new BadRequestError(`Master carton ${carton.carton_barcode} is DISPATCHED and cannot be added to a sample`);
+        }
+        if (carton.child_count === 0) {
+          throw new BadRequestError(`Master carton ${carton.carton_barcode} is empty and cannot be added to a sample`);
+        }
+
+        await assertCartonAllocatable(client, carton.id, carton.carton_barcode);
+
+        await client.query(
+          `INSERT INTO sample_carton_mapping (sample_record_id, master_carton_id, mapped_by)
+           VALUES ($1, $2, $3)`,
+          [id, carton.id, createdBy]
+        );
+
+        await client.query(
+          `INSERT INTO inventory_transactions (transaction_type, master_carton_id, performed_by, notes, metadata)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [
+            TRANSACTION_TYPES.CARTON_SAMPLED, carton.id, createdBy,
+            `Carton ${carton.carton_barcode} (intact, ${carton.child_count} boxes) added to sample ${sampleBarcode} at creation`,
+            JSON.stringify({ sample_record_id: id, master_carton_id: carton.id, child_count: carton.child_count }),
+          ]
+        );
+
+        cartonBoxesAdded += carton.child_count;
+      }
+
+      const totalChildCount = mappedCount + cartonBoxesAdded;
+      const newStatus = totalChildCount > 0 ? SAMPLE_STATUS.ACTIVE : SAMPLE_STATUS.CREATED;
       const updatedResult = await client.query(
         `UPDATE sample_records SET child_count = $1, status = $2, updated_at = NOW()
          WHERE id = $3 RETURNING *`,
-        [mappedCount, newStatus, id]
+        [totalChildCount, newStatus, id]
       );
 
       await client.query('COMMIT');
@@ -204,10 +415,10 @@ export async function createSample(
         action: 'CREATE_SAMPLE',
         entityType: 'sample_record',
         entityId: id,
-        newValues: { sample_barcode: sampleBarcode, name: input.name, child_box_barcodes: barcodes },
+        newValues: { sample_barcode: sampleBarcode, name: input.name, child_box_barcodes: barcodes, carton_barcodes: cartonBarcodes },
       });
 
-      logger.info(`Sample record created: ${sampleBarcode} with ${mappedCount} child boxes`);
+      logger.info(`Sample record created: ${sampleBarcode} with ${mappedCount} child boxes + ${cartonBoxesAdded} carton boxes`);
       return updatedResult.rows[0];
     } catch (error) {
       await client.query('ROLLBACK');
@@ -314,10 +525,17 @@ export async function getSamples(
          string_agg(DISTINCT p.colour, ', ') AS colour_summary,
          string_agg(DISTINCT p.size, ', ') AS size_summary,
          MIN(p.mrp) AS mrp_summary
-       FROM sample_box_mapping sbm
-       JOIN child_boxes cb ON cb.id = sbm.child_box_id
+       FROM (
+         SELECT cb.id FROM sample_box_mapping sbm JOIN child_boxes cb ON cb.id = sbm.child_box_id
+         WHERE sbm.sample_record_id = sr.id AND sbm.is_active = true
+         UNION ALL
+         SELECT cb.id FROM sample_carton_mapping scm
+         JOIN carton_child_mapping ccm ON ccm.master_carton_id = scm.master_carton_id AND ccm.is_active = true
+         JOIN child_boxes cb ON cb.id = ccm.child_box_id
+         WHERE scm.sample_record_id = sr.id AND scm.is_active = true
+       ) src_boxes
+       JOIN child_boxes cb ON cb.id = src_boxes.id
        JOIN products p ON p.id = cb.product_id
-       WHERE sbm.sample_record_id = sr.id AND sbm.is_active = true
      ) ps ON true
      ${whereClause}
      ORDER BY sr.created_at DESC, sr.id
@@ -367,14 +585,38 @@ export async function getSampleSummary(): Promise<SampleSummary> {
 // getSampleChildren
 // ---------------------------------------------------------------------------
 export async function getSampleChildren(sampleId: string): Promise<SampleBoxMapping[]> {
+  // Union loose boxes (sample_box_mapping) with boxes reached through whole-carton
+  // allocations (sample_carton_mapping -> carton_child_mapping). Carton-sourced boxes
+  // stay PACKED (the carton is never emptied) and always enter as a full PAIR.
   const result = await query(
-    `SELECT sbm.*, cb.barcode, cb.status, cb.quantity,
-            p.article_name, p.article_code, p.sku, p.size, p.colour, p.mrp
+    `SELECT sbm.id, sbm.sample_record_id, sbm.child_box_id, sbm.is_active,
+            sbm.mapped_at, sbm.unmapped_at, sbm.mapped_by, sbm.unmapped_by,
+            sbm.created_at, sbm.updated_at, sbm.foot,
+            cb.barcode, cb.status, cb.quantity,
+            p.article_name, p.article_code, p.sku, p.size, p.colour, p.mrp,
+            'loose'::text AS source, NULL::varchar(100) AS carton_barcode
      FROM sample_box_mapping sbm
      JOIN child_boxes cb ON cb.id = sbm.child_box_id
      JOIN products p ON p.id = cb.product_id
      WHERE sbm.sample_record_id = $1 AND sbm.is_active = true
-     ORDER BY sbm.mapped_at DESC`,
+
+     UNION ALL
+
+     SELECT ccm.id, scm.sample_record_id, ccm.child_box_id, ccm.is_active,
+            ccm.packed_at AS mapped_at, ccm.unpacked_at AS unmapped_at,
+            ccm.packed_by AS mapped_by, ccm.unpacked_by AS unmapped_by,
+            ccm.created_at, ccm.updated_at, 'PAIR'::varchar(10) AS foot,
+            cb.barcode, cb.status, cb.quantity,
+            p.article_name, p.article_code, p.sku, p.size, p.colour, p.mrp,
+            'carton'::text AS source, mc.carton_barcode
+     FROM sample_carton_mapping scm
+     JOIN carton_child_mapping ccm ON ccm.master_carton_id = scm.master_carton_id AND ccm.is_active = true
+     JOIN master_cartons mc ON mc.id = scm.master_carton_id
+     JOIN child_boxes cb ON cb.id = ccm.child_box_id
+     JOIN products p ON p.id = cb.product_id
+     WHERE scm.sample_record_id = $1 AND scm.is_active = true
+
+     ORDER BY mapped_at DESC`,
     [sampleId]
   );
   return result.rows;
@@ -799,10 +1041,18 @@ export async function getSampleAssortment(
 
   const result = await query(
     `SELECT p.article_name, p.colour, p.size, p.mrp, COUNT(*)::int AS count
-     FROM sample_box_mapping sbm
-     JOIN child_boxes cb ON cb.id = sbm.child_box_id
+     FROM (
+       SELECT cb.id AS child_box_id FROM sample_box_mapping sbm
+       JOIN child_boxes cb ON cb.id = sbm.child_box_id
+       WHERE sbm.sample_record_id = $1 AND sbm.is_active = true
+       UNION ALL
+       SELECT cb.id AS child_box_id FROM sample_carton_mapping scm
+       JOIN carton_child_mapping ccm ON ccm.master_carton_id = scm.master_carton_id AND ccm.is_active = true
+       JOIN child_boxes cb ON cb.id = ccm.child_box_id
+       WHERE scm.sample_record_id = $1 AND scm.is_active = true
+     ) src_boxes
+     JOIN child_boxes cb ON cb.id = src_boxes.child_box_id
      JOIN products p ON p.id = cb.product_id
-     WHERE sbm.sample_record_id = $1 AND sbm.is_active = true
      GROUP BY p.article_name, p.colour, p.size, p.mrp
      ORDER BY p.article_name, p.colour, p.size`,
     [sampleId]

@@ -355,9 +355,39 @@ export default function InventoryLeafTable({
 
   const bothEmpty =
     data.master_cartons.length === 0 && data.loose_stock.length === 0;
+  const hasCartons = data.master_cartons.length > 0;
   // Section title for the loose-box table: "Loose Stock" reads oddly for the
   // sample / e-commerce channels where every box is loose by definition.
   const looseTitle = isWarehouse ? 'Loose Stock' : 'Boxes';
+
+  // The two stock sections, defined once and ordered per view below:
+  // warehouse = Master Cartons first (primary) then loose boxes; sample/e-commerce
+  // = Boxes first (primary) then Master Cartons (secondary).
+  const cartonsSection = hasCartons ? (
+    <div key="cartons" className="bg-white rounded-xl border border-gray-100 shadow-card">
+      <div className="flex items-center gap-2 px-4 py-3.5 border-b border-gray-100">
+        <Boxes className="h-4 w-4 text-blue-500" />
+        <h2 className="text-sm font-semibold text-brand-text-dark">Master Cartons</h2>
+        <span className="ml-auto text-xs text-brand-text-muted">{data.master_cartons.length}</span>
+      </div>
+      <div className="p-4">
+        <MasterCartonsTable rows={data.master_cartons} />
+      </div>
+    </div>
+  ) : null;
+
+  const boxesSection = (
+    <div key="boxes" className="bg-white rounded-xl border border-gray-100 shadow-card">
+      <div className="flex items-center gap-2 px-4 py-3.5 border-b border-gray-100">
+        <Package className="h-4 w-4 text-amber-500" />
+        <h2 className="text-sm font-semibold text-brand-text-dark">{looseTitle}</h2>
+        <span className="ml-auto text-xs text-brand-text-muted">{data.loose_stock.length}</span>
+      </div>
+      <div className="p-4">
+        <LooseStockTable rows={data.loose_stock} />
+      </div>
+    </div>
+  );
 
   return (
     <>
@@ -366,15 +396,26 @@ export default function InventoryLeafTable({
       {/* Summary cards */}
       <InventorySummaryCards depth={6} leafData={data} config={config} />
 
-      {/* Header row with export button */}
+      {/* Header row with export button.
+          Count order follows the section order: warehouse = cartons-first,
+          sample/e-commerce = box-first (cartons are secondary there). */}
       <div className="flex items-center justify-between mb-4">
         <p className="text-sm text-brand-text-muted">
-          {isWarehouse && (
+          {isWarehouse ? (
             <>
-              {data.master_cartons.length} carton{data.master_cartons.length !== 1 ? 's' : ''} &bull;{' '}
+              {hasCartons && (
+                <>{data.master_cartons.length} carton{data.master_cartons.length !== 1 ? 's' : ''} &bull;{' '}</>
+              )}
+              {data.loose_stock.length} box{data.loose_stock.length !== 1 ? 'es' : ''}
+            </>
+          ) : (
+            <>
+              {data.loose_stock.length} box{data.loose_stock.length !== 1 ? 'es' : ''}
+              {hasCartons && (
+                <>{' '}&bull; {data.master_cartons.length} carton{data.master_cartons.length !== 1 ? 's' : ''}</>
+              )}
             </>
           )}
-          {data.loose_stock.length} box{data.loose_stock.length !== 1 ? 'es' : ''}
         </p>
         {!bothEmpty && (
           <button
@@ -400,35 +441,20 @@ export default function InventoryLeafTable({
         </div>
       )}
 
-      {/* Master Cartons section — warehouse only (sample/e-commerce boxes are never in cartons) */}
-      {!bothEmpty && isWarehouse && (
-        <div className="bg-white rounded-xl border border-gray-100 shadow-card mb-6">
-          <div className="flex items-center gap-2 px-4 py-3.5 border-b border-gray-100">
-            <Boxes className="h-4 w-4 text-blue-500" />
-            <h2 className="text-sm font-semibold text-brand-text-dark">Master Cartons</h2>
-            <span className="ml-auto text-xs text-brand-text-muted">
-              {data.master_cartons.length}
-            </span>
-          </div>
-          <div className="p-4">
-            <MasterCartonsTable rows={data.master_cartons} />
-          </div>
-        </div>
-      )}
-
-      {/* Loose Stock / Boxes section */}
+      {/* Stock sections — warehouse is carton-first; sample/e-commerce is box-first. */}
       {!bothEmpty && (
-        <div className="bg-white rounded-xl border border-gray-100 shadow-card">
-          <div className="flex items-center gap-2 px-4 py-3.5 border-b border-gray-100">
-            <Package className="h-4 w-4 text-amber-500" />
-            <h2 className="text-sm font-semibold text-brand-text-dark">{looseTitle}</h2>
-            <span className="ml-auto text-xs text-brand-text-muted">
-              {data.loose_stock.length}
-            </span>
-          </div>
-          <div className="p-4">
-            <LooseStockTable rows={data.loose_stock} />
-          </div>
+        <div className="space-y-6">
+          {isWarehouse ? (
+            <>
+              {cartonsSection}
+              {boxesSection}
+            </>
+          ) : (
+            <>
+              {boxesSection}
+              {cartonsSection}
+            </>
+          )}
         </div>
       )}
     </>

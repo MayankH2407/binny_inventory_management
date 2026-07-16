@@ -15,6 +15,13 @@ export const createSampleSchema = z.object({
   child_box_barcodes: z.array(z.string().transform((s) => s.trim().toUpperCase())).optional(),
   // Optional per-barcode foot, keyed by child-box barcode (LEFT/RIGHT/PAIR). Missing entries default to PAIR.
   box_feet: z.record(z.enum(['LEFT', 'RIGHT', 'PAIR'])).optional(),
+  // Whole master cartons scanned in intact (carton stays PACKED; see scanCartonToSample).
+  carton_barcodes: z.array(z.string().transform((s) => s.trim().toUpperCase())).optional(),
+});
+
+export const scanCartonToSampleSchema = z.object({
+  sample_record_id: z.string().uuid('Invalid sample record ID format'),
+  carton_barcode: z.string().min(1, 'Carton barcode is required').transform((s) => s.trim().toUpperCase()),
 });
 
 export const addBoxToSampleSchema = z.object({
@@ -48,4 +55,5 @@ export const sampleListQuerySchema = z.object({
 export type CreateSampleInput = z.infer<typeof createSampleSchema>;
 export type AddBoxToSampleInput = z.infer<typeof addBoxToSampleSchema>;
 export type RemoveBoxFromSampleInput = z.infer<typeof removeBoxFromSampleSchema>;
+export type ScanCartonToSampleInput = z.infer<typeof scanCartonToSampleSchema>;
 export type SampleListQuery = z.infer<typeof sampleListQuerySchema>;

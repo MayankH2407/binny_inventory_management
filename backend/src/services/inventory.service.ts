@@ -445,10 +445,18 @@ export async function getCartonHierarchy(
   const limit = filters.limit || 50;
   const offset = (page - 1) * limit;
 
+  // Cartons allocated intact to a sample/e-commerce record are excluded from every
+  // warehouse carton view — they're only visible via the sample/ecommerce channel
+  // drill-down (getInventoryBreakdown) from here on.
+  const NOT_ALLOCATED_CLAUSE = `
+    NOT EXISTS (SELECT 1 FROM sample_carton_mapping scm WHERE scm.master_carton_id = mc.id AND scm.is_active = true)
+    AND NOT EXISTS (SELECT 1 FROM ecommerce_carton_mapping ecm WHERE ecm.master_carton_id = mc.id AND ecm.is_active = true)
+  `;
+
   if (level === 'status') {
     // Status level — may need joins if section/article filters are present
     const needsJoin = !!(filters.section || filters.article_name);
-    const conditions: string[] = [];
+    const conditions: string[] = [NOT_ALLOCATED_CLAUSE];
     const values: unknown[] = [];
     let paramIndex = 1;
 
@@ -509,7 +517,7 @@ export async function getCartonHierarchy(
   }
 
   if (level === 'section') {
-    const conditions: string[] = ['ccm.is_active = true'];
+    const conditions: string[] = ['ccm.is_active = true', NOT_ALLOCATED_CLAUSE];
     const values: unknown[] = [];
     let paramIndex = 1;
 
@@ -569,7 +577,7 @@ export async function getCartonHierarchy(
   }
 
   if (level === 'article_name') {
-    const conditions: string[] = ['ccm.is_active = true'];
+    const conditions: string[] = ['ccm.is_active = true', NOT_ALLOCATED_CLAUSE];
     const values: unknown[] = [];
     let paramIndex = 1;
 
@@ -631,7 +639,7 @@ export async function getCartonHierarchy(
   }
 
   // Carton leaf level
-  const conditions: string[] = ['ccm.is_active = true'];
+  const conditions: string[] = ['ccm.is_active = true', NOT_ALLOCATED_CLAUSE];
   const values: unknown[] = [];
   let paramIndex = 1;
 
@@ -743,10 +751,27 @@ export async function getStockSummary(): Promise<{
   sections: number;
   articles: number;
 }> {
+  // "pairs_in_stock" = available/unallocated warehouse pairs. Loose boxes allocated
+  // to a sample/e-com already drop out here (their status becomes SAMPLE/ECOMMERCE).
+  // A box allocated via a WHOLE carton keeps status PACKED (carton stays intact), so
+  // we must also exclude PACKED boxes whose carton is allocated to a sample/e-com —
+  // otherwise the headline "Pairs in Stock" would disagree with the carton list &
+  // drill-down, which already exclude allocated cartons. total_boxes stays a global
+  // count (it already includes SAMPLE/ECOMMERCE), so it is intentionally NOT filtered.
   const result = await query(`
     SELECT
       COUNT(DISTINCT p.id) as total_products,
-      COALESCE(SUM(cb.quantity) FILTER (WHERE cb.status IN ($1, $2)), 0) as pairs_in_stock,
+      COALESCE(SUM(cb.quantity) FILTER (
+        WHERE cb.status IN ($1, $2)
+          AND NOT EXISTS (
+            SELECT 1 FROM carton_child_mapping ccm
+            WHERE ccm.child_box_id = cb.id AND ccm.is_active = true
+              AND (
+                EXISTS (SELECT 1 FROM sample_carton_mapping scm WHERE scm.master_carton_id = ccm.master_carton_id AND scm.is_active = true)
+                OR EXISTS (SELECT 1 FROM ecommerce_carton_mapping ecm WHERE ecm.master_carton_id = ccm.master_carton_id AND ecm.is_active = true)
+              )
+          )
+      ), 0) as pairs_in_stock,
       COALESCE(SUM(cb.quantity) FILTER (WHERE cb.status = $3), 0) as pairs_dispatched,
       COUNT(cb.id) FILTER (WHERE cb.status IN ($1, $2, $3, $4, $5)) as total_boxes,
       COUNT(DISTINCT p.section) as sections,
@@ -756,9 +781,15 @@ export async function getStockSummary(): Promise<{
     WHERE p.is_active = true
   `, [CHILD_BOX_STATUS.FREE, CHILD_BOX_STATUS.PACKED, CHILD_BOX_STATUS.DISPATCHED, CHILD_BOX_STATUS.SAMPLE, CHILD_BOX_STATUS.ECOMMERCE]);
 
+  // "total" (available warehouse cartons) excludes cartons allocated intact to a
+  // sample/e-commerce record — they're out of the warehouse pool while allocated.
   const cartonResult = await query(`
     SELECT
-      COUNT(*) FILTER (WHERE status IN ($1, $2)) as total,
+      COUNT(*) FILTER (
+        WHERE status IN ($1, $2)
+          AND NOT EXISTS (SELECT 1 FROM sample_carton_mapping scm WHERE scm.master_carton_id = master_cartons.id AND scm.is_active = true)
+          AND NOT EXISTS (SELECT 1 FROM ecommerce_carton_mapping ecm WHERE ecm.master_carton_id = master_cartons.id AND ecm.is_active = true)
+      ) as total,
       COUNT(*) FILTER (WHERE status = $3) as dispatched
     FROM master_cartons
   `, [MASTER_CARTON_STATUS.ACTIVE, MASTER_CARTON_STATUS.CLOSED, MASTER_CARTON_STATUS.DISPATCHED]);
@@ -893,14 +924,17 @@ export async function getInventoryBreakdown(input: {
   const whereClause = conditions.join(' AND ');
 
   // ── Channel scoping (sample / ecommerce) ────────────────────────────────────
-  // Sample- and e-commerce-allocated boxes carry a single child_boxes.status
-  // (SAMPLE / ECOMMERCE) and are never inside a master carton (the pack/scan
-  // flows move a box out of its carton when it is allocated). So the breakdown
-  // for these channels is a straight per-status roll-up: every matching box is
-  // "loose", there are no cartons, and legacy sealed cartons don't apply.
+  // Sample- and e-commerce-allocated boxes normally carry a single child_boxes.status
+  // (SAMPLE / ECOMMERCE) and are loose (never inside a master carton — the pack/scan
+  // flows move a box out of its carton when it is allocated). BUT a whole master
+  // carton can now also be allocated intact (sample_carton_mapping /
+  // ecommerce_carton_mapping): those boxes stay PACKED, so they're reached via the
+  // mapping table + carton_child_mapping rather than a status filter, and are
+  // reported as carton entries (mirroring the warehouse leaf shape) rather than loose.
   // CHANNEL_STATUS values come from a validated enum → safe to inline in SQL.
   if (channel !== 'warehouse') {
     const st = channel === 'sample' ? 'SAMPLE' : 'ECOMMERCE';
+    const cartonMappingTable = channel === 'sample' ? 'sample_carton_mapping' : 'ecommerce_carton_mapping';
 
     if (level === 'leaf') {
       const looseResult = await query(`
@@ -920,8 +954,57 @@ export async function getInventoryBreakdown(input: {
           cb.created_at DESC
       `, values);
 
+      // Whole cartons allocated intact to this channel — same per-carton size
+      // breakdown shape as the warehouse leaf view's master_cartons.
+      const mcResult = await query(`
+        SELECT
+          mc.id                                  AS master_carton_id,
+          mc.carton_barcode,
+          SUM(bs.box_count)::int                 AS child_box_count,
+          SUM(bs.pairs)::int                     AS pieces,
+          MIN(bs.mrp)::numeric                   AS mrp,
+          mc.status,
+          json_agg(
+            json_build_object('size', bs.size, 'pairs', bs.pairs, 'box_count', bs.box_count)
+            ORDER BY
+              CASE WHEN bs.size ~ '^[0-9]+$' THEN bs.size::int ELSE 9999 END,
+              bs.size
+          )                                      AS size_breakdown
+        FROM master_cartons mc
+        JOIN ${cartonMappingTable} cm ON cm.master_carton_id = mc.id AND cm.is_active = true
+        JOIN (
+          SELECT
+            ccm.master_carton_id,
+            p.size,
+            p.mrp,
+            COUNT(cb.id)::int       AS box_count,
+            SUM(cb.quantity)::int   AS pairs
+          FROM carton_child_mapping ccm
+          JOIN child_boxes cb ON cb.id = ccm.child_box_id
+            AND ccm.is_active = true
+            AND cb.status = 'PACKED'
+          JOIN products p ON p.id = cb.product_id
+          WHERE ${whereClause}
+          GROUP BY ccm.master_carton_id, p.size, p.mrp
+        ) AS bs ON bs.master_carton_id = mc.id
+        GROUP BY mc.id, mc.carton_barcode, mc.status
+        ORDER BY mc.id
+      `, values);
+
       return {
-        master_cartons: [],
+        master_cartons: mcResult.rows.map(r => ({
+          master_carton_id: String(r.master_carton_id),
+          carton_barcode:   String(r.carton_barcode),
+          child_box_count:  parseInt(r.child_box_count, 10),
+          pieces:           parseInt(r.pieces, 10),
+          mrp:              parseFloat(r.mrp),
+          status:           String(r.status),
+          size_breakdown:   Array.isArray(r.size_breakdown) ? r.size_breakdown.map((sb: { size: string; pairs: number | string; box_count: number | string }) => ({
+            size:      String(sb.size ?? ''),
+            pairs:     typeof sb.pairs === 'number' ? sb.pairs : parseInt(String(sb.pairs), 10),
+            box_count: typeof sb.box_count === 'number' ? sb.box_count : parseInt(String(sb.box_count), 10),
+          })) : [],
+        })),
         loose_stock: looseResult.rows.map(r => ({
           child_box_id: String(r.child_box_id),
           barcode:      String(r.barcode),
@@ -933,20 +1016,32 @@ export async function getInventoryBreakdown(input: {
     }
 
     const chanGroupCol = LEVEL_TO_COLUMN[level];
+    // Union loose channel boxes (status-based) with boxes reached through a
+    // whole-carton allocation (mapping-table-based, still PACKED status).
     const chanResult = await query(`
       SELECT
         ${chanGroupCol} AS value,
-        COALESCE(SUM(cb.quantity) FILTER (WHERE cb.status = '${st}'), 0)::int AS pieces,
-        COUNT(cb.id) FILTER (WHERE cb.status = '${st}')::int                 AS child_box_count,
-        0::int                                                                AS master_carton_count,
-        COUNT(cb.id) FILTER (WHERE cb.status = '${st}')::int                 AS loose_child_box_count
-      FROM products p
-      LEFT JOIN child_boxes cb ON cb.product_id = p.id
+        COALESCE(SUM(cb.quantity), 0)::int                                    AS pieces,
+        COUNT(cb.id)::int                                                     AS child_box_count,
+        COUNT(DISTINCT cbx.master_carton_id)::int                             AS master_carton_count,
+        COUNT(cb.id) FILTER (WHERE cbx.master_carton_id IS NULL)::int         AS loose_child_box_count
+      FROM (
+        SELECT cb.id AS child_box_id, NULL::uuid AS master_carton_id
+        FROM child_boxes cb
+        WHERE cb.status = '${st}'
+        UNION ALL
+        SELECT ccm.child_box_id, ccm.master_carton_id
+        FROM ${cartonMappingTable} cm
+        JOIN carton_child_mapping ccm ON ccm.master_carton_id = cm.master_carton_id AND ccm.is_active = true
+        WHERE cm.is_active = true
+      ) cbx
+      JOIN child_boxes cb ON cb.id = cbx.child_box_id
+      JOIN products p ON p.id = cb.product_id
       WHERE ${whereClause}
       GROUP BY ${chanGroupCol}
       -- Only surface branches that actually hold stock in this channel; unlike
       -- the warehouse view we don't want the full catalog padded with 0-cards.
-      HAVING COUNT(cb.id) FILTER (WHERE cb.status = '${st}') > 0
+      HAVING COUNT(cb.id) > 0
       ORDER BY pieces DESC NULLS LAST
     `, values);
 
@@ -1000,6 +1095,10 @@ export async function getInventoryBreakdown(input: {
         GROUP BY ccm.master_carton_id, p.size, p.mrp
       ) AS bs ON bs.master_carton_id = mc.id
       WHERE mc.status != 'DISPATCHED'
+        -- Cartons allocated intact to a sample/e-commerce record are out of the
+        -- warehouse view — they surface only in that channel's drill-down instead.
+        AND NOT EXISTS (SELECT 1 FROM sample_carton_mapping scm WHERE scm.master_carton_id = mc.id AND scm.is_active = true)
+        AND NOT EXISTS (SELECT 1 FROM ecommerce_carton_mapping ecm WHERE ecm.master_carton_id = mc.id AND ecm.is_active = true)
       GROUP BY mc.id, mc.carton_barcode, mc.status, mc.created_at
       ORDER BY mc.created_at DESC
     `, values);
@@ -1071,6 +1170,10 @@ export async function getInventoryBreakdown(input: {
              WHERE ccm2.child_box_id = cb.id
                AND ccm2.is_active = true
                AND mc2.status != 'DISPATCHED'
+               -- Exclude boxes reached through a carton allocated intact to a
+               -- sample/e-commerce record — out of warehouse scope while allocated.
+               AND NOT EXISTS (SELECT 1 FROM sample_carton_mapping scm2 WHERE scm2.master_carton_id = mc2.id AND scm2.is_active = true)
+               AND NOT EXISTS (SELECT 1 FROM ecommerce_carton_mapping ecm2 WHERE ecm2.master_carton_id = mc2.id AND ecm2.is_active = true)
            )
           )
           OR
@@ -1094,6 +1197,10 @@ export async function getInventoryBreakdown(input: {
              WHERE ccm2.child_box_id = cb.id
                AND ccm2.is_active = true
                AND mc2.status != 'DISPATCHED'
+               -- Exclude boxes reached through a carton allocated intact to a
+               -- sample/e-commerce record — out of warehouse scope while allocated.
+               AND NOT EXISTS (SELECT 1 FROM sample_carton_mapping scm2 WHERE scm2.master_carton_id = mc2.id AND scm2.is_active = true)
+               AND NOT EXISTS (SELECT 1 FROM ecommerce_carton_mapping ecm2 WHERE ecm2.master_carton_id = mc2.id AND ecm2.is_active = true)
            )
           )
           OR
@@ -1125,6 +1232,8 @@ export async function getInventoryBreakdown(input: {
     LEFT JOIN child_boxes cb ON cb.product_id = p.id
     LEFT JOIN carton_child_mapping ccm ON ccm.child_box_id = cb.id AND ccm.is_active = true
     LEFT JOIN master_cartons mc ON mc.id = ccm.master_carton_id AND mc.status != 'DISPATCHED'
+      AND NOT EXISTS (SELECT 1 FROM sample_carton_mapping scm WHERE scm.master_carton_id = mc.id AND scm.is_active = true)
+      AND NOT EXISTS (SELECT 1 FROM ecommerce_carton_mapping ecm WHERE ecm.master_carton_id = mc.id AND ecm.is_active = true)
     WHERE ${whereClause}
     GROUP BY ${groupCol}
     ORDER BY pieces DESC NULLS LAST

@@ -65,6 +65,12 @@ router.get(
   ecommerceController.getEcommerceAssortment
 );
 
+router.get(
+  '/:id/cartons',
+  validate({ params: ecommerceIdParamSchema }),
+  ecommerceController.getEcommerceCartons
+);
+
 router.post(
   '/:id/full-unpack',
   authorizePermission('ecommerce:update'),

@@ -13,6 +13,7 @@ import {
   Plus,
   X,
   BarChart3,
+  Boxes,
 } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
@@ -25,6 +26,7 @@ import {
   TableCell,
 } from '@/components/ui/Table';
 import StatusBadge from '@/components/ui/StatusBadge';
+import Badge from '@/components/ui/Badge';
 import { PageSpinner } from '@/components/ui/Spinner';
 import Modal from '@/components/ui/Modal';
 import PageHeader from '@/components/layout/PageHeader';
@@ -50,6 +52,8 @@ export default function SampleDetailPage() {
   const [isAdding, setIsAdding] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [selectedFoot, setSelectedFoot] = useState<'PAIR' | 'LEFT' | 'RIGHT'>('PAIR');
+  const [showCartonScanner, setShowCartonScanner] = useState(false);
+  const [isScanningCarton, setIsScanningCarton] = useState(false);
   const queryClient = useQueryClient();
 
   const { data: sample, isLoading } = useApiQuery(
@@ -60,6 +64,12 @@ export default function SampleDetailPage() {
   const { data: assortment } = useApiQuery(
     ['sample-assortment', id],
     () => sampleService.getAssortment(id),
+    { enabled: !!sample }
+  );
+
+  const { data: cartons } = useApiQuery(
+    ['sample-cartons', id],
+    () => sampleService.getCartons(id),
     { enabled: !!sample }
   );
 
@@ -75,7 +85,7 @@ export default function SampleDetailPage() {
     () => sampleService.fullUnpack(id),
     {
       successMessage: 'Sample fully unpacked',
-      invalidateKeys: [['sample', id], ['sample-assortment', id], ['samples'], ['child-boxes'], ['dashboard-stats']],
+      invalidateKeys: [['sample', id], ['sample-assortment', id], ['sample-cartons', id], ['samples'], ['child-boxes'], ['dashboard-stats']],
       onSuccess: () => setShowUnpackConfirm(false),
     }
   );
@@ -83,6 +93,7 @@ export default function SampleDetailPage() {
   const invalidateSample = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ['sample', id] });
     queryClient.invalidateQueries({ queryKey: ['sample-assortment', id] });
+    queryClient.invalidateQueries({ queryKey: ['sample-cartons', id] });
     queryClient.invalidateQueries({ queryKey: ['samples'] });
     queryClient.invalidateQueries({ queryKey: ['child-boxes'] });
     queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
@@ -121,6 +132,30 @@ export default function SampleDetailPage() {
       addBoxByBarcode(qrCode);
     },
     [addBoxByBarcode]
+  );
+
+  // Scan a whole master carton → adds ALL its packed boxes into this sample at once.
+  // The carton itself stays intact (its boxes remain PACKED, mapping-based).
+  const handleScanCarton = useCallback(
+    async (barcode: string) => {
+      const code = barcode.trim().toUpperCase();
+      if (!code) {
+        toast.error('Enter a carton barcode');
+        return;
+      }
+      setIsScanningCarton(true);
+      try {
+        const result = await sampleService.scanCarton({ sample_record_id: id, carton_barcode: code });
+        toast.success(`Added ${result.added} box${result.added === 1 ? '' : 'es'} from carton ${result.cartonBarcode}`);
+        invalidateSample();
+      } catch (err: any) {
+        const message = err?.response?.data?.message || err?.message || 'Failed to scan carton';
+        toast.error(message);
+      } finally {
+        setIsScanningCarton(false);
+      }
+    },
+    [id, invalidateSample]
   );
 
   const handleRemoveBox = useCallback(
@@ -344,6 +379,38 @@ export default function SampleDetailPage() {
               <QRScanner onScanSuccess={handleScan} autoStart />
             </div>
           )}
+
+          {/* Scan a whole master carton in one go */}
+          <div className="mt-6 pt-4 border-t border-brand-border">
+            <h4 className="font-semibold text-brand-text-dark flex items-center gap-2 mb-1">
+              <Boxes className="h-4 w-4" />
+              Scan Master Carton
+            </h4>
+            <p className="text-xs text-brand-text-muted mb-3">
+              Scan a whole master carton to add all of its packed boxes at once. The carton stays intact.
+            </p>
+            <HIDScannerInput
+              onScan={handleScanCarton}
+              placeholder="Scan or enter master carton barcode..."
+              disabled={isScanningCarton}
+              className="mb-4"
+            />
+            <div className="flex items-center gap-3">
+              <Button
+                variant={showCartonScanner ? 'secondary' : 'outline'}
+                size="sm"
+                onClick={() => setShowCartonScanner(!showCartonScanner)}
+                leftIcon={<ScanLine className="h-4 w-4" />}
+              >
+                {showCartonScanner ? 'Hide Camera' : 'Use Camera Instead'}
+              </Button>
+            </div>
+            {showCartonScanner && (
+              <div className="max-w-md mt-4">
+                <QRScanner onScanSuccess={handleScanCarton} autoStart />
+              </div>
+            )}
+          </div>
         </Card>
       )}
 
@@ -454,6 +521,13 @@ export default function SampleDetailPage() {
                     <span>Size {box.size}</span>
                     <span>{formatCurrency(box.mrp)}</span>
                   </div>
+                  {box.source === 'carton' && (
+                    <div className="mt-1.5">
+                      <Badge variant="blue" size="sm">
+                        Carton {box.carton_barcode}
+                      </Badge>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -472,6 +546,7 @@ export default function SampleDetailPage() {
                     <TableHeader>Foot</TableHeader>
                     <TableHeader>MRP</TableHeader>
                     <TableHeader>Status</TableHeader>
+                    <TableHeader>Source</TableHeader>
                     {sample.status === 'ACTIVE' && <TableHeader>{''}</TableHeader>}
                   </TableRow>
                 </TableHead>
@@ -499,6 +574,15 @@ export default function SampleDetailPage() {
                       <TableCell>
                         <StatusBadge status={box.status} size="sm" />
                       </TableCell>
+                      <TableCell>
+                        {box.source === 'carton' ? (
+                          <Badge variant="blue" size="sm">
+                            Carton {box.carton_barcode}
+                          </Badge>
+                        ) : (
+                          <span className="text-brand-text-muted text-xs">—</span>
+                        )}
+                      </TableCell>
                       {sample.status === 'ACTIVE' && (
                         <TableCell>
                           <button
@@ -518,6 +602,72 @@ export default function SampleDetailPage() {
           </>
         )}
       </Card>
+
+      {/* Cartons in this sample — secondary section (boxes are primary for the
+          sample/e-commerce channel; whole cartons allocated intact list below). */}
+      {cartons && cartons.length > 0 && (
+        <Card padding={false} className="mt-6">
+          <div className="p-4 border-b border-brand-border">
+            <h3 className="font-semibold text-brand-text-dark flex items-center gap-2">
+              <Boxes className="h-4 w-4" />
+              Cartons in this Sample ({cartons.length})
+            </h3>
+          </div>
+
+          {/* Mobile cards */}
+          <div className="block md:hidden divide-y divide-brand-border">
+            {cartons.map((c) => (
+              <div key={c.mapping_id} className="p-4">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="font-mono text-xs">{c.carton_barcode}</span>
+                  <StatusBadge status={c.status} size="sm" />
+                </div>
+                {c.article_summary && <p className="text-sm font-medium">{c.article_summary}</p>}
+                <div className="flex gap-3 text-xs text-brand-text-muted mt-1">
+                  {c.colour_summary && <span>{c.colour_summary}</span>}
+                  {c.size_summary && <span>{c.size_summary}</span>}
+                  {c.mrp_summary != null && <span>{formatCurrency(c.mrp_summary)}</span>}
+                </div>
+                <p className="text-sm font-bold mt-1">{c.child_count} boxes</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Desktop table */}
+          <div className="hidden md:block">
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableHeader>Carton Barcode</TableHeader>
+                  <TableHeader>Boxes</TableHeader>
+                  <TableHeader>Article</TableHeader>
+                  <TableHeader>Colour</TableHeader>
+                  <TableHeader>Size</TableHeader>
+                  <TableHeader>MRP</TableHeader>
+                  <TableHeader>Status</TableHeader>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {cartons.map((c) => (
+                  <TableRow key={c.mapping_id}>
+                    <TableCell>
+                      <span className="font-mono text-xs">{c.carton_barcode}</span>
+                    </TableCell>
+                    <TableCell className="font-semibold">{c.child_count}</TableCell>
+                    <TableCell className="font-medium">{c.article_summary || '—'}</TableCell>
+                    <TableCell>{c.colour_summary || '—'}</TableCell>
+                    <TableCell>{c.size_summary || '—'}</TableCell>
+                    <TableCell>{c.mrp_summary != null ? formatCurrency(c.mrp_summary) : '—'}</TableCell>
+                    <TableCell>
+                      <StatusBadge status={c.status} size="sm" />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </Card>
+      )}
 
       {/* Full Unpack Confirmation Modal */}
       <Modal

@@ -1,5 +1,5 @@
 import api from './api';
-import type { EcommerceRecord, ChildBoxWithProduct, AssortmentItem } from '@/types';
+import type { EcommerceRecord, ChildBoxWithProduct, AssortmentItem, CartonMembership } from '@/types';
 
 export interface EcommerceListResponse {
   data: EcommerceRecord[];
@@ -61,6 +61,7 @@ export const ecommerceService = {
     mapped_date?: string | null;
     notes?: string | null;
     child_box_barcodes?: string[];
+    carton_barcodes?: string[];
   }): Promise<EcommerceRecord> {
     const response = await api.post<EcommerceRecord>('/ecommerce', data);
     return response.data;
@@ -71,6 +72,8 @@ export const ecommerceService = {
     return response.data;
   },
 
+  // Scan a whole master carton → adds ALL its packed boxes into this record at once.
+  // The carton itself stays intact (PACKED boxes, mapping-based) — it is not unpacked/emptied.
   async scanCarton(data: { ecommerce_record_id: string; carton_barcode: string }): Promise<{ added: number; cartonBarcode: string }> {
     const response = await api.post('/ecommerce/scan-carton', data);
     return response.data;
@@ -108,6 +111,11 @@ export const ecommerceService = {
 
   async getChildren(id: string): Promise<ChildBoxWithProduct[]> {
     const response = await api.get<ChildBoxWithProduct[]>(`/ecommerce/${id}/children`);
+    return response.data;
+  },
+
+  async getCartons(id: string): Promise<CartonMembership[]> {
+    const response = await api.get<CartonMembership[]>(`/ecommerce/${id}/cartons`);
     return response.data;
   },
 };

@@ -2,10 +2,10 @@
 
 import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { ScanLine, FlaskConical, X, ArrowLeft, Check } from 'lucide-react';
+import { ScanLine, FlaskConical, X, ArrowLeft, Check, Boxes } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
-import Select from '@/components/ui/Select';
+import SearchableSelect from '@/components/ui/SearchableSelect';
 import { Card } from '@/components/ui/Card';
 import PageHeader from '@/components/layout/PageHeader';
 import QRScanner from '@/components/scanning/QRScanner';
@@ -14,13 +14,14 @@ import { ROUTES } from '@/constants';
 import { sampleService } from '@/services/sample.service';
 import { customerService } from '@/services/customer.service';
 import { childBoxService } from '@/services/childBox.service';
-import { useApiMutation, useApiQuery } from '@/hooks/useApi';
+import { masterCartonService } from '@/services/masterCarton.service';
+import { useApiMutation } from '@/hooks/useApi';
 import { useScanStore } from '@/store/scanStore';
 import { formatCurrency } from '@/lib/utils';
 import { checkFootAvailability } from '@/lib/sampleFoot';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
-import type { ChildBoxWithProduct } from '@/types';
+import type { ChildBoxWithProduct, MasterCarton } from '@/types';
 
 export default function CreateSamplePage() {
   const router = useRouter();
@@ -37,11 +38,19 @@ export default function CreateSamplePage() {
   // Dispatch unit (foot) applied to the next scanned box; per-box value tracked in footByBarcode.
   const [selectedFoot, setSelectedFoot] = useState<'PAIR' | 'LEFT' | 'RIGHT'>('PAIR');
   const [footByBarcode, setFootByBarcode] = useState<Record<string, 'PAIR' | 'LEFT' | 'RIGHT'>>({});
+  // Whole master cartons scanned intact into this sample (in addition to loose child boxes).
+  const [scannedCartons, setScannedCartons] = useState<MasterCarton[]>([]);
+  const [showCartonScanner, setShowCartonScanner] = useState(false);
+  const [fullScreenCartonScan, setFullScreenCartonScan] = useState(false);
 
-  const { data: customersData } = useApiQuery(
-    ['customers-list-for-sample'],
-    // Load all active customers (not just the first 200) so none are hidden.
-    () => customerService.getAll({ limit: 100000, is_active: true })
+  // Fetches a page of matching customers for the searchable Customer dropdown,
+  // instead of loading every active customer up front.
+  const fetchCustomerOptions = useCallback(
+    (search: string) =>
+      customerService
+        .getAll({ search: search || undefined, is_active: true, limit: 50 })
+        .then((r) => r.data.map((c) => ({ value: c.id, label: c.firm_name }))),
+    []
   );
 
   const { mutate: createSample, isPending } = useApiMutation(
@@ -55,14 +64,16 @@ export default function CreateSamplePage() {
         notes: notes.trim() || null,
         child_box_barcodes: scannedItems,
         box_feet: footByBarcode,
+        carton_barcodes: scannedCartons.map((c) => c.carton_barcode),
       }),
     {
       successMessage: 'Sample created successfully',
-      invalidateKeys: [['samples'], ['child-boxes'], ['dashboard-stats']],
+      invalidateKeys: [['samples'], ['child-boxes'], ['master-cartons'], ['dashboard-stats']],
       onSuccess: (data) => {
         clearItems();
         setItemDetails({});
         setFootByBarcode({});
+        setScannedCartons([]);
         router.replace(ROUTES.SAMPLE_DETAIL(data.id));
       },
     }
@@ -129,13 +140,47 @@ export default function CreateSamplePage() {
     setFootByBarcode({});
   }, [clearItems]);
 
+  // ── Master carton helpers (scan a whole carton in intact, alongside loose boxes) ──
+  const addCarton = useCallback(
+    async (code: string) => {
+      const trimmed = code.trim();
+      if (!trimmed) return;
+      if (scannedCartons.find((c) => c.carton_barcode === trimmed.toUpperCase())) {
+        toast.error('Carton already added');
+        return;
+      }
+      try {
+        const carton = await masterCartonService.getByBarcode(trimmed);
+        if (carton.status === 'DISPATCHED') {
+          toast.error('This carton has already been dispatched');
+          return;
+        }
+        if (carton.status === 'CREATED' || carton.child_count === 0) {
+          toast.error('This carton is empty. Pack boxes first.');
+          return;
+        }
+        setScannedCartons((prev) => [...prev, carton]);
+        toast.success(`Added carton: ${carton.carton_barcode} (${carton.child_count} boxes)`);
+      } catch {
+        toast.error('Master carton not found');
+      }
+    },
+    [scannedCartons]
+  );
+
+  const removeCarton = useCallback((id: string) => {
+    setScannedCartons((prev) => prev.filter((c) => c.id !== id));
+  }, []);
+
+  const totalCartonBoxes = scannedCartons.reduce((sum, c) => sum + c.child_count, 0);
+
   const handleCreate = () => {
     if (!name.trim()) {
       toast.error('Sample name is required');
       return;
     }
-    if (scannedItems.length === 0) {
-      toast.error('Scan at least one child box');
+    if (scannedItems.length === 0 && scannedCartons.length === 0) {
+      toast.error('Scan at least one child box or master carton');
       return;
     }
     if (scannedItems.length > 50) {
@@ -144,16 +189,11 @@ export default function CreateSamplePage() {
     createSample(undefined as void);
   };
 
-  const customerOptions = [
-    { value: '', label: 'No customer (free-text recipient)' },
-    ...(customersData?.data?.map((c) => ({ value: c.id, label: c.firm_name })) ?? []),
-  ];
-
   return (
     <div>
       <PageHeader
         title="Create Sample"
-        description="Create a new sample batch. Only FREE or GENERATED child boxes can be added. Scan or enter barcodes to add boxes."
+        description="Create a new sample batch. Only FREE or GENERATED child boxes can be added, or scan a whole master carton to add it intact. Scan or enter barcodes to add."
         action={
           <Link href={ROUTES.SAMPLES}>
             <Button variant="secondary" leftIcon={<ArrowLeft className="h-4 w-4" />}>
@@ -183,12 +223,17 @@ export default function CreateSamplePage() {
                 helperText="A descriptive name for this sample batch"
               />
 
-              <Select
-                label="Customer (optional)"
-                options={customerOptions}
-                value={customerId}
-                onChange={(e) => setCustomerId(e.target.value)}
-              />
+              <div>
+                <label className="block text-sm font-medium text-brand-text-dark mb-1.5">
+                  Customer (optional)
+                </label>
+                <SearchableSelect
+                  value={customerId}
+                  onChange={setCustomerId}
+                  fetchOptions={fetchCustomerOptions}
+                  placeholder="No customer (free-text recipient)"
+                />
+              </div>
 
               <Input
                 label="Recipient Name (optional)"
@@ -290,9 +335,94 @@ export default function CreateSamplePage() {
               </div>
             )}
           </Card>
+
+          <Card className="p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <div className="p-2 rounded-lg" style={{ backgroundColor: '#F5F4FF' }}>
+                <Boxes className="h-4 w-4" style={{ color: '#2D2A6E' }} />
+              </div>
+              <h3 className="font-semibold text-brand-text-dark">Scan Master Carton</h3>
+            </div>
+            <p className="text-xs text-brand-text-muted mb-4">
+              Scan a whole master carton to add all of its packed boxes to this sample at once. The
+              carton stays intact.
+            </p>
+
+            <HIDScannerInput
+              onScan={addCarton}
+              placeholder="Scan or enter master carton barcode..."
+            />
+
+            <div className="mt-4 pt-4 border-t border-brand-border">
+              <Button
+                variant={showCartonScanner ? 'secondary' : 'outline'}
+                size="sm"
+                onClick={() => setShowCartonScanner(!showCartonScanner)}
+                leftIcon={<ScanLine className="h-4 w-4" />}
+              >
+                {showCartonScanner ? 'Hide Camera' : 'Use Camera Instead'}
+              </Button>
+            </div>
+
+            {showCartonScanner && (
+              <div className="mt-4">
+                <QRScanner
+                  onScanSuccess={addCarton}
+                  autoStart
+                  fullScreen={fullScreenCartonScan}
+                  onToggleFullScreen={() => setFullScreenCartonScan(!fullScreenCartonScan)}
+                />
+              </div>
+            )}
+          </Card>
         </div>
 
-        <div>
+        <div className="space-y-6">
+          {scannedCartons.length > 0 && (
+            <Card className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 rounded-lg" style={{ backgroundColor: '#F5F4FF' }}>
+                    <Boxes className="h-4 w-4" style={{ color: '#2D2A6E' }} />
+                  </div>
+                  <h3 className="font-semibold text-brand-text-dark">
+                    Scanned Cartons ({scannedCartons.length}, {totalCartonBoxes} boxes)
+                  </h3>
+                </div>
+              </div>
+              <div className="space-y-2 max-h-[240px] overflow-y-auto scrollbar-hide">
+                {scannedCartons.map((carton) => (
+                  <div
+                    key={carton.id}
+                    className="flex items-start justify-between p-3 bg-gray-50 rounded-lg"
+                  >
+                    <div className="min-w-0">
+                      {carton.article_summary && (
+                        <p className="text-sm font-medium text-brand-text-dark">{carton.article_summary}</p>
+                      )}
+                      {(carton.colour_summary || carton.size_summary) && (
+                        <p className="text-xs text-brand-text-muted">
+                          {[carton.colour_summary, carton.size_summary].filter(Boolean).join(' | ')}
+                          {carton.mrp_summary ? ` | ${formatCurrency(carton.mrp_summary)}` : ''}
+                        </p>
+                      )}
+                      <p className="text-xs font-mono text-brand-text-muted mt-0.5">
+                        {carton.carton_barcode}
+                      </p>
+                      <p className="text-xs text-brand-text-muted">{carton.child_count} boxes</p>
+                    </div>
+                    <button
+                      onClick={() => removeCarton(carton.id)}
+                      className="p-1 rounded text-brand-text-muted hover:text-brand-error hover:bg-red-50 transition-colors shrink-0"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+
           <Card className="p-6">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
@@ -379,11 +509,15 @@ export default function CreateSamplePage() {
                 fullWidth
                 size="lg"
                 isLoading={isPending}
-                disabled={scannedItems.length === 0 || !name.trim()}
+                disabled={(scannedItems.length === 0 && scannedCartons.length === 0) || !name.trim()}
                 onClick={handleCreate}
                 leftIcon={<Check className="h-4 w-4" />}
               >
-                Create Sample ({scannedItems.length} boxes)
+                Create Sample ({scannedItems.length} boxes
+                {scannedCartons.length > 0
+                  ? ` + ${scannedCartons.length} carton${scannedCartons.length !== 1 ? 's' : ''}`
+                  : ''}
+                )
               </Button>
             </div>
           </Card>

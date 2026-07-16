@@ -8,6 +8,8 @@ export const createEcommerceSchema = z.object({
   mapped_date: z.string().datetime().or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).optional().nullable(),
   notes: z.string().trim().max(2000).optional().nullable(),
   child_box_barcodes: z.array(z.string().transform((s) => s.trim().toUpperCase())).optional(),
+  // Whole master cartons scanned in intact (carton stays PACKED; see scanCartonToEcommerce).
+  carton_barcodes: z.array(z.string().transform((s) => s.trim().toUpperCase())).optional(),
 });
 
 export const addBoxToEcommerceSchema = z.object({

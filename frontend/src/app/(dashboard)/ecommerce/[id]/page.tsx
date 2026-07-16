@@ -13,6 +13,7 @@ import {
   Plus,
   X,
   BarChart3,
+  Boxes,
 } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
@@ -25,6 +26,7 @@ import {
   TableCell,
 } from '@/components/ui/Table';
 import StatusBadge from '@/components/ui/StatusBadge';
+import Badge from '@/components/ui/Badge';
 import { PageSpinner } from '@/components/ui/Spinner';
 import Modal from '@/components/ui/Modal';
 import PageHeader from '@/components/layout/PageHeader';
@@ -63,6 +65,12 @@ export default function EcommerceDetailPage() {
     { enabled: !!record }
   );
 
+  const { data: cartons } = useApiQuery(
+    ['ecommerce-cartons', id],
+    () => ecommerceService.getCartons(id),
+    { enabled: !!record }
+  );
+
   const { mutate: closeRecord, isPending: isClosing } = useApiMutation(
     () => ecommerceService.close(id),
     {
@@ -75,7 +83,7 @@ export default function EcommerceDetailPage() {
     () => ecommerceService.fullUnpack(id),
     {
       successMessage: 'E-commerce record fully unpacked',
-      invalidateKeys: [['ecommerce', id], ['ecommerce-assortment', id], ['ecommerce'], ['child-boxes'], ['dashboard-stats']],
+      invalidateKeys: [['ecommerce', id], ['ecommerce-assortment', id], ['ecommerce-cartons', id], ['ecommerce'], ['child-boxes'], ['dashboard-stats']],
       onSuccess: () => setShowUnpackConfirm(false),
     }
   );
@@ -83,6 +91,7 @@ export default function EcommerceDetailPage() {
   const invalidateRecord = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ['ecommerce', id] });
     queryClient.invalidateQueries({ queryKey: ['ecommerce-assortment', id] });
+    queryClient.invalidateQueries({ queryKey: ['ecommerce-cartons', id] });
     queryClient.invalidateQueries({ queryKey: ['ecommerce'] });
     queryClient.invalidateQueries({ queryKey: ['child-boxes'] });
     queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
@@ -347,11 +356,12 @@ export default function EcommerceDetailPage() {
           {/* Add a full master carton in one scan */}
           <div className="mt-4 pt-4 border-t border-brand-border">
             <p className="text-sm font-medium text-brand-text-dark mb-1 flex items-center gap-2">
-              <PackageOpen className="h-4 w-4" />
+              <Boxes className="h-4 w-4" />
               Or add a full carton
             </p>
             <p className="text-xs text-brand-text-muted mb-2">
-              Scan/enter a master carton barcode to move ALL its packed boxes into this record at once.
+              Scan/enter a master carton barcode to add ALL of its packed boxes to this record at
+              once. The carton itself stays intact — it is not unpacked or emptied.
             </p>
             <div className="flex gap-2 max-w-md">
               <input
@@ -482,6 +492,13 @@ export default function EcommerceDetailPage() {
                     <span>Size {box.size}</span>
                     <span>{formatCurrency(box.mrp)}</span>
                   </div>
+                  {box.source === 'carton' && (
+                    <div className="mt-1.5">
+                      <Badge variant="blue" size="sm">
+                        Carton {box.carton_barcode}
+                      </Badge>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -499,6 +516,7 @@ export default function EcommerceDetailPage() {
                     <TableHeader>Size</TableHeader>
                     <TableHeader>MRP</TableHeader>
                     <TableHeader>Status</TableHeader>
+                    <TableHeader>Source</TableHeader>
                     {record.status === 'ACTIVE' && <TableHeader>{''}</TableHeader>}
                   </TableRow>
                 </TableHead>
@@ -516,6 +534,15 @@ export default function EcommerceDetailPage() {
                       <TableCell>{formatCurrency(box.mrp)}</TableCell>
                       <TableCell>
                         <StatusBadge status={box.status} size="sm" />
+                      </TableCell>
+                      <TableCell>
+                        {box.source === 'carton' ? (
+                          <Badge variant="blue" size="sm">
+                            Carton {box.carton_barcode}
+                          </Badge>
+                        ) : (
+                          <span className="text-brand-text-muted text-xs">—</span>
+                        )}
                       </TableCell>
                       {record.status === 'ACTIVE' && (
                         <TableCell>
@@ -536,6 +563,72 @@ export default function EcommerceDetailPage() {
           </>
         )}
       </Card>
+
+      {/* Cartons in this record — secondary section (boxes are primary for the
+          e-commerce channel; whole cartons allocated intact list below). */}
+      {cartons && cartons.length > 0 && (
+        <Card padding={false} className="mt-6">
+          <div className="p-4 border-b border-brand-border">
+            <h3 className="font-semibold text-brand-text-dark flex items-center gap-2">
+              <Boxes className="h-4 w-4" />
+              Cartons in this Record ({cartons.length})
+            </h3>
+          </div>
+
+          {/* Mobile cards */}
+          <div className="block md:hidden divide-y divide-brand-border">
+            {cartons.map((c) => (
+              <div key={c.mapping_id} className="p-4">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="font-mono text-xs">{c.carton_barcode}</span>
+                  <StatusBadge status={c.status} size="sm" />
+                </div>
+                {c.article_summary && <p className="text-sm font-medium">{c.article_summary}</p>}
+                <div className="flex gap-3 text-xs text-brand-text-muted mt-1">
+                  {c.colour_summary && <span>{c.colour_summary}</span>}
+                  {c.size_summary && <span>{c.size_summary}</span>}
+                  {c.mrp_summary != null && <span>{formatCurrency(c.mrp_summary)}</span>}
+                </div>
+                <p className="text-sm font-bold mt-1">{c.child_count} boxes</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Desktop table */}
+          <div className="hidden md:block">
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <TableHeader>Carton Barcode</TableHeader>
+                  <TableHeader>Boxes</TableHeader>
+                  <TableHeader>Article</TableHeader>
+                  <TableHeader>Colour</TableHeader>
+                  <TableHeader>Size</TableHeader>
+                  <TableHeader>MRP</TableHeader>
+                  <TableHeader>Status</TableHeader>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {cartons.map((c) => (
+                  <TableRow key={c.mapping_id}>
+                    <TableCell>
+                      <span className="font-mono text-xs">{c.carton_barcode}</span>
+                    </TableCell>
+                    <TableCell className="font-semibold">{c.child_count}</TableCell>
+                    <TableCell className="font-medium">{c.article_summary || '—'}</TableCell>
+                    <TableCell>{c.colour_summary || '—'}</TableCell>
+                    <TableCell>{c.size_summary || '—'}</TableCell>
+                    <TableCell>{c.mrp_summary != null ? formatCurrency(c.mrp_summary) : '—'}</TableCell>
+                    <TableCell>
+                      <StatusBadge status={c.status} size="sm" />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </Card>
+      )}
 
       {/* Full Unpack Confirmation Modal */}
       <Modal

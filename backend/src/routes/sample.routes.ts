@@ -7,6 +7,7 @@ import {
   createSampleSchema,
   addBoxToSampleSchema,
   removeBoxFromSampleSchema,
+  scanCartonToSampleSchema,
   sampleIdParamSchema,
   sampleListQuerySchema,
   sampleBarcodeParamSchema,
@@ -56,6 +57,12 @@ router.get(
   sampleController.getSampleAssortment
 );
 
+router.get(
+  '/:id/cartons',
+  validate({ params: sampleIdParamSchema }),
+  sampleController.getSampleCartons
+);
+
 router.post(
   '/:id/full-unpack',
   authorizePermission('samples:update'),
@@ -68,6 +75,13 @@ router.post(
   authorizePermission('samples:update'),
   validate({ body: addBoxToSampleSchema }),
   sampleController.addBoxToSample
+);
+
+router.post(
+  '/scan-carton',
+  authorizePermission('samples:update'),
+  validate({ body: scanCartonToSampleSchema }),
+  sampleController.scanCartonToSample
 );
 
 router.post(
