@@ -8,6 +8,7 @@ import {
   updateProductSchema,
   productIdParamSchema,
   productListQuerySchema,
+  productArticlesQuerySchema,
   bulkCreateBySizeRangeSchema,
 } from '../models/schemas/product.schema';
 import { productImageUpload, csvUpload } from '../middleware/upload.middleware';
@@ -60,6 +61,12 @@ router.get(
   '/',
   validate({ query: productListQuerySchema }),
   productController.getProducts
+);
+
+router.get(
+  '/articles',
+  validate({ query: productArticlesQuerySchema }),
+  productController.getProductArticles
 );
 
 router.get(

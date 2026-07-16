@@ -200,6 +200,34 @@ export async function getProducts(
   return { data: result.rows, total };
 }
 
+/**
+ * Distinct active articles for dropdown use (e.g. child-box generate page). A
+ * "product" row is one size/colour variant, so the catalog has thousands of
+ * rows but only a few dozen distinct articles; this returns one representative
+ * product id per article_name (case-insensitive) instead of making callers
+ * load every variant row just to dedupe client-side.
+ */
+export async function getDistinctArticles(
+  search?: string
+): Promise<{ id: string; article_name: string; article_code: string | null; section: string | null }[]> {
+  const conditions = ['is_active = true'];
+  const values: unknown[] = [];
+
+  if (search) {
+    conditions.push('(article_name ILIKE $1 OR article_code ILIKE $1)');
+    values.push(`%${search}%`);
+  }
+
+  const result = await query(
+    `SELECT DISTINCT ON (LOWER(article_name)) id, article_name, article_code, section
+     FROM products
+     WHERE ${conditions.join(' AND ')}
+     ORDER BY LOWER(article_name), id`,
+    values
+  );
+  return result.rows;
+}
+
 export async function updateProduct(
   id: string,
   input: UpdateProductInput,

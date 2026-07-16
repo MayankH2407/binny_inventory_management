@@ -38,6 +38,20 @@ export async function getProducts(
   }
 }
 
+export async function getProductArticles(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const { search } = req.query as { search?: string };
+    const articles = await productService.getDistinctArticles(search);
+    sendSuccess(res, articles, 'Distinct articles retrieved successfully');
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function getProductById(
   req: AuthenticatedRequest,
   res: Response,

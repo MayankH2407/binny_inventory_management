@@ -69,6 +69,15 @@ export const productService = {
     return response.data;
   },
 
+  async getArticles(search?: string): Promise<
+    { id: string; article_name: string; article_code: string | null; section: string | null }[]
+  > {
+    const response = await api.get<
+      { id: string; article_name: string; article_code: string | null; section: string | null }[]
+    >('/products/articles', { params: search ? { search } : undefined });
+    return response.data;
+  },
+
   async getSizes(productId: string): Promise<Product[]> {
     const response = await api.get<Product[]>(`/products/${productId}/sizes`);
     return response.data;

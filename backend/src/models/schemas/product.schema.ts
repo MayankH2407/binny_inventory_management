@@ -83,6 +83,10 @@ export const productListQuerySchema = z.object({
   article_group: z.string().optional(),
 });
 
+export const productArticlesQuerySchema = z.object({
+  search: z.string().optional(),
+});
+
 export const bulkCreateBySizeRangeSchema = z.object({
   article_name: z
     .string()
@@ -132,3 +136,4 @@ export const bulkCreateBySizeRangeSchema = z.object({
 export type CreateProductInput = z.infer<typeof createProductSchema>;
 export type UpdateProductInput = z.infer<typeof updateProductSchema>;
 export type BulkCreateBySizeRangeInput = z.infer<typeof bulkCreateBySizeRangeSchema>;
+export type ProductArticlesQuery = z.infer<typeof productArticlesQuerySchema>;
