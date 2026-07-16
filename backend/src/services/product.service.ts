@@ -57,7 +57,7 @@ export async function createProduct(
   createdBy: string
 ): Promise<Product> {
   input.article_name = toUpperName(stripHtml(input.article_name) ?? input.article_name);
-  input.colour = toTitleCase(input.colour);
+  input.colour = toUpperName(input.colour);
   input.section = toTitleCase(input.section);
   input.article_code = input.article_code.trim().toUpperCase();
   if (input.article_group) input.article_group = toTitleCase(input.article_group);
@@ -263,7 +263,8 @@ export async function updateProduct(
       if (typeof raw === 'string') {
         if (field === 'article_name') values.push(toUpperName(stripHtml(raw) ?? raw));
         else if (field === 'description') values.push(stripHtml(raw));
-        else if (field === 'colour' || field === 'section' || field === 'article_group') values.push(toTitleCase(raw));
+        else if (field === 'colour') values.push(toUpperName(raw));
+        else if (field === 'section' || field === 'article_group') values.push(toTitleCase(raw));
         else if (field === 'article_code') values.push(raw.trim().toUpperCase());
         else values.push(raw);
       } else {
@@ -326,7 +327,7 @@ export async function getSiblingProducts(productId: string): Promise<Product[]> 
   // now stored UPPERCASE, but this guards against any stray casing so sizes
   // aggregate across the same article; front-end dedupes by size).
   const result = await query(
-    `SELECT * FROM products WHERE UPPER(article_name) = UPPER($1) AND colour = $2 AND is_active = true ORDER BY size`,
+    `SELECT * FROM products WHERE UPPER(article_name) = UPPER($1) AND UPPER(colour) = UPPER($2) AND is_active = true ORDER BY size`,
     [article_name, colour]
   );
   return result.rows;
@@ -339,14 +340,15 @@ export async function getColoursByProduct(productId: string): Promise<{ colour: 
   }
   const { article_name } = productResult.rows[0];
 
-  // Match article_name case-insensitively (belt-and-braces: article_name is now
-  // stored UPPERCASE, but this guards against any stray casing so an article
-  // returns ALL its colours regardless of casing). See child-boxes/generate.
+  // Match article_name case-insensitively AND dedupe colours case-insensitively
+  // (colour is now stored UPPERCASE per the 2026-07-16 fix, but DISTINCT ON
+  // UPPER(colour) guards against stray casing so "BLUE"/"Blue" collapse to one
+  // dropdown entry instead of repeating). See child-boxes/generate.
   const result = await query(
-    `SELECT DISTINCT ON (colour) colour, id as product_id
+    `SELECT DISTINCT ON (UPPER(colour)) UPPER(colour) AS colour, id as product_id
      FROM products
      WHERE UPPER(article_name) = UPPER($1) AND is_active = true
-     ORDER BY colour`,
+     ORDER BY UPPER(colour)`,
     [article_name]
   );
   return result.rows;
@@ -385,7 +387,7 @@ export async function bulkCreateProductsBySizeRange(
 ): Promise<Product[]> {
   const articleName = toUpperName(stripHtml(input.article_name) ?? input.article_name);
   const description = input.description ? stripHtml(input.description) : input.description;
-  const colour = toTitleCase(input.colour);
+  const colour = toUpperName(input.colour);
   const section = toTitleCase(input.section);
   const articleCode = input.article_code.trim().toUpperCase();
   const articleGroup = input.article_group ? toTitleCase(input.article_group) : input.article_group;
@@ -555,7 +557,7 @@ export async function bulkCreateProducts(
 
     // Name fields stored in uniform Title Case; codes uppercased.
     const cleanName = toUpperName(stripHtml(row.article_name.trim()) ?? row.article_name.trim());
-    const cleanColour = toTitleCase(row.colour.trim());
+    const cleanColour = toUpperName(row.colour.trim());
     const cleanSection = toTitleCase(row.section.trim());
     valid.push({
       rowNum,
