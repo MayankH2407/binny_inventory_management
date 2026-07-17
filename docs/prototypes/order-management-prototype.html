@@ -1,0 +1,1585 @@
+<title>Orders · Binny Inventory</title>
+<style>
+  :root{
+    --navy:#2D2A6E; --navy-dark:#1E1A5F; --navy-light:#F5F4FF; --navy-50:#F5F4FF; --navy-200:#D8D6F0;
+    --red:#E31E24; --red-dark:#B71C1C; --red-light:#FFEBEE;
+    --bg:#F5F6FA; --text-dark:#1A1A2E; --text-muted:#6B7280; --border:#E5E7EB;
+    --success:#16A34A; --warning:#F59E0B; --error:#DC2626;
+    --shadow-card:0 1px 3px 0 rgba(45,42,110,.04),0 1px 2px -1px rgba(45,42,110,.04);
+    --shadow-card-hover:0 4px 12px -2px rgba(45,42,110,.08);
+    --shadow-elevated:0 8px 24px -4px rgba(45,42,110,.12);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+    background:var(--bg); color:var(--text-dark); font-size:14px; line-height:1.5;
+  }
+  a{text-decoration:none;color:inherit;}
+  button{font-family:inherit; cursor:pointer;}
+  ::selection{background:var(--navy-200);}
+
+  /* ---------- Layout shell ---------- */
+  .app{display:flex; min-height:100vh;}
+
+  /* ---------- Sidebar ---------- */
+  .sidebar{
+    width:256px; min-width:256px; position:sticky; top:0; height:100vh; overflow-y:auto;
+    background:linear-gradient(180deg,#2D2A6E 0%,#1E1A5F 100%);
+    display:flex; flex-direction:column;
+  }
+  .sidebar-header{
+    height:64px; display:flex; align-items:center; gap:10px; padding:0 18px;
+    border-bottom:1px solid rgba(255,255,255,.1); flex-shrink:0;
+  }
+  .brand-mark{
+    width:32px; height:32px; border-radius:9px; background:#fff; color:var(--navy);
+    display:flex; align-items:center; justify-content:center; font-weight:800; font-size:16px;
+    flex-shrink:0;
+  }
+  .brand-name{color:#fff; font-weight:700; font-size:15px; letter-spacing:.2px;}
+  .nav{padding:14px 10px; display:flex; flex-direction:column; gap:2px; flex:1;}
+  .nav-item{
+    position:relative; display:flex; align-items:center; gap:11px; padding:9px 12px 9px 16px;
+    border-radius:10px; color:rgba(255,255,255,.7); font-size:13.5px; font-weight:500;
+    transition:background .15s,color .15s;
+  }
+  .nav-item svg{flex-shrink:0; opacity:.9;}
+  .nav-item:hover{background:rgba(255,255,255,.1); color:#fff;}
+  .nav-item.active{
+    background:#fff; color:var(--navy); box-shadow:var(--shadow-card-hover); font-weight:600;
+  }
+  .nav-item.active svg{opacity:1;}
+  .nav-item.active::before{
+    content:""; position:absolute; left:-10px; top:50%; transform:translateY(-50%);
+    width:4px; height:20px; border-radius:0 4px 4px 0; background:var(--red);
+  }
+  .sidebar-foot{padding:14px 18px; border-top:1px solid rgba(255,255,255,.1); color:rgba(255,255,255,.4); font-size:11px;}
+
+  /* ---------- Main column ---------- */
+  .main{flex:1; min-width:0; display:flex; flex-direction:column;}
+
+  /* ---------- Header ---------- */
+  .topbar{
+    position:sticky; top:0; z-index:20; height:64px; flex-shrink:0;
+    background:rgba(255,255,255,.92); backdrop-filter:blur(6px);
+    border-bottom:1px solid var(--border); box-shadow:var(--shadow-card);
+    display:flex; align-items:center; justify-content:space-between; padding:0 24px;
+  }
+  .page-title{
+    font-size:19px; font-weight:600; color:var(--text-dark);
+    border-left:2px solid var(--navy); padding-left:14px;
+  }
+  .topbar-right{display:flex; align-items:center; gap:16px;}
+  .icon-btn{
+    position:relative; width:36px; height:36px; border-radius:9px; border:none; background:transparent;
+    display:flex; align-items:center; justify-content:center; color:var(--text-muted);
+    transition:background .15s;
+  }
+  .icon-btn:hover{background:var(--navy-50);}
+  .notif-dot{
+    position:absolute; top:7px; right:8px; width:8px; height:8px; border-radius:50%; background:var(--red);
+    box-shadow:0 0 0 rgba(227,30,36,.6); animation:pulse 1.8s infinite;
+  }
+  @keyframes pulse{
+    0%{box-shadow:0 0 0 0 rgba(227,30,36,.55);}
+    70%{box-shadow:0 0 0 6px rgba(227,30,36,0);}
+    100%{box-shadow:0 0 0 0 rgba(227,30,36,0);}
+  }
+  .divider-v{width:1px; height:28px; background:var(--border);}
+  .user-block{display:flex; align-items:center; gap:10px;}
+  .user-meta{text-align:right;}
+  .user-name{font-size:13px; font-weight:600; color:var(--text-dark);}
+  .role-badge{
+    display:inline-block; margin-top:2px; font-size:10.5px; font-weight:600; padding:1px 8px;
+    border-radius:999px; background:var(--red-light); color:var(--red-dark);
+  }
+  .avatar{
+    width:36px; height:36px; border-radius:50%; flex-shrink:0;
+    background:linear-gradient(135deg,#2D2A6E,#4845A0); color:#fff;
+    display:flex; align-items:center; justify-content:center; font-weight:700; font-size:13px;
+  }
+
+  /* ---------- Content ---------- */
+  .content{padding:24px; flex:1; overflow-x:hidden;}
+  .screen{display:none;}
+  .screen.visible{display:block;}
+
+  /* ---------- Page header component ---------- */
+  .accent-bar{height:4px; width:32px; border-radius:4px; background:linear-gradient(90deg,#E31E24,#2D2A6E); margin-bottom:8px;}
+  .page-head{display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:22px; flex-wrap:wrap;}
+  .page-head h1{font-size:24px; font-weight:700; color:var(--text-dark); margin:0 0 4px;}
+  .page-head p{font-size:13.5px; color:var(--text-muted); margin:0; max-width:560px;}
+
+  /* ---------- Buttons ---------- */
+  .btn{
+    display:inline-flex; align-items:center; gap:8px; border-radius:10px; padding:10px 16px;
+    font-size:13.5px; font-weight:600; border:1px solid transparent; transition:.15s;
+    white-space:nowrap;
+  }
+  .btn-primary{background:var(--navy); color:#fff;}
+  .btn-primary:hover{background:var(--navy-dark);}
+  .btn-primary:disabled{opacity:.55; cursor:not-allowed;}
+  .btn-outline{background:#fff; border-color:var(--border); color:var(--text-dark);}
+  .btn-outline:hover{border-color:var(--navy-200); background:var(--navy-50);}
+  .btn-ghost{background:transparent; color:var(--text-muted);}
+  .btn-ghost:hover{background:var(--navy-50); color:var(--text-dark);}
+  .btn-ghost-red{background:transparent; color:var(--red-dark);}
+  .btn-ghost-red:hover{background:var(--red-light);}
+  .btn-block{width:100%; justify-content:center;}
+  .btn-sm{padding:7px 12px; font-size:12.5px;}
+
+  /* ---------- Cards ---------- */
+  .card{
+    background:#fff; border:1px solid var(--border); border-radius:12px;
+    box-shadow:var(--shadow-card); padding:24px;
+  }
+  .card + .card{margin-top:20px;}
+  .card-head{display:flex; align-items:center; gap:10px; margin-bottom:18px;}
+  .card-icon{
+    width:34px; height:34px; border-radius:9px; background:var(--navy-50); color:var(--navy);
+    display:flex; align-items:center; justify-content:center; flex-shrink:0;
+  }
+  .card-title{font-size:15px; font-weight:600; color:var(--text-dark);}
+
+  /* ---------- Stat cards ---------- */
+  .stat-grid{display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:20px;}
+  .stat-card{
+    background:#fff; border:1px solid var(--border); border-radius:12px; padding:16px 18px;
+    box-shadow:var(--shadow-card); display:flex; align-items:center; justify-content:space-between;
+  }
+  .stat-label{font-size:12px; color:var(--text-muted); font-weight:500; margin-bottom:6px;}
+  .stat-value{font-size:24px; font-weight:700; color:var(--text-dark);}
+  .stat-icon{
+    width:38px; height:38px; border-radius:10px; display:flex; align-items:center; justify-content:center;
+    flex-shrink:0;
+  }
+
+  /* ---------- Table ---------- */
+  table{width:100%; border-collapse:collapse; font-size:13px;}
+  thead th{
+    text-align:left; font-size:11.5px; text-transform:uppercase; letter-spacing:.4px;
+    color:var(--text-muted); font-weight:600; padding:10px 14px; border-bottom:1px solid var(--border);
+  }
+  tbody td{padding:13px 14px; border-bottom:1px solid #F1F1F6; color:var(--text-dark);}
+  tbody tr:last-child td{border-bottom:none;}
+  tbody tr:hover{background:#FAFAFD;}
+  .cell-muted{color:var(--text-muted);}
+  .link-view{color:var(--navy); font-weight:600;}
+  .link-view:hover{text-decoration:underline;}
+
+  /* ---------- Badges ---------- */
+  .badge{display:inline-flex; align-items:center; gap:5px; padding:4px 12px; border-radius:999px; font-size:11.5px; font-weight:600;}
+  .badge-lg{padding:7px 18px; font-size:13px;}
+  .badge-pending{background:#FEF3C7; color:#92400E;}
+  .badge-confirmed{background:#DBEAFE; color:#1E40AF;}
+  .badge-inprogress{background:#EEEDF7; color:#2D2A6E;}
+  .badge-packed{background:#EDE9FE; color:#6D28D9;}
+  .badge-dispatched{background:#CCFBF1; color:#0F766E;}
+  .badge-delivered{background:#DCFCE7; color:#166534;}
+  .badge-cancelled{background:#FFEBEE; color:#B71C1C;}
+
+  /* ---------- Forms ---------- */
+  label{display:block; font-size:13px; font-weight:500; color:var(--text-dark); margin-bottom:6px;}
+  .help-text{font-size:11.5px; color:var(--text-muted); margin-top:5px;}
+  input[type=text], input[type=date], input[type=number], select{
+    width:100%; border:1px solid var(--border); border-radius:10px; padding:10px 14px;
+    background:rgba(249,250,251,.5); font-size:13.5px; color:var(--text-dark); font-family:inherit;
+    transition:border-color .15s, box-shadow .15s; outline:none;
+  }
+  input:focus, select:focus{border-color:var(--navy); box-shadow:0 0 0 3px rgba(45,42,110,.15);}
+  input[readonly]{color:var(--text-muted); background:#F3F3F8; cursor:default;}
+  .field{margin-bottom:16px;}
+  .form-row{display:grid; grid-template-columns:1fr 1fr; gap:16px;}
+
+  /* ---------- Attach screenshot dropzone ---------- */
+  .attach-box{
+    display:flex; align-items:center; justify-content:center; gap:9px; cursor:pointer;
+    border:1.5px dashed var(--navy-200); border-radius:10px; padding:16px; margin:0;
+    color:var(--navy); font-size:13px; font-weight:600; background:var(--navy-50);
+    transition:border-color .15s, background .15s;
+  }
+  .attach-box:hover{border-color:var(--navy); background:#EEEDF7;}
+  .attach-box.has-file{border-style:solid; border-color:var(--success); color:var(--success); background:#F0FDF4;}
+
+  /* ---------- New order two-col grid ---------- */
+  .order-grid{display:grid; grid-template-columns:1.6fr 1fr; gap:24px; align-items:start;}
+  @media (max-width:980px){ .order-grid{grid-template-columns:1fr;} .form-row{grid-template-columns:1fr;} .stat-grid{grid-template-columns:1fr 1fr;} }
+
+  /* ---------- Item row builder ---------- */
+  .item-row{
+    padding:14px; border:1px solid var(--border); border-radius:10px; background:#FCFCFE; margin-bottom:12px;
+  }
+  .item-row-main{
+    display:grid; grid-template-columns:.95fr 1.4fr .9fr .7fr .8fr 34px; gap:10px; align-items:end;
+  }
+  .item-row-remarks{margin-top:10px;}
+  @media (max-width:760px){ .item-row-main{grid-template-columns:1fr 1fr;} }
+  .item-row .mini-label{font-size:10.5px; color:var(--text-muted); font-weight:600; text-transform:uppercase; margin-bottom:5px; letter-spacing:.3px;}
+  .remove-row-btn{
+    width:34px; height:38px; border-radius:9px; border:1px solid var(--border); background:#fff;
+    display:flex; align-items:center; justify-content:center; color:var(--red); flex-shrink:0;
+  }
+  .remove-row-btn:hover{background:var(--red-light); border-color:#F5C6C7;}
+  .remove-row-btn[disabled]{opacity:.35; cursor:not-allowed;}
+
+  /* ---------- Summary card ---------- */
+  .summary-line{display:flex; justify-content:space-between; font-size:13px; padding:6px 0; color:var(--text-dark);}
+  .summary-line .lbl{color:var(--text-muted);}
+  .summary-items-list{max-height:230px; overflow-y:auto; margin:8px 0;}
+  .summary-item{
+    display:flex; justify-content:space-between; gap:8px; font-size:12.5px; padding:8px 0;
+    border-bottom:1px dashed var(--border);
+  }
+  .summary-item:last-child{border-bottom:none;}
+  .summary-item .si-name{font-weight:600; color:var(--text-dark);}
+  .summary-item .si-meta{color:var(--text-muted);}
+  .summary-item .si-qty{font-weight:700; color:var(--navy); white-space:nowrap;}
+  hr.sep{border:none; border-top:1px solid var(--border); margin:14px 0;}
+  .section-chip{
+    display:flex; justify-content:space-between; align-items:center; gap:8px;
+    background:var(--navy-50); border:1px solid var(--navy-200); border-radius:9px;
+    padding:9px 12px; margin-bottom:8px; font-size:12.5px;
+  }
+  .section-chip .sec-name{font-weight:700; color:var(--navy);}
+  .total-line{display:flex; justify-content:space-between; font-size:14px; font-weight:700; color:var(--navy); padding:4px 0;}
+
+  .success-box{text-align:center; padding:14px 4px;}
+  .success-icon{
+    width:56px; height:56px; border-radius:50%; background:#DCFCE7; color:var(--success);
+    display:flex; align-items:center; justify-content:center; margin:0 auto 14px;
+  }
+  .success-box h3{margin:0 0 6px; font-size:16px; color:var(--text-dark);}
+  .success-box p{margin:0 0 18px; font-size:13px; color:var(--text-muted);}
+
+  /* ---------- Order details screen ---------- */
+  .detail-top{display:grid; grid-template-columns:repeat(4,1fr); gap:20px; align-items:start;}
+  @media (max-width:900px){ .detail-top{grid-template-columns:1fr 1fr;} }
+  .kv-label{font-size:11.5px; color:var(--text-muted); font-weight:600; text-transform:uppercase; letter-spacing:.3px; margin-bottom:6px;}
+  .kv-value{font-size:14px; font-weight:600; color:var(--text-dark);}
+  .kv-sub{font-size:12px; color:var(--text-muted); margin-top:3px;}
+
+  /* ---------- Timeline ---------- */
+  .timeline{display:flex; align-items:flex-start; justify-content:space-between; margin:8px 0 4px; overflow-x:auto; padding-bottom:6px;}
+  .tl-step{display:flex; flex-direction:column; align-items:center; flex:1; min-width:100px; position:relative;}
+  .tl-step:not(:last-child)::after{
+    content:""; position:absolute; top:16px; left:58%; width:84%; height:2px; background:var(--border); z-index:0;
+  }
+  .tl-step.done:not(:last-child)::after{background:var(--navy);}
+  .tl-dot{
+    width:32px; height:32px; border-radius:50%; background:#E5E7EB; color:#9CA3AF; z-index:1;
+    display:flex; align-items:center; justify-content:center; font-weight:700; font-size:12px; flex-shrink:0;
+  }
+  .tl-step.done .tl-dot{background:var(--navy); color:#fff;}
+  .tl-step.current .tl-dot{background:#fff; color:var(--red); box-shadow:0 0 0 3px var(--red-light), 0 0 0 2px var(--red); }
+  .tl-label{font-size:12px; font-weight:600; margin-top:8px; color:var(--text-dark); text-align:center;}
+  .tl-step:not(.done):not(.current) .tl-label{color:var(--text-muted); font-weight:500;}
+  .tl-date{font-size:10.5px; color:var(--text-muted); margin-top:2px; text-align:center;}
+  @media (max-width:760px){
+    .timeline{flex-direction:column; align-items:flex-start; gap:18px;}
+    .tl-step{flex-direction:row; align-items:center; min-width:0; width:100%; gap:12px;}
+    .tl-step:not(:last-child)::after{display:none;}
+    .tl-label{margin-top:0;}
+  }
+
+  .update-row{display:flex; align-items:flex-end; gap:12px; flex-wrap:wrap;}
+  .update-row .field{margin-bottom:0; min-width:220px; flex:1;}
+
+  .activity-item{display:flex; gap:10px; padding:10px 0; border-bottom:1px solid #F1F1F6; font-size:12.5px;}
+  .activity-item:last-child{border-bottom:none;}
+  .activity-dot{width:8px; height:8px; border-radius:50%; background:var(--navy); margin-top:5px; flex-shrink:0;}
+  .activity-text b{color:var(--text-dark);}
+  .activity-text{color:var(--text-muted);}
+
+  tfoot td{padding:12px 14px; font-weight:700; color:var(--text-dark); border-top:2px solid var(--border);}
+
+  /* ---------- Dispatch checklist ---------- */
+  .dispatch-scan{
+    display:flex; align-items:center; gap:10px; background:var(--navy-50); border:1px solid var(--navy-200);
+    border-radius:10px; padding:12px 14px; font-size:12.5px; color:var(--text-dark);
+  }
+  .dispatch-list{display:flex; flex-direction:column; gap:8px;}
+  .dispatch-line{
+    display:flex; align-items:center; gap:12px; padding:11px 14px; border:1px solid var(--border);
+    border-radius:10px; background:#FCFCFE; margin:0; cursor:pointer; font-weight:400;
+  }
+  .dispatch-line:hover{border-color:var(--navy-200); background:var(--navy-50);}
+  .dispatch-line input[type=checkbox]{width:17px; height:17px; accent-color:var(--navy); flex-shrink:0; cursor:pointer;}
+  .dispatch-line .si-name{font-size:13.5px;}
+
+  /* ---------- Accuracy ---------- */
+  .acc-grid{display:grid; grid-template-columns:1.4fr 1fr; gap:24px; align-items:center;}
+  @media (max-width:760px){ .acc-grid{grid-template-columns:1fr;} }
+  .acc-row{display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid #F1F1F6; font-size:13px;}
+  .acc-row:last-child{border-bottom:none;}
+  .acc-meter{text-align:center; padding:10px;}
+  .acc-pct{font-size:40px; font-weight:800; line-height:1;}
+  .acc-bar{height:10px; border-radius:6px; background:#EEEDF7; overflow:hidden; margin-top:12px;}
+  .acc-fill{height:100%; border-radius:6px; transition:width .4s;}
+
+  .toast{
+    position:fixed; top:78px; right:24px; z-index:100; background:#fff; border:1px solid var(--border);
+    border-left:4px solid var(--success); border-radius:10px; box-shadow:var(--shadow-elevated);
+    padding:14px 18px; font-size:13px; font-weight:500; display:flex; align-items:center; gap:10px;
+    transform:translateX(140%); transition:transform .3s ease;
+  }
+  .toast.show{transform:translateX(0);}
+</style>
+
+<div class="app">
+
+  <!-- ============ SIDEBAR ============ -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="brand-mark">B</div>
+      <div class="brand-name">Binny Inventory</div>
+    </div>
+    <nav class="nav" id="sideNav">
+      <a class="nav-item" href="#"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg><span>Dashboard</span></a>
+      <a class="nav-item" href="#"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8V21H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg><span>Inventory</span></a>
+      <a class="nav-item" href="#"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="7" width="16" height="13" rx="1"/><path d="M9 7V5a3 3 0 0 1 6 0v2"/></svg><span>Child Boxes</span></a>
+      <a class="nav-item" href="#"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="M3.27 6.96 12 12l8.73-5.04"/><path d="M12 22.08V12"/></svg><span>Master Cartons</span></a>
+      <a class="nav-item" href="#"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg><span>Samples</span></a>
+      <a class="nav-item" href="#"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg><span>E-commerce</span></a>
+      <a class="nav-item active" href="#" data-nav="orders"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h4"/><path d="M9 11V6a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H9"/><path d="M9 11h6"/><path d="M9 15h6"/></svg><span>Orders</span></a>
+      <a class="nav-item" href="#"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="14" rx="2"/><path d="M8 7V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v3"/><circle cx="12" cy="14" r="1.5"/></svg><span>Scan &amp; Trace</span></a>
+      <a class="nav-item" href="#"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 2.1l4 4-4 4"/><path d="M3 12.1v-2a4 4 0 0 1 4-4h14"/><path d="M7 21.9l-4-4 4-4"/><path d="M21 11.9v2a4 4 0 0 1-4 4H3"/></svg><span>Unpack &amp; Repack</span></a>
+      <a class="nav-item" href="#"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><path d="M16 8h4l3 3v5h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg><span>Dispatch</span></a>
+      <a class="nav-item" href="#"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4"/><path d="M4 6v12c0 1.1.9 2 2 2h14v-4"/><path d="M18 12a2 2 0 0 0 0 4h4v-4h-4z"/></svg><span>Dispatches</span></a>
+      <a class="nav-item" href="#"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg><span>Reports</span></a>
+      <a class="nav-item" href="#"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41 13.42 20.6a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><circle cx="7" cy="7" r="1.5"/></svg><span>Products</span></a>
+      <a class="nav-item" href="#"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg><span>Customers</span></a>
+      <a class="nav-item" href="#"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg><span>Users</span></a>
+      <a class="nav-item" href="#"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 3 6v6c0 5.25 3.5 9.5 9 10 5.5-.5 9-4.75 9-10V6l-9-4z"/><path d="m9 12 2 2 4-4"/></svg><span>Role Manager</span></a>
+      <a class="nav-item" href="#"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg><span>Settings</span></a>
+    </nav>
+    <div class="sidebar-foot">Binny Inventory v1 &middot; Mahavir Polymers</div>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <div class="main">
+    <!-- ============ TOPBAR ============ -->
+    <header class="topbar">
+      <div class="page-title" id="pageTitle">Orders</div>
+      <div class="topbar-right">
+        <button class="icon-btn" title="Notifications">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+          <span class="notif-dot"></span>
+        </button>
+        <div class="divider-v"></div>
+        <div class="user-block">
+          <div class="user-meta">
+            <div class="user-name">Amit Sharma</div>
+            <span class="role-badge">Admin</span>
+          </div>
+          <div class="avatar">AS</div>
+        </div>
+        <button class="icon-btn" title="Logout">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- ============ CONTENT ============ -->
+    <main class="content">
+
+      <!-- ======================================================= -->
+      <!-- SCREEN 1: ORDERS LIST                                    -->
+      <!-- ======================================================= -->
+      <section class="screen visible" id="screen-list">
+        <div class="page-head">
+          <div>
+            <div class="accent-bar"></div>
+            <h1>Orders</h1>
+            <p>Create and track customer orders from placement through dispatch.</p>
+          </div>
+          <button class="btn btn-primary" onclick="goTo('new')">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            New Order
+          </button>
+        </div>
+
+        <div class="stat-grid">
+          <div class="stat-card">
+            <div><div class="stat-label">Total Orders</div><div class="stat-value" id="statTotal">6</div></div>
+            <div class="stat-icon" style="background:var(--navy-50); color:var(--navy);">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h4"/><path d="M9 11V6a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H9"/></svg>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div><div class="stat-label">Confirmed</div><div class="stat-value" id="statConfirmed">3</div></div>
+            <div class="stat-icon" style="background:#DBEAFE; color:#1E40AF;">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div><div class="stat-label">Dispatched</div><div class="stat-value" id="statDispatched">1</div></div>
+            <div class="stat-icon" style="background:#CCFBF1; color:#0F766E;">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><path d="M16 8h4l3 3v5h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div><div class="stat-label">Delivered</div><div class="stat-value" id="statDelivered">1</div></div>
+            <div class="stat-icon" style="background:#DCFCE7; color:#166534;">
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" style="padding:0; overflow-x:auto;">
+          <table>
+            <thead>
+              <tr>
+                <th>Order No</th><th>Date</th><th>Customer</th><th>Items</th><th>Total Qty (cartons)</th><th>Status</th><th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="ordersTbody">
+              <!-- rows injected by JS -->
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ======================================================= -->
+      <!-- SCREEN 2: NEW ORDER                                      -->
+      <!-- ======================================================= -->
+      <section class="screen" id="screen-new">
+        <div class="page-head">
+          <div>
+            <div class="accent-bar"></div>
+            <h1>New Order</h1>
+            <p>Fill in customer and item details, then submit for processing.</p>
+          </div>
+          <button class="btn btn-outline" onclick="goTo('list')">Back to Orders</button>
+        </div>
+
+        <div class="order-grid">
+          <!-- LEFT COLUMN -->
+          <div>
+            <div class="card">
+              <div class="card-head">
+                <div class="card-icon">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h4"/><path d="M9 11V6a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H9"/><path d="M9 11h6"/><path d="M9 15h6"/></svg>
+                </div>
+                <div class="card-title">Order Details</div>
+              </div>
+
+              <div class="form-row">
+                <div class="field">
+                  <label for="orderDate">Order Date</label>
+                  <input type="date" id="orderDate" readonly>
+                  <div class="help-text">Auto-filled with current date</div>
+                </div>
+                <div class="field">
+                  <label for="customerSelect">Customer</label>
+                  <select id="customerSelect">
+                    <option value="">Select customer&hellip;</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="field">
+                <label for="poNo">Customer Reference / PO No. <span style="font-weight:400; color:var(--text-muted);">(optional)</span></label>
+                <input type="text" id="poNo" placeholder="e.g. PO-4471">
+              </div>
+
+              <div class="field" style="margin-bottom:0;">
+                <label>Attach Order Screenshot <span style="font-weight:400; color:var(--text-muted);">(WhatsApp / e-mail order)</span></label>
+                <label for="orderScreenshot" class="attach-box" id="attachBox">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                  <span id="attachText">Click to attach order image</span>
+                </label>
+                <input type="file" id="orderScreenshot" accept="image/*" style="display:none;" onchange="onAttachChange(this)">
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-head">
+                <div class="card-icon">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8V21H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg>
+                </div>
+                <div class="card-title">Order Items</div>
+              </div>
+
+              <div id="itemRows"><!-- item rows injected by JS --></div>
+
+              <button class="btn btn-outline btn-sm" onclick="addItemRow()">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                Add Item
+              </button>
+            </div>
+          </div>
+
+          <!-- RIGHT COLUMN -->
+          <div>
+            <div class="card" id="summaryCard">
+              <div class="card-head">
+                <div class="card-icon">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                </div>
+                <div class="card-title">Order Summary</div>
+              </div>
+
+              <div id="summaryBody">
+                <div class="summary-line"><span class="lbl">Customer</span><span id="sumCustomer">&mdash;</span></div>
+                <div class="summary-line"><span class="lbl">Order Date</span><span id="sumDate">&mdash;</span></div>
+
+                <hr class="sep">
+
+                <div id="summaryItemsList" class="summary-items-list"></div>
+
+                <hr class="sep">
+
+                <div class="total-line"><span>Total Items</span><span id="sumTotalItems">0</span></div>
+                <div class="total-line"><span>Total Quantity</span><span id="sumTotalQty">0 cartons</span></div>
+                <div class="summary-line" style="margin-top:2px;"><span class="lbl">&nbsp;</span><span id="sumTotalPairs" class="cell-muted">0 pairs</span></div>
+
+                <hr class="sep">
+                <div class="si-name" style="font-size:12px; margin-bottom:6px;">Section / Location separation <span style="font-weight:400; color:var(--text-muted);">(auto)</span></div>
+                <div id="summarySections"></div>
+
+                <button class="btn btn-primary btn-block" style="margin-top:18px;" onclick="submitOrder()">Submit Order</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ======================================================= -->
+      <!-- SCREEN 3: ORDER DETAILS                                  -->
+      <!-- ======================================================= -->
+      <section class="screen" id="screen-detail">
+        <div class="page-head">
+          <div>
+            <div class="accent-bar"></div>
+            <h1>Order Details</h1>
+            <p id="detailSubtitle">Order &middot; Customer</p>
+          </div>
+          <button class="btn btn-outline" onclick="goTo('list')">Back to Orders</button>
+        </div>
+
+        <div class="card">
+          <div class="detail-top">
+            <div>
+              <div class="kv-label">Order No</div>
+              <div class="kv-value" id="dOrderNo">&mdash;</div>
+            </div>
+            <div>
+              <div class="kv-label">Order Date</div>
+              <div class="kv-value" id="dOrderDate">&mdash;</div>
+            </div>
+            <div>
+              <div class="kv-label">Customer</div>
+              <div class="kv-value" id="dCustomer">&mdash;</div>
+              <div class="kv-sub" id="dCustomerLoc">&mdash;</div>
+            </div>
+            <div>
+              <div class="kv-label">Customer Ref</div>
+              <div class="kv-value" id="dPoNo">&mdash;</div>
+              <div class="kv-sub" id="dAttachment"></div>
+            </div>
+          </div>
+          <div style="margin-top:18px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+            <span class="kv-label" style="margin:0;">Status</span>
+            <span class="badge badge-lg" id="dStatusBadge">&mdash;</span>
+            <div style="flex:1;"></div>
+            <button class="btn btn-outline btn-sm" onclick="printOrder(currentDetailOrderNo)">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+              Print Order
+            </button>
+            <button class="btn btn-ghost-red btn-sm" onclick="cancelOrder()">Cancel Order</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <div class="card-icon">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            </div>
+            <div class="card-title">Status Timeline</div>
+          </div>
+          <div class="timeline" id="timeline"><!-- injected --></div>
+          <div class="help-text" style="margin-top:14px;">Status changes are logged with user &amp; timestamp.</div>
+        </div>
+
+        <!-- Dispatch / Delivery workflow (rendered by JS based on order status) -->
+        <div id="workflowArea"></div>
+
+        <div class="card" style="padding:0; overflow-x:auto;">
+          <div style="padding:24px 24px 0;">
+            <div class="card-head">
+              <div class="card-icon">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8V21H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg>
+              </div>
+              <div class="card-title">Order Items</div>
+            </div>
+          </div>
+          <table>
+            <thead><tr><th>Item</th><th>Section / Location</th><th>Colour</th><th>Size</th><th>Qty</th><th>Remarks</th><th>Dispatch</th></tr></thead>
+            <tbody id="dItemsTbody"></tbody>
+            <tfoot><tr><td colspan="4">Total</td><td id="dItemsTotal">0</td><td colspan="2"></td></tr></tfoot>
+          </table>
+        </div>
+
+        <!-- Order accuracy (feeds the Reports → dispatch accuracy analysis) -->
+        <div class="card" id="accuracyCard">
+          <div class="card-head">
+            <div class="card-icon">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg>
+            </div>
+            <div class="card-title">Order Dispatch Accuracy</div>
+          </div>
+          <div id="accuracyBody"><!-- injected --></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <div class="card-icon">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+            </div>
+            <div class="card-title">Activity / Status History</div>
+          </div>
+          <div id="activityLog"><!-- injected --></div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+</div>
+
+<!-- Toast for status-update confirmation -->
+<div class="toast" id="toast"><span id="toastText"></span></div>
+
+<script>
+/* ==========================================================================
+   ORDER MANAGEMENT PROTOTYPE — client-side only, no backend.
+   Data model kept in memory; everything resets on page reload.
+   ========================================================================== */
+
+// ---- Static reference data -------------------------------------------------
+var CUSTOMERS = [
+  { name: "AGARWAL BOOT HOUSE", loc: "Chhoti Khatu, Nagaur, Rajasthan" },
+  { name: "AJAY TRADERS", loc: "Panvel, Raigad, Maharashtra" },
+  { name: "AMAN TRADING COMPANY", loc: "Narnaul, Haryana" },
+  { name: "AMAR CUTTLARY STORE", loc: "Raper, Kutch, Gujarat" },
+  { name: "AKSHAY UNIFORMS", loc: "Nalasopara, Maharashtra" },
+  { name: "AGRAWAL SCHOOL UNIFORM", loc: "Surat, Gujarat" }
+];
+
+// Article catalog: item -> group, colours[], sizes[], mrp, section, location, ppc (pairs per carton)
+var CATALOG = {
+  "ALIA PLUS":  { group:"Ladies", colours: ["BLUE", "BLACK", "PINK"],   sizes: [5,6,7,8],       mrp: 149, section:"Section A", location:"Rack A-12", ppc:20 },
+  "ROYAL":      { group:"Gents",  colours: ["BROWN", "BLACK"],          sizes: [6,7,8,9,10],    mrp: 399, section:"Section B", location:"Rack B-04", ppc:10 },
+  "SPARK":      { group:"Kids",   colours: ["RED", "BLUE"],             sizes: [1,2,3,4,5],     mrp: 599, section:"Section C", location:"Rack C-09", ppc:24 },
+  "BREEZE":     { group:"Gents",  colours: ["GREY", "NAVY"],            sizes: [6,7,8,9,10],    mrp: 249, section:"Section B", location:"Rack B-07", ppc:12 },
+  "CAMPUS":     { group:"School", colours: ["WHITE", "BLACK"],          sizes: [6,7,8,9,10,11], mrp: 499, section:"Section A", location:"Rack A-03", ppc:12 }
+};
+var ITEM_NAMES = Object.keys(CATALOG);
+// Distinct item groups, for the "select by item group" filter on each order line
+var ITEM_GROUPS = ITEM_NAMES.reduce(function(acc, name){
+  var g = CATALOG[name].group;
+  if(acc.indexOf(g) < 0) acc.push(g);
+  return acc;
+}, []);
+
+// Redefined 3-stage lifecycle (per client observations):
+//   Confirmed  – order is added to the system
+//   Dispatched – cartons are scanned from the sections
+//   Delivered  – transporter provides builty, invoice no., vehicle details & date of delivery
+var STATUS_STEPS = ["Confirmed", "Dispatched", "Delivered"];
+var STATUS_DEFS = {
+  "Confirmed":  "Order added to the system",
+  "Dispatched": "Cartons scanned from the sections",
+  "Delivered":  "Builty, invoice, vehicle & date recorded"
+};
+
+function badgeClass(status){
+  return {
+    "Confirmed":"badge-confirmed","Dispatched":"badge-dispatched","Delivered":"badge-delivered",
+    "Cancelled":"badge-cancelled"
+  }[status] || "badge-confirmed";
+}
+
+// ---- Carton conversion (Observation #1: total quantity in cartons) ----------
+function lineCartons(line){
+  var art = CATALOG[line.item];
+  var ppc = (art && art.ppc) ? art.ppc : 12;
+  return (Number(line.qty) || 0) / ppc;
+}
+function totalCartons(order){
+  return order.items.reduce(function(s,l){ return s + lineCartons(l); }, 0);
+}
+function fmtCartons(n){
+  // whole number where it divides evenly, else one decimal
+  return (Math.round(n * 10) / 10).toString().replace(/\.0$/, "");
+}
+
+// ---- Seed orders for the list screen ---------------------------------------
+var ORDERS = [
+  { no:"ORD-2026-0001", date:"2026-06-03", customer:"AGARWAL BOOT HOUSE", ref:"PO-1187",
+    status:"Delivered",
+    items:[
+      {item:"ALIA PLUS", colour:"BLUE", size:7, qty:180, remarks:"Ship first"},
+      {item:"ROYAL", colour:"BLACK", size:9, qty:180, remarks:""},
+      {item:"CAMPUS", colour:"WHITE", size:8, qty:180, remarks:"Box separately"}
+    ],
+    dispatched:["ALIA PLUS","ROYAL","CAMPUS"],   // all ordered articles dispatched
+    delivery:{ builty:"BLT-77120", invoice:"INV-2026-0451", vehicle:"RJ14-GA-9932 · Sharma Roadways", date:"2026-06-07" },
+    history:[
+      {ts:"03 Jun 2026, 09:12", user:"Amit Sharma", text:"created the order"},
+      {ts:"05 Jun 2026, 11:40", user:"Rakesh Yadav", text:"dispatched all 3 articles"},
+      {ts:"07 Jun 2026, 15:02", user:"Priya Nair", text:"marked as Delivered"}
+    ]
+  },
+  { no:"ORD-2026-0002", date:"2026-06-09", customer:"AJAY TRADERS", ref:"",
+    status:"Dispatched",
+    items:[
+      {item:"BREEZE", colour:"GREY", size:8, qty:220, remarks:""},
+      {item:"SPARK", colour:"RED", size:3, qty:100, remarks:"Confirm sizes"}
+    ],
+    dispatched:["BREEZE"],   // partial dispatch – SPARK still pending
+    delivery:null,
+    history:[
+      {ts:"09 Jun 2026, 10:05", user:"Amit Sharma", text:"created the order"},
+      {ts:"13 Jun 2026, 09:47", user:"Rakesh Yadav", text:"dispatched 1 of 2 articles (SPARK pending)"}
+    ]
+  },
+  { no:"ORD-2026-0003", date:"2026-06-15", customer:"AMAN TRADING COMPANY", ref:"PO-2249",
+    status:"Confirmed",
+    items:[
+      {item:"CAMPUS", colour:"BLACK", size:9, qty:300, remarks:""},
+      {item:"ROYAL", colour:"BROWN", size:8, qty:120, remarks:"School order"},
+      {item:"ALIA PLUS", colour:"PINK", size:6, qty:120, remarks:""}
+    ],
+    dispatched:[],
+    delivery:null,
+    history:[
+      {ts:"15 Jun 2026, 12:30", user:"Amit Sharma", text:"created the order"}
+    ]
+  },
+  { no:"ORD-2026-0004", date:"2026-06-22", customer:"AMAR CUTTLARY STORE", ref:"",
+    status:"Confirmed",
+    items:[
+      {item:"SPARK", colour:"BLUE", size:2, qty:150, remarks:""}
+    ],
+    dispatched:[],
+    delivery:null,
+    history:[
+      {ts:"22 Jun 2026, 17:05", user:"Amit Sharma", text:"created the order"}
+    ]
+  },
+  { no:"ORD-2026-0005", date:"2026-06-27", customer:"AKSHAY UNIFORMS", ref:"PO-3390",
+    status:"Confirmed",
+    items:[
+      {item:"BREEZE", colour:"NAVY", size:9, qty:200, remarks:""},
+      {item:"CAMPUS", colour:"WHITE", size:10, qty:160, remarks:"Urgent"}
+    ],
+    dispatched:[],
+    delivery:null,
+    history:[
+      {ts:"27 Jun 2026, 10:52", user:"Amit Sharma", text:"created the order"}
+    ]
+  },
+  { no:"ORD-2026-0006", date:"2026-07-01", customer:"AGRAWAL SCHOOL UNIFORM", ref:"",
+    status:"Cancelled",
+    items:[
+      {item:"ROYAL", colour:"BLACK", size:7, qty:90, remarks:""},
+      {item:"ALIA PLUS", colour:"BLACK", size:8, qty:90, remarks:""}
+    ],
+    dispatched:[],
+    delivery:null,
+    history:[
+      {ts:"01 Jul 2026, 09:30", user:"Amit Sharma", text:"created the order"},
+      {ts:"01 Jul 2026, 18:02", user:"Amit Sharma", text:"cancelled the order"}
+    ]
+  }
+];
+
+var currentDetailOrderNo = null; // tracks which order Screen 3 is showing
+
+// ---- Helpers ----------------------------------------------------------------
+function itemCount(order){ return order.items.length; }
+function totalQty(order){ return order.items.reduce(function(s,l){ return s + (Number(l.qty)||0); }, 0); }
+function fmtDate(iso){
+  var d = new Date(iso + "T00:00:00");
+  var months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  return d.getDate().toString().padStart(2,"0") + " " + months[d.getMonth()] + " " + d.getFullYear();
+}
+function todayIso(){
+  var d = new Date();
+  var mm = (d.getMonth()+1).toString().padStart(2,"0");
+  var dd = d.getDate().toString().padStart(2,"0");
+  return d.getFullYear() + "-" + mm + "-" + dd;
+}
+
+// ---- Screen switching ---------------------------------------------------
+function goTo(screen, orderNo){
+  document.querySelectorAll(".screen").forEach(function(s){ s.classList.remove("visible"); });
+  if(screen === "list"){
+    document.getElementById("screen-list").classList.add("visible");
+    document.getElementById("pageTitle").textContent = "Orders";
+    renderOrdersTable();
+  } else if(screen === "new"){
+    document.getElementById("screen-new").classList.add("visible");
+    document.getElementById("pageTitle").textContent = "New Order";
+    resetNewOrderForm();
+  } else if(screen === "detail"){
+    document.getElementById("screen-detail").classList.add("visible");
+    document.getElementById("pageTitle").textContent = "Order Details";
+    currentDetailOrderNo = orderNo;
+    renderOrderDetail(orderNo);
+  }
+  window.scrollTo(0,0);
+}
+
+// ---- SCREEN 1: Orders list ------------------------------------------------
+function renderOrdersTable(){
+  var tbody = document.getElementById("ordersTbody");
+  tbody.innerHTML = "";
+  ORDERS.forEach(function(o){
+    var tr = document.createElement("tr");
+    tr.innerHTML =
+      '<td><strong>' + o.no + '</strong></td>' +
+      '<td class="cell-muted">' + fmtDate(o.date) + '</td>' +
+      '<td>' + o.customer + '</td>' +
+      '<td class="cell-muted">' + itemCount(o) + ' items</td>' +
+      '<td><strong>' + fmtCartons(totalCartons(o)) + ' cartons</strong>' +
+        '<div class="cell-muted" style="font-size:11.5px;">' + totalQty(o) + ' pairs</div></td>' +
+      '<td><span class="badge ' + badgeClass(o.status) + '">' + o.status + '</span></td>' +
+      '<td><a href="#" class="link-view" data-order="' + o.no + '">View</a></td>';
+    tbody.appendChild(tr);
+  });
+  // wire up "View" links
+  tbody.querySelectorAll(".link-view").forEach(function(a){
+    a.addEventListener("click", function(e){
+      e.preventDefault();
+      goTo("detail", a.getAttribute("data-order"));
+    });
+  });
+  refreshStats();
+}
+
+function refreshStats(){
+  function countBy(status){ return ORDERS.filter(function(o){ return o.status === status; }).length; }
+  var set = function(id, v){ var el = document.getElementById(id); if(el) el.textContent = v; };
+  set("statTotal", ORDERS.length);
+  set("statConfirmed", countBy("Confirmed"));
+  set("statDispatched", countBy("Dispatched"));
+  set("statDelivered", countBy("Delivered"));
+}
+
+// ---- SCREEN 2: New order ----------------------------------------------------
+function populateCustomerSelect(){
+  var sel = document.getElementById("customerSelect");
+  sel.innerHTML = '<option value="">Select customer&hellip;</option>';
+  CUSTOMERS.forEach(function(c){
+    var opt = document.createElement("option");
+    opt.value = c.name; opt.textContent = c.name;
+    sel.appendChild(opt);
+  });
+}
+
+function itemRowTemplate(prefill){
+  prefill = prefill || {};
+  var rowId = "row-" + (++rowCounter);
+  var wrap = document.createElement("div");
+  wrap.className = "item-row";
+  wrap.id = rowId;
+
+  var prefillGroup = prefill.item ? CATALOG[prefill.item].group : "";
+
+  wrap.innerHTML =
+    '<div class="item-row-main">' +
+      '<div>' +
+        '<div class="mini-label">Item Group</div>' +
+        '<select class="row-group">' + groupOptionsHtml(prefillGroup) + '</select>' +
+      '</div>' +
+      '<div>' +
+        '<div class="mini-label">Item</div>' +
+        '<select class="row-item">' + itemOptionsHtml(prefill.item, prefillGroup) + '</select>' +
+      '</div>' +
+      '<div>' +
+        '<div class="mini-label">Colour</div>' +
+        '<select class="row-colour"></select>' +
+      '</div>' +
+      '<div>' +
+        '<div class="mini-label">Size</div>' +
+        '<select class="row-size"></select>' +
+      '</div>' +
+      '<div>' +
+        '<div class="mini-label">Qty (pairs)</div>' +
+        '<input type="number" class="row-qty" min="0" step="1" value="' + (prefill.qty || "") + '" placeholder="0">' +
+      '</div>' +
+      '<button class="remove-row-btn" title="Remove item" onclick="removeItemRow(\'' + rowId + '\')">' +
+        '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' +
+      '</button>' +
+    '</div>' +
+    '<div class="item-row-remarks">' +
+      '<div class="mini-label">Remarks</div>' +
+      '<input type="text" class="row-remarks" placeholder="Line remark (e.g. ship first, confirm sizes)" value="' + (prefill.remarks || "") + '">' +
+    '</div>';
+
+  document.getElementById("itemRows").appendChild(wrap);
+
+  var groupSel = wrap.querySelector(".row-group");
+  var itemSel = wrap.querySelector(".row-item");
+  var colourSel = wrap.querySelector(".row-colour");
+  var sizeSel = wrap.querySelector(".row-size");
+  var qtyInput = wrap.querySelector(".row-qty");
+  var remarksInput = wrap.querySelector(".row-remarks");
+
+  function refreshItems(){
+    // narrow the Item list to the chosen group (blank group = all items)
+    var keep = itemSel.value;
+    itemSel.innerHTML = itemOptionsHtml(keep, groupSel.value);
+    // if the previously selected item no longer belongs to the group, clear it
+    if(keep && itemSel.value !== keep) itemSel.value = "";
+  }
+
+  function refreshColourSize(){
+    var art = CATALOG[itemSel.value];
+    colourSel.innerHTML = "";
+    sizeSel.innerHTML = "";
+    if(!art){
+      colourSel.innerHTML = '<option value="">&mdash;</option>';
+      sizeSel.innerHTML = '<option value="">&mdash;</option>';
+      return;
+    }
+    art.colours.forEach(function(c){
+      var o = document.createElement("option"); o.value = c; o.textContent = c;
+      if(prefill.colour === c) o.selected = true;
+      colourSel.appendChild(o);
+    });
+    art.sizes.forEach(function(s){
+      var o = document.createElement("option"); o.value = s; o.textContent = s;
+      if(String(prefill.size) === String(s)) o.selected = true;
+      sizeSel.appendChild(o);
+    });
+  }
+
+  groupSel.addEventListener("change", function(){ refreshItems(); refreshColourSize(); updateSummary(); });
+  itemSel.addEventListener("change", function(){ refreshColourSize(); updateSummary(); });
+  colourSel.addEventListener("change", updateSummary);
+  sizeSel.addEventListener("change", updateSummary);
+  qtyInput.addEventListener("input", updateSummary);
+  remarksInput.addEventListener("input", updateSummary);
+
+  refreshColourSize();
+  updateRemoveButtons();
+  return wrap;
+}
+
+function groupOptionsHtml(selected){
+  var html = '<option value="">All groups</option>';
+  ITEM_GROUPS.forEach(function(g){
+    html += '<option value="' + g + '"' + (g === selected ? " selected" : "") + '>' + g + '</option>';
+  });
+  return html;
+}
+
+function itemOptionsHtml(selected, group){
+  var html = '<option value="">Select item&hellip;</option>';
+  ITEM_NAMES.forEach(function(name){
+    if(group && CATALOG[name].group !== group) return;
+    html += '<option value="' + name + '"' + (name === selected ? " selected" : "") + '>' + name + '</option>';
+  });
+  return html;
+}
+
+var rowCounter = 0;
+
+function addItemRow(prefill){
+  itemRowTemplate(prefill);
+}
+
+function removeItemRow(rowId){
+  var el = document.getElementById(rowId);
+  if(el) el.remove();
+  updateRemoveButtons();
+  updateSummary();
+}
+
+function updateRemoveButtons(){
+  var rows = document.querySelectorAll("#itemRows .item-row");
+  rows.forEach(function(r){
+    var btn = r.querySelector(".remove-row-btn");
+    btn.disabled = rows.length <= 1;
+  });
+}
+
+function resetNewOrderForm(){
+  document.getElementById("orderDate").value = todayIso();
+  populateCustomerSelect();
+  document.getElementById("customerSelect").value = "";
+  document.getElementById("poNo").value = "";
+  document.getElementById("orderScreenshot").value = "";
+  onAttachChange(document.getElementById("orderScreenshot"));
+  document.getElementById("itemRows").innerHTML = "";
+  rowCounter = 0;
+  // Prefill two example rows so the summary looks populated, per spec
+  addItemRow({ item:"ALIA PLUS", colour:"BLUE", size:7, qty:120, remarks:"Ship first" });
+  addItemRow({ item:"ROYAL", colour:"BROWN", size:9, qty:60, remarks:"" });
+  // restore the default summary card markup (in case a previous submit replaced it)
+  document.getElementById("summaryBody").innerHTML =
+    '<div class="summary-line"><span class="lbl">Customer</span><span id="sumCustomer">&mdash;</span></div>' +
+    '<div class="summary-line"><span class="lbl">Order Date</span><span id="sumDate">&mdash;</span></div>' +
+    '<hr class="sep">' +
+    '<div id="summaryItemsList" class="summary-items-list"></div>' +
+    '<hr class="sep">' +
+    '<div class="total-line"><span>Total Items</span><span id="sumTotalItems">0</span></div>' +
+    '<div class="total-line"><span>Total Quantity</span><span id="sumTotalQty">0 cartons</span></div>' +
+    '<div class="summary-line" style="margin-top:2px;"><span class="lbl">&nbsp;</span><span id="sumTotalPairs" class="cell-muted">0 pairs</span></div>' +
+    '<hr class="sep">' +
+    '<div class="si-name" style="font-size:12px; margin-bottom:6px;">Section / Location separation <span style="font-weight:400; color:var(--text-muted);">(auto)</span></div>' +
+    '<div id="summarySections"></div>' +
+    '<button class="btn btn-primary btn-block" style="margin-top:18px;" onclick="submitOrder()">Submit Order</button>';
+  document.getElementById("customerSelect").addEventListener("change", updateSummary);
+  updateSummary();
+}
+
+function collectLineItems(){
+  var rows = document.querySelectorAll("#itemRows .item-row");
+  var lines = [];
+  rows.forEach(function(r){
+    var item = r.querySelector(".row-item").value;
+    var colour = r.querySelector(".row-colour").value;
+    var size = r.querySelector(".row-size").value;
+    var qty = Number(r.querySelector(".row-qty").value) || 0;
+    var remarks = r.querySelector(".row-remarks").value.trim();
+    if(item && colour && size && qty > 0){
+      lines.push({ item:item, colour:colour, size:size, qty:qty, remarks:remarks });
+    }
+  });
+  return lines;
+}
+
+// ---- Attach order screenshot ------------------------------------------------
+function onAttachChange(input){
+  var box = document.getElementById("attachBox");
+  var txt = document.getElementById("attachText");
+  if(input.files && input.files.length){
+    box.classList.add("has-file");
+    txt.textContent = input.files[0].name + " attached";
+  } else {
+    box.classList.remove("has-file");
+    txt.textContent = "Click to attach order image";
+  }
+}
+
+function updateSummary(){
+  var customer = document.getElementById("customerSelect") ? document.getElementById("customerSelect").value : "";
+  var sumCustomerEl = document.getElementById("sumCustomer");
+  var sumDateEl = document.getElementById("sumDate");
+  if(sumCustomerEl) sumCustomerEl.textContent = customer || "—";
+  if(sumDateEl) sumDateEl.textContent = fmtDate(document.getElementById("orderDate").value);
+
+  var lines = collectLineItems();
+  var listEl = document.getElementById("summaryItemsList");
+  if(listEl){
+    if(lines.length === 0){
+      listEl.innerHTML = '<div class="cell-muted" style="font-size:12.5px; padding:6px 0;">No items added yet.</div>';
+    } else {
+      listEl.innerHTML = lines.map(function(l){
+        var remark = l.remarks ? '<div class="si-meta" style="font-style:italic;">“' + l.remarks + '”</div>' : '';
+        return '<div class="summary-item">' +
+          '<div><div class="si-name">' + l.item + '</div><div class="si-meta">' + l.colour + ' &middot; Size ' + l.size + '</div>' + remark + '</div>' +
+          '<div class="si-qty">' + fmtCartons(lineCartons(l)) + ' ctn<div class="si-meta" style="text-align:right; font-weight:400;">' + l.qty + ' prs</div></div>' +
+        '</div>';
+      }).join("");
+    }
+  }
+  var totalPairs = lines.reduce(function(s,l){ return s + l.qty; }, 0);
+  var totalCtn = lines.reduce(function(s,l){ return s + lineCartons(l); }, 0);
+  var totalItemsEl = document.getElementById("sumTotalItems");
+  var totalQtyEl = document.getElementById("sumTotalQty");
+  var totalPairsEl = document.getElementById("sumTotalPairs");
+  if(totalItemsEl) totalItemsEl.textContent = lines.length;
+  if(totalQtyEl) totalQtyEl.textContent = fmtCartons(totalCtn) + " cartons";
+  if(totalPairsEl) totalPairsEl.textContent = totalPairs + " pairs";
+
+  renderSectionBreakdown(lines, document.getElementById("summarySections"));
+}
+
+// Group order lines by section/location (Observation #3: section & location
+// wise separation happens automatically the moment items are added).
+function groupBySection(lines){
+  var map = {};
+  lines.forEach(function(l){
+    var art = CATALOG[l.item] || {};
+    var key = (art.section || "Unassigned") + " · " + (art.location || "—");
+    if(!map[key]) map[key] = { section:art.section || "Unassigned", location:art.location || "—", lines:[], cartons:0, pairs:0 };
+    map[key].lines.push(l);
+    map[key].cartons += lineCartons(l);
+    map[key].pairs += (Number(l.qty) || 0);
+  });
+  return Object.keys(map).sort().map(function(k){ return map[k]; });
+}
+
+function renderSectionBreakdown(lines, el){
+  if(!el) return;
+  if(lines.length === 0){
+    el.innerHTML = '<div class="cell-muted" style="font-size:12px; padding:2px 0;">Add items to see the section split.</div>';
+    return;
+  }
+  el.innerHTML = groupBySection(lines).map(function(g){
+    return '<div class="section-chip">' +
+      '<div><div class="sec-name">' + g.section + '</div><div class="si-meta">' + g.location + ' &middot; ' + g.lines.length + ' item(s)</div></div>' +
+      '<div class="si-qty">' + fmtCartons(g.cartons) + ' ctn</div>' +
+    '</div>';
+  }).join("");
+}
+
+var nextOrderSeq = 7; // ORD-2026-0007 onward for prototype submissions
+
+function submitOrder(){
+  var customer = document.getElementById("customerSelect").value;
+  var lines = collectLineItems();
+
+  if(!customer){
+    flashInvalid(document.getElementById("customerSelect"));
+    return;
+  }
+  if(lines.length === 0){
+    flashInvalid(document.getElementById("itemRows"));
+    return;
+  }
+
+  var attachEl = document.getElementById("orderScreenshot");
+  var attachName = (attachEl.files && attachEl.files.length) ? attachEl.files[0].name : "";
+
+  var orderNo = "ORD-2026-" + String(nextOrderSeq).padStart(4, "0");
+  var newOrder = {
+    no: orderNo,
+    date: document.getElementById("orderDate").value,
+    customer: customer,
+    ref: document.getElementById("poNo").value || "",
+    attachment: attachName,
+    status: "Confirmed",   // order is Confirmed the moment it is added to the system
+    items: lines,
+    dispatched: [],
+    delivery: null,
+    history: [
+      { ts: nowStamp(), user: "Amit Sharma", text: "created & confirmed the order" }
+    ]
+  };
+  ORDERS.unshift(newOrder);
+  nextOrderSeq++;
+
+  // Replace the summary card content with a success state (Submit → Print option)
+  var body = document.getElementById("summaryBody");
+  body.innerHTML =
+    '<div class="success-box">' +
+      '<div class="success-icon">' +
+        '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>' +
+      '</div>' +
+      '<h3>Order ' + orderNo + ' placed successfully</h3>' +
+      '<p>' + itemCount(newOrder) + ' items &middot; ' + fmtCartons(totalCartons(newOrder)) + ' cartons (' + totalQty(newOrder) + ' pairs)</p>' +
+      '<button class="btn btn-primary btn-block" onclick="printOrder(\'' + orderNo + '\')">' +
+        '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>' +
+        'Print Order' +
+      '</button>' +
+      '<button class="btn btn-outline btn-block" style="margin-top:10px;" onclick="goTo(\'detail\', \'' + orderNo + '\')">View Order</button>' +
+    '</div>';
+
+  showToast("Order " + orderNo + " submitted");
+}
+
+function nowStamp(){
+  var d = new Date();
+  var months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  var hh = d.getHours().toString().padStart(2,"0");
+  var mi = d.getMinutes().toString().padStart(2,"0");
+  return d.getDate().toString().padStart(2,"0") + " " + months[d.getMonth()] + " " + d.getFullYear() + ", " + hh + ":" + mi;
+}
+
+function flashInvalid(el){
+  el.style.borderColor = "var(--error)";
+  el.style.boxShadow = "0 0 0 3px rgba(220,38,38,.15)";
+  setTimeout(function(){ el.style.borderColor = ""; el.style.boxShadow = ""; }, 1400);
+  el.scrollIntoView({ behavior:"smooth", block:"center" });
+}
+
+// ---- SCREEN 3: Order details ------------------------------------------------
+function findOrder(orderNo){
+  for(var i=0;i<ORDERS.length;i++){ if(ORDERS[i].no === orderNo) return ORDERS[i]; }
+  return null;
+}
+function findCustomer(name){
+  for(var i=0;i<CUSTOMERS.length;i++){ if(CUSTOMERS[i].name === name) return CUSTOMERS[i]; }
+  return null;
+}
+
+function renderOrderDetail(orderNo){
+  var order = findOrder(orderNo);
+  if(!order) return;
+  var cust = findCustomer(order.customer) || { name: order.customer, loc: "" };
+
+  document.getElementById("detailSubtitle").textContent = order.no + " · " + order.customer;
+  document.getElementById("dOrderNo").textContent = order.no;
+  document.getElementById("dOrderDate").textContent = fmtDate(order.date);
+  document.getElementById("dCustomer").textContent = cust.name;
+  document.getElementById("dCustomerLoc").textContent = cust.loc || "—";
+  document.getElementById("dPoNo").textContent = order.ref || "—";
+
+  var attachEl = document.getElementById("dAttachment");
+  attachEl.innerHTML = order.attachment
+    ? '<span style="display:inline-flex; align-items:center; gap:4px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>' + order.attachment + '</span>'
+    : "";
+
+  var badge = document.getElementById("dStatusBadge");
+  badge.textContent = order.status;
+  badge.className = "badge badge-lg " + badgeClass(order.status);
+
+  renderTimeline(order);
+  renderItemsTable(order);
+  renderWorkflow(order);
+  renderAccuracy(order);
+  renderActivity(order);
+}
+
+function renderTimeline(order){
+  var tl = document.getElementById("timeline");
+  tl.innerHTML = "";
+  var currentIdx = STATUS_STEPS.indexOf(order.status);
+  var isCancelled = order.status === "Cancelled";
+  var isTerminal = order.status === STATUS_STEPS[STATUS_STEPS.length - 1]; // Delivered
+
+  STATUS_STEPS.forEach(function(step, idx){
+    var div = document.createElement("div");
+    var stateClass = "";
+    if(!isCancelled){
+      if(idx < currentIdx) stateClass = "done";
+      else if(idx === currentIdx) stateClass = isTerminal ? "done" : "current";
+    } else if(idx === 0){
+      stateClass = "done"; // order at least started
+    }
+    div.className = "tl-step " + stateClass;
+
+    var dotContent = (stateClass === "done")
+      ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'
+      : (idx + 1);
+
+    // Show each stage's definition (per client observations) as the subtext
+    var def = STATUS_DEFS[step] || "";
+
+    div.innerHTML =
+      '<div class="tl-dot">' + dotContent + '</div>' +
+      '<div class="tl-label">' + step + '</div>' +
+      '<div class="tl-date">' + def + '</div>';
+    tl.appendChild(div);
+  });
+
+  if(isCancelled){
+    var note = document.createElement("div");
+    note.style.cssText = "width:100%; text-align:center; margin-top:10px;";
+    note.innerHTML = '<span class="badge badge-cancelled">This order was cancelled</span>';
+    tl.parentNode.insertBefore(note, tl.nextSibling);
+  }
+}
+
+function renderItemsTable(order){
+  var tbody = document.getElementById("dItemsTbody");
+  tbody.innerHTML = "";
+  var dispatched = order.dispatched || [];
+  order.items.forEach(function(l){
+    var art = CATALOG[l.item] || {};
+    var isDisp = dispatched.indexOf(l.item) >= 0;
+    var dispCell = (order.status === "Confirmed")
+      ? '<span class="cell-muted">—</span>'
+      : (isDisp
+          ? '<span class="badge badge-dispatched">Dispatched</span>'
+          : '<span class="badge badge-pending">Pending</span>');
+    var tr = document.createElement("tr");
+    tr.innerHTML =
+      '<td><strong>' + l.item + '</strong></td>' +
+      '<td class="cell-muted">' + (art.section || "—") + '<div style="font-size:11px;">' + (art.location || "") + '</div></td>' +
+      '<td>' + l.colour + '</td>' +
+      '<td>' + l.size + '</td>' +
+      '<td>' + fmtCartons(lineCartons(l)) + ' ctn<div class="cell-muted" style="font-size:11px;">' + l.qty + ' prs</div></td>' +
+      '<td class="cell-muted">' + (l.remarks ? l.remarks : '—') + '</td>' +
+      '<td>' + dispCell + '</td>';
+    tbody.appendChild(tr);
+  });
+  document.getElementById("dItemsTotal").textContent = fmtCartons(totalCartons(order)) + " ctn";
+}
+
+function renderActivity(order){
+  var log = document.getElementById("activityLog");
+  log.innerHTML = "";
+  order.history.slice().reverse().forEach(function(h){
+    var div = document.createElement("div");
+    div.className = "activity-item";
+    div.innerHTML = '<div class="activity-dot"></div>' +
+      '<div class="activity-text">' + h.ts + ' &mdash; <b>' + h.user + '</b> ' + h.text + '</div>';
+    log.appendChild(div);
+  });
+}
+
+// ---- Dispatch / Delivery workflow ------------------------------------------
+function renderWorkflow(order){
+  var area = document.getElementById("workflowArea");
+  area.innerHTML = "";
+  if(order.status === "Cancelled"){ return; }
+
+  if(order.status === "Delivered" && order.delivery){
+    var d = order.delivery;
+    area.innerHTML =
+      '<div class="card">' +
+        '<div class="card-head">' +
+          '<div class="card-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div>' +
+          '<div class="card-title">Delivery Details</div>' +
+        '</div>' +
+        '<div class="detail-top">' +
+          '<div><div class="kv-label">Builty No.</div><div class="kv-value">' + d.builty + '</div></div>' +
+          '<div><div class="kv-label">Invoice No.</div><div class="kv-value">' + d.invoice + '</div></div>' +
+          '<div><div class="kv-label">Vehicle Details</div><div class="kv-value">' + d.vehicle + '</div></div>' +
+          '<div><div class="kv-label">Date of Delivery</div><div class="kv-value">' + fmtDate(d.date) + '</div></div>' +
+        '</div>' +
+      '</div>';
+    return;
+  }
+  if(order.status === "Delivered"){ return; }
+
+  if(order.status === "Confirmed" || order.status === "Dispatched"){
+    // Dispatch card — scan cartons, then mark fully complete OR select pending articles
+    var dispatched = order.dispatched || [];
+    var checklist = order.items.map(function(l, i){
+      var art = CATALOG[l.item] || {};
+      var checked = dispatched.indexOf(l.item) >= 0 ? "checked" : "";
+      return '<label class="dispatch-line">' +
+        '<input type="checkbox" class="disp-check" value="' + l.item + '" ' + checked + '>' +
+        '<div><div class="si-name">' + l.item + ' <span class="si-meta">(' + l.colour + ' · Size ' + l.size + ')</span></div>' +
+        '<div class="si-meta">' + (art.section || "—") + ' · ' + (art.location || "") + ' · ' + fmtCartons(lineCartons(l)) + ' cartons</div></div>' +
+      '</label>';
+    }).join("");
+
+    var pendingNote = (order.status === "Dispatched")
+      ? '<div class="help-text" style="margin-bottom:12px;">Partially dispatched. Tick the remaining articles to complete this order.</div>'
+      : '';
+
+    area.innerHTML =
+      '<div class="card">' +
+        '<div class="card-head">' +
+          '<div class="card-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><path d="M16 8h4l3 3v5h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg></div>' +
+          '<div class="card-title">Dispatch</div>' +
+        '</div>' +
+        '<div class="dispatch-scan">' +
+          '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="14" rx="2"/><path d="M8 7V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v3"/><circle cx="12" cy="14" r="1.5"/></svg>' +
+          '<span>Dispatch is against order <strong>' + order.no + '</strong> — scan cartons from each section to add them here.</span>' +
+        '</div>' +
+        pendingNote +
+        '<div style="display:flex; align-items:center; gap:10px; margin:14px 0 8px;">' +
+          '<button class="btn btn-outline btn-sm" onclick="selectAllDispatch(true)">Mark Fully Complete</button>' +
+          '<button class="btn btn-ghost btn-sm" onclick="selectAllDispatch(false)">Clear</button>' +
+          '<span class="help-text" style="margin:0;">or tick the articles being dispatched (rest stay pending)</span>' +
+        '</div>' +
+        '<div class="dispatch-list">' + checklist + '</div>' +
+        '<div style="display:flex; gap:10px; margin-top:16px; flex-wrap:wrap;">' +
+          '<button class="btn btn-primary" onclick="recordDispatch()">Record Dispatch</button>' +
+          '<button class="btn btn-outline" onclick="printDispatch(currentDetailOrderNo)">' +
+            '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>' +
+            'Print Dispatch Details</button>' +
+        '</div>' +
+      '</div>';
+  }
+
+  if(order.status === "Dispatched"){
+    // Delivery card — capture transporter builty, invoice, vehicle & date
+    area.innerHTML +=
+      '<div class="card">' +
+        '<div class="card-head">' +
+          '<div class="card-icon"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div>' +
+          '<div class="card-title">Delivery Details</div>' +
+        '</div>' +
+        '<div class="help-text" style="margin-bottom:14px;">Recorded when the transporter provides proof of delivery. Order is marked Delivered once saved.</div>' +
+        '<div class="form-row">' +
+          '<div class="field"><label>Builty No.</label><input type="text" id="delBuilty" placeholder="e.g. BLT-77120"></div>' +
+          '<div class="field"><label>Invoice No.</label><input type="text" id="delInvoice" placeholder="e.g. INV-2026-0452"></div>' +
+        '</div>' +
+        '<div class="form-row">' +
+          '<div class="field"><label>Vehicle Details</label><input type="text" id="delVehicle" placeholder="e.g. RJ14-GA-9932 · Sharma Roadways"></div>' +
+          '<div class="field"><label>Date of Delivery</label><input type="date" id="delDate"></div>' +
+        '</div>' +
+        '<button class="btn btn-primary" onclick="markDelivered()">Mark Delivered</button>' +
+      '</div>';
+    var dd = document.getElementById("delDate"); if(dd) dd.value = todayIso();
+  }
+}
+
+function selectAllDispatch(all){
+  document.querySelectorAll(".disp-check").forEach(function(c){ c.checked = all; });
+}
+
+function recordDispatch(){
+  var order = findOrder(currentDetailOrderNo);
+  if(!order) return;
+  var picked = [];
+  document.querySelectorAll(".disp-check:checked").forEach(function(c){ picked.push(c.value); });
+  if(picked.length === 0){ showToast("Tick at least one article to dispatch"); return; }
+
+  order.dispatched = picked;
+  order.status = "Dispatched";
+  var total = order.items.length;
+  var complete = picked.length === total;
+  order.history.push({
+    ts: nowStamp(), user: "Amit Sharma",
+    text: complete ? ("dispatched all " + total + " articles (order fully complete)")
+                   : ("dispatched " + picked.length + " of " + total + " articles (rest pending)")
+  });
+  renderOrderDetail(order.no);
+  showToast(complete ? ("Order " + order.no + " fully dispatched") : ("Order " + order.no + " partially dispatched"));
+}
+
+function markDelivered(){
+  var order = findOrder(currentDetailOrderNo);
+  if(!order) return;
+  var builty = document.getElementById("delBuilty").value.trim();
+  var invoice = document.getElementById("delInvoice").value.trim();
+  var vehicle = document.getElementById("delVehicle").value.trim();
+  var date = document.getElementById("delDate").value;
+  if(!builty || !invoice || !vehicle || !date){
+    showToast("Fill builty, invoice, vehicle & date");
+    return;
+  }
+  order.delivery = { builty:builty, invoice:invoice, vehicle:vehicle, date:date };
+  order.status = "Delivered";
+  order.history.push({ ts: nowStamp(), user: "Priya Nair", text: "marked as Delivered (builty " + builty + ")" });
+  renderOrderDetail(order.no);
+  showToast("Order " + order.no + " delivered");
+}
+
+// ---- Order dispatch accuracy (Reports feed) --------------------------------
+function renderAccuracy(order){
+  var card = document.getElementById("accuracyCard");
+  var body = document.getElementById("accuracyBody");
+  if(order.status === "Confirmed" || order.status === "Cancelled"){
+    card.style.display = "none";
+    return;
+  }
+  card.style.display = "";
+
+  var orderedArticles = order.items.map(function(l){ return l.item; })
+    .filter(function(v, i, a){ return a.indexOf(v) === i; });
+  var dispatched = order.dispatched || [];
+  var dispCount = orderedArticles.filter(function(a){ return dispatched.indexOf(a) >= 0; }).length;
+  var pct = orderedArticles.length ? Math.round(dispCount / orderedArticles.length * 100) : 0;
+
+  var rows = orderedArticles.map(function(a){
+    var ok = dispatched.indexOf(a) >= 0;
+    return '<div class="acc-row">' +
+      '<span>' + a + '</span>' +
+      (ok ? '<span class="badge badge-dispatched">Dispatched</span>' : '<span class="badge badge-pending">Pending</span>') +
+    '</div>';
+  }).join("");
+
+  var barColor = pct === 100 ? "var(--success)" : (pct >= 50 ? "var(--warning)" : "var(--red)");
+
+  body.innerHTML =
+    '<div class="acc-grid">' +
+      '<div>' +
+        '<div class="help-text" style="margin:0 0 8px;">Ordered <strong>' + orderedArticles.length + '</strong> articles · dispatched <strong>' + dispCount + '</strong></div>' +
+        rows +
+      '</div>' +
+      '<div class="acc-meter">' +
+        '<div class="acc-pct" style="color:' + barColor + '">' + pct + '%</div>' +
+        '<div class="acc-bar"><div class="acc-fill" style="width:' + pct + '%; background:' + barColor + ';"></div></div>' +
+        '<div class="help-text" style="text-align:center; margin-top:6px;">Order accuracy</div>' +
+      '</div>' +
+    '</div>';
+}
+
+function cancelOrder(){
+  var order = findOrder(currentDetailOrderNo);
+  if(!order) return;
+  if(order.status === "Cancelled"){ showToast("Order already cancelled"); return; }
+  order.status = "Cancelled";
+  order.history.push({ ts: nowStamp(), user: "Amit Sharma", text: "cancelled the order" });
+  renderOrderDetail(order.no);
+  showToast("Order " + order.no + " cancelled");
+}
+
+// ---- Print (order confirmation & dispatch note) ----------------------------
+function printOrder(orderNo){
+  var order = findOrder(orderNo);
+  if(!order) return;
+  var rows = order.items.map(function(l){
+    var art = CATALOG[l.item] || {};
+    return '<tr><td>' + l.item + '</td><td>' + (art.section||"—") + " / " + (art.location||"") + '</td><td>' + l.colour + '</td><td>' + l.size + '</td><td>' + fmtCartons(lineCartons(l)) + ' ctn (' + l.qty + ' prs)</td><td>' + (l.remarks||"") + '</td></tr>';
+  }).join("");
+  openPrint("Order " + order.no, order,
+    '<table class="p-table"><thead><tr><th>Item</th><th>Section / Location</th><th>Colour</th><th>Size</th><th>Qty</th><th>Remarks</th></tr></thead><tbody>' + rows + '</tbody></table>' +
+    '<p class="p-total">Total: ' + order.items.length + ' items · ' + fmtCartons(totalCartons(order)) + ' cartons (' + totalQty(order) + ' pairs)</p>');
+}
+
+function printDispatch(orderNo){
+  var order = findOrder(orderNo);
+  if(!order) return;
+  // In the live flow this prints the scanned cartons; here we show current dispatch selection
+  var picked = [];
+  var checks = document.querySelectorAll(".disp-check:checked");
+  if(checks.length){ checks.forEach(function(c){ picked.push(c.value); }); }
+  else { picked = order.dispatched || []; }
+
+  var bySection = {};
+  order.items.forEach(function(l){
+    if(picked.indexOf(l.item) < 0) return;
+    var art = CATALOG[l.item] || {};
+    var key = (art.section||"—") + " · " + (art.location||"");
+    (bySection[key] = bySection[key] || []).push(l);
+  });
+  var blocks = Object.keys(bySection).map(function(k){
+    var lis = bySection[k].map(function(l){
+      return '<tr><td>' + l.item + '</td><td>' + l.colour + '</td><td>' + l.size + '</td><td>' + fmtCartons(lineCartons(l)) + ' ctn</td></tr>';
+    }).join("");
+    return '<h4 class="p-sec">' + k + '</h4><table class="p-table"><thead><tr><th>Item</th><th>Colour</th><th>Size</th><th>Qty</th></tr></thead><tbody>' + lis + '</tbody></table>';
+  }).join("");
+  if(!blocks) blocks = '<p>No articles selected for dispatch yet.</p>';
+
+  openPrint("Dispatch Note · Order " + order.no, order,
+    '<p class="p-note">Dispatch against order <strong>' + order.no + '</strong> — separated by section &amp; location.</p>' + blocks);
+}
+
+function openPrint(title, order, inner){
+  var w = window.open("", "_blank", "width=820,height=900");
+  if(!w){ showToast("Allow pop-ups to print"); return; }
+  var cust = findCustomer(order.customer) || { name: order.customer, loc: "" };
+  w.document.write(
+    '<html><head><title>' + title + '</title><style>' +
+      'body{font-family:Inter,Arial,sans-serif; color:#1A1A2E; padding:32px; font-size:13px;}' +
+      'h1{font-size:20px; margin:0 0 2px; color:#2D2A6E;} .p-brand{color:#E31E24; font-weight:700; letter-spacing:.5px; font-size:12px;}' +
+      '.p-meta{margin:14px 0 20px; line-height:1.7; color:#374151;} .p-meta b{color:#111;}' +
+      '.p-table{width:100%; border-collapse:collapse; margin:8px 0 4px;}' +
+      '.p-table th{text-align:left; background:#F3F3F8; padding:8px 10px; font-size:11px; text-transform:uppercase; letter-spacing:.4px; border-bottom:2px solid #ddd;}' +
+      '.p-table td{padding:8px 10px; border-bottom:1px solid #eee;}' +
+      '.p-total{font-weight:700; margin-top:12px;} .p-sec{margin:18px 0 4px; color:#2D2A6E; font-size:13px;} .p-note{color:#374151;}' +
+      '@media print{button{display:none;}}' +
+    '</style></head><body>' +
+      '<div class="p-brand">BINNY INVENTORY · MAHAVIR POLYMERS</div>' +
+      '<h1>' + title + '</h1>' +
+      '<div class="p-meta"><b>Customer:</b> ' + cust.name + '<br><b>Location:</b> ' + (cust.loc||"—") +
+        '<br><b>Order Date:</b> ' + fmtDate(order.date) + (order.ref ? '<br><b>Customer Ref:</b> ' + order.ref : "") +
+        '<br><b>Status:</b> ' + order.status + '</div>' +
+      inner +
+      '<p style="margin-top:28px;"><button onclick="window.print()" style="padding:10px 18px; background:#2D2A6E; color:#fff; border:none; border-radius:8px; font-weight:600; cursor:pointer;">Print</button></p>' +
+    '</body></html>'
+  );
+  w.document.close();
+}
+
+// ---- Toast ------------------------------------------------------------------
+var toastTimer = null;
+function showToast(text){
+  var toast = document.getElementById("toast");
+  document.getElementById("toastText").textContent = text;
+  toast.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function(){ toast.classList.remove("show"); }, 2600);
+}
+
+// ---- Init ---------------------------------------------------------------
+document.addEventListener("DOMContentLoaded", function(){
+  document.getElementById("orderDate").value = todayIso();
+  renderOrdersTable();
+  populateCustomerSelect();
+});
+</script>

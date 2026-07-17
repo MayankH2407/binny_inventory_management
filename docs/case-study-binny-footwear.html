@@ -1,0 +1,632 @@
+<title>Binny Footwear × Basiq360 — Inventory Platform Case Study</title>
+<style>
+  :root {
+    --paper:   #F4F2ED;
+    --surface: #FDFCFA;
+    --surface-2: #EFEBE3;
+    --ink:     #16202E;
+    --ink-soft:#5B6472;
+    --accent:  #E31E24;
+    --accent-deep: #B0161B;
+    --kraft:   #B98F5C;
+    --line:    rgba(22,32,46,0.14);
+    --line-soft: rgba(22,32,46,0.08);
+    --good:    #1F7A4D;
+    --shadow:  0 1px 2px rgba(22,32,46,.06), 0 12px 32px -18px rgba(22,32,46,.28);
+    --bar:     #16202E;
+
+    --font-display: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+    --font-body:    "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+    --font-mono:    ui-monospace, "Cascadia Mono", "Consolas", "SFMono-Regular", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper:   #0C1119;
+      --surface: #141E2B;
+      --surface-2: #1B2635;
+      --ink:     #E9EEF4;
+      --ink-soft:#93A0B1;
+      --accent:  #FF4046;
+      --accent-deep: #FF6A6E;
+      --kraft:   #D6B080;
+      --line:    rgba(233,238,244,0.16);
+      --line-soft: rgba(233,238,244,0.08);
+      --good:    #4FD08A;
+      --shadow:  0 1px 2px rgba(0,0,0,.4), 0 18px 40px -20px rgba(0,0,0,.7);
+      --bar:     #E9EEF4;
+    }
+  }
+  :root[data-theme="light"] {
+    --paper:#F4F2ED; --surface:#FDFCFA; --surface-2:#EFEBE3; --ink:#16202E; --ink-soft:#5B6472;
+    --accent:#E31E24; --accent-deep:#B0161B; --kraft:#B98F5C; --line:rgba(22,32,46,0.14);
+    --line-soft:rgba(22,32,46,0.08); --good:#1F7A4D; --shadow:0 1px 2px rgba(22,32,46,.06),0 12px 32px -18px rgba(22,32,46,.28); --bar:#16202E;
+  }
+  :root[data-theme="dark"] {
+    --paper:#0C1119; --surface:#141E2B; --surface-2:#1B2635; --ink:#E9EEF4; --ink-soft:#93A0B1;
+    --accent:#FF4046; --accent-deep:#FF6A6E; --kraft:#D6B080; --line:rgba(233,238,244,0.16);
+    --line-soft:rgba(233,238,244,0.08); --good:#4FD08A; --shadow:0 1px 2px rgba(0,0,0,.4),0 18px 40px -20px rgba(0,0,0,.7); --bar:#E9EEF4;
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 17px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 28px; }
+
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: .22em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .eyebrow::before {
+    content: "";
+    width: 26px; height: 2px; background: var(--accent);
+  }
+
+  h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; }
+
+  /* ---------- barcode rail ---------- */
+  .barcode {
+    height: 46px;
+    width: 100%;
+    background-image: repeating-linear-gradient(
+      90deg,
+      var(--bar) 0, var(--bar) 2px, transparent 2px, transparent 5px,
+      var(--bar) 5px, var(--bar) 6px, transparent 6px, transparent 9px,
+      var(--bar) 9px, var(--bar) 12px, transparent 12px, transparent 14px,
+      var(--bar) 14px, var(--bar) 15px, transparent 15px, transparent 20px,
+      var(--bar) 20px, var(--bar) 23px, transparent 23px, transparent 25px
+    );
+    opacity: .9;
+  }
+
+  /* ---------- hero ---------- */
+  .hero {
+    position: relative;
+    border-bottom: 1px solid var(--line);
+    background:
+      radial-gradient(120% 90% at 90% -10%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 60%),
+      var(--surface);
+  }
+  .hero-grid {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 40px;
+    align-items: start;
+    padding: 66px 0 54px;
+  }
+  .hero h1 {
+    font-size: clamp(2.4rem, 6vw, 4.2rem);
+    line-height: 1.02;
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    margin: 22px 0 0;
+  }
+  .hero h1 .lede-red { color: var(--accent); }
+  .hero-sub {
+    font-size: clamp(1.05rem, 2vw, 1.28rem);
+    color: var(--ink-soft);
+    max-width: 34ch;
+    margin: 22px 0 0;
+    line-height: 1.45;
+  }
+  .qr { flex-shrink: 0; }
+  #qrCanvas {
+    width: 148px; height: 148px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 12px;
+    box-shadow: var(--shadow);
+  }
+  .qr-cap {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    text-align: center;
+    margin-top: 10px;
+  }
+
+  .credits {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0;
+    border-top: 1px solid var(--line);
+    margin-top: 44px;
+  }
+  .credit {
+    padding: 18px 26px 18px 0;
+    margin-right: 26px;
+    border-right: 1px solid var(--line-soft);
+  }
+  .credit:last-child { border-right: 0; }
+  .credit .k {
+    font-family: var(--font-mono);
+    font-size: 11px; letter-spacing: .16em; text-transform: uppercase;
+    color: var(--ink-soft); display: block; margin-bottom: 4px;
+  }
+  .credit .v { font-weight: 700; font-size: 15px; }
+
+  /* ---------- section frame ---------- */
+  section { padding: 62px 0; border-bottom: 1px solid var(--line); }
+  .sec-head { max-width: 62ch; margin-bottom: 34px; }
+  .sec-head h2 {
+    font-size: clamp(1.6rem, 3.4vw, 2.4rem);
+    font-weight: 800; letter-spacing: -0.02em; line-height: 1.08;
+    margin-top: 12px;
+  }
+  .sec-head p { color: var(--ink-soft); margin: 14px 0 0; font-size: 1.06rem; }
+
+  /* ---------- metrics gauge band ---------- */
+  .metrics {
+    background: var(--ink);
+    color: #F4F2ED;
+    border-bottom: 1px solid var(--line);
+  }
+  :root[data-theme="dark"] .metrics, :root:not([data-theme]) .metrics { }
+  @media (prefers-color-scheme: dark) { .metrics { background: #060A10; } }
+  :root[data-theme="dark"] .metrics { background: #060A10; }
+  :root[data-theme="light"] .metrics { background: #16202E; }
+  .metrics .eyebrow { color: rgba(244,242,237,.6); }
+  .metrics .eyebrow::before { background: var(--accent); }
+  .metric-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    margin-top: 30px;
+    background: rgba(244,242,237,.14);
+    border: 1px solid rgba(244,242,237,.14);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .metric {
+    background: #16202E;
+    padding: 26px 22px;
+  }
+  @media (prefers-color-scheme: dark) { .metric { background: #060A10; } }
+  :root[data-theme="dark"] .metric { background: #060A10; }
+  :root[data-theme="light"] .metric { background: #16202E; }
+  .metric .num {
+    font-family: var(--font-display);
+    font-size: clamp(2rem, 4.4vw, 3rem);
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    line-height: 1;
+    color: #FFFFFF;
+    font-variant-numeric: tabular-nums;
+  }
+  .metric .num .u { color: var(--accent); }
+  .metric .lbl {
+    font-family: var(--font-mono);
+    font-size: 11.5px; letter-spacing: .1em; text-transform: uppercase;
+    color: rgba(244,242,237,.62);
+    margin-top: 12px; line-height: 1.4;
+  }
+
+  /* ---------- hierarchy cards ---------- */
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .htier {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 26px;
+    box-shadow: var(--shadow);
+    position: relative;
+    overflow: hidden;
+  }
+  .htier::before {
+    content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--accent);
+  }
+  .htier .tag {
+    font-family: var(--font-mono); font-size: 11px; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--accent-deep); font-weight: 700;
+  }
+  .htier h3 { font-size: 1.3rem; font-weight: 800; margin: 8px 0 8px; letter-spacing: -0.01em; }
+  .htier p { margin: 0; color: var(--ink-soft); font-size: .98rem; }
+  .htier .chip {
+    display: inline-block; margin-top: 16px;
+    font-family: var(--font-mono); font-size: 11.5px; letter-spacing: .04em;
+    color: var(--ink); background: var(--surface-2);
+    border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px;
+  }
+
+  /* ---------- lifecycle pipeline ---------- */
+  .pipeline {
+    margin-top: 34px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: stretch;
+  }
+  .stage {
+    flex: 1 1 130px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 18px 16px;
+    position: relative;
+    display: flex; flex-direction: column; gap: 6px;
+    box-shadow: var(--shadow);
+  }
+  .stage .n {
+    font-family: var(--font-mono); font-size: 11px; color: var(--accent-deep);
+    letter-spacing: .12em;
+  }
+  .stage .s { font-weight: 800; font-size: 1.05rem; letter-spacing: -0.01em; }
+  .stage .d { font-size: .82rem; color: var(--ink-soft); line-height: 1.4; }
+  .stage:not(:last-child)::after {
+    content: "→";
+    position: absolute; right: -12px; top: 50%; transform: translateY(-50%);
+    color: var(--ink-soft); font-size: 15px; z-index: 2;
+  }
+  .status-line {
+    margin-top: 22px;
+    font-family: var(--font-mono);
+    font-size: 13px; letter-spacing: .04em;
+    color: var(--ink-soft);
+    display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  }
+  .status-line b { color: var(--ink); font-weight: 700; }
+  .status-line .arw { color: var(--accent); }
+
+  /* ---------- before / after ledger ---------- */
+  .ledger {
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: var(--shadow);
+    background: var(--surface);
+  }
+  .ledger-row {
+    display: grid; grid-template-columns: 1fr 40px 1fr;
+    border-top: 1px solid var(--line-soft);
+  }
+  .ledger-row:first-child { border-top: 0; }
+  .ledger-head { background: var(--surface-2); }
+  .ledger-head .cell {
+    font-family: var(--font-mono); font-size: 11px; letter-spacing: .16em;
+    text-transform: uppercase; color: var(--ink-soft); font-weight: 700;
+  }
+  .cell { padding: 16px 20px; font-size: .96rem; }
+  .cell.before { color: var(--ink-soft); }
+  .cell.after { color: var(--ink); font-weight: 600; }
+  .cell.mid {
+    display: flex; align-items: center; justify-content: center;
+    color: var(--good); font-weight: 800; font-family: var(--font-mono);
+  }
+  .cell.after::before {
+    content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+    background: var(--good); margin-right: 9px; vertical-align: middle;
+  }
+
+  /* ---------- feature grid ---------- */
+  .feat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  .feat {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 24px;
+    box-shadow: var(--shadow);
+  }
+  .feat .fnum {
+    font-family: var(--font-mono); font-size: 12px; letter-spacing: .1em;
+    color: var(--accent-deep); font-weight: 700;
+  }
+  .feat h3 { font-size: 1.12rem; font-weight: 800; margin: 12px 0 8px; letter-spacing: -0.01em; }
+  .feat p { margin: 0; color: var(--ink-soft); font-size: .93rem; line-height: 1.5; }
+
+  /* ---------- migration pull ---------- */
+  .pull {
+    background:
+      radial-gradient(120% 120% at 100% 0%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 55%),
+      var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 40px;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 32px;
+    align-items: center;
+  }
+  .pull .bignum {
+    font-family: var(--font-display);
+    font-weight: 800; letter-spacing: -0.03em; line-height: .9;
+    font-size: clamp(3rem, 9vw, 5.4rem);
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+  }
+  .pull .bignum small { display: block; font-size: 13px; font-family: var(--font-mono); letter-spacing: .12em; color: var(--ink-soft); font-weight: 600; margin-top: 10px; text-transform: uppercase; }
+  .pull p { margin: 0; font-size: 1.15rem; line-height: 1.5; }
+  .pull p b { color: var(--ink); }
+
+  /* ---------- tech strip ---------- */
+  .tech { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 28px; }
+  .tech .t {
+    font-family: var(--font-mono); font-size: 12.5px; letter-spacing: .02em;
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 8px; padding: 8px 13px; color: var(--ink);
+  }
+
+  /* ---------- closing ---------- */
+  .closing { border-bottom: 0; text-align: center; }
+  .closing .thesis {
+    font-family: var(--font-display);
+    font-size: clamp(1.5rem, 3.6vw, 2.35rem);
+    font-weight: 800; letter-spacing: -0.02em; line-height: 1.22;
+    max-width: 24ch; margin: 24px auto 0;
+  }
+  .closing .thesis .lede-red { color: var(--accent); }
+  .footnote {
+    margin-top: 42px;
+    font-family: var(--font-mono); font-size: 11.5px; letter-spacing: .04em;
+    color: var(--ink-soft);
+  }
+
+  /* ---------- responsive ---------- */
+  @media (max-width: 860px) {
+    .hero-grid { grid-template-columns: 1fr; }
+    .qr { order: -1; }
+    .metric-grid { grid-template-columns: repeat(2, 1fr); }
+    .feat-grid { grid-template-columns: repeat(2, 1fr); }
+    .two-col { grid-template-columns: 1fr; }
+    .pull { grid-template-columns: 1fr; gap: 18px; padding: 30px; }
+    .stage:not(:last-child)::after { content: ""; }
+  }
+  @media (max-width: 540px) {
+    body { font-size: 16px; }
+    .wrap { padding: 0 20px; }
+    .metric-grid { grid-template-columns: 1fr 1fr; }
+    .feat-grid { grid-template-columns: 1fr; }
+    .credit { border-right: 0; }
+    .ledger-row { grid-template-columns: 1fr; }
+    .ledger-row .cell.mid { display: none; }
+    .cell.before { border-bottom: 1px dashed var(--line-soft); }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .reveal { opacity: 0; transform: translateY(14px); animation: rise .7s cubic-bezier(.2,.7,.2,1) forwards; }
+    @keyframes rise { to { opacity: 1; transform: none; } }
+  }
+</style>
+
+<header class="hero">
+  <div class="barcode" aria-hidden="true"></div>
+  <div class="wrap">
+    <div class="hero-grid">
+      <div class="reveal">
+        <span class="eyebrow">Case Study · Warehouse Inventory</span>
+        <h1>From handwritten cartons to a <span class="lede-red">scan-verified</span> digital warehouse.</h1>
+        <p class="hero-sub">A QR-driven platform that made phantom stock structurally impossible — now tracking 56,000+ pairs of footwear in live production.</p>
+      </div>
+      <div class="qr reveal" style="animation-delay:.12s">
+        <canvas id="qrCanvas" width="296" height="296" aria-label="Decorative QR code"></canvas>
+        <div class="qr-cap">CB · Permanent Identity</div>
+      </div>
+    </div>
+    <div class="credits">
+      <div class="credit"><span class="k">Client</span><span class="v">Binny Footwear · Mahavir Polymers</span></div>
+      <div class="credit"><span class="k">Partner</span><span class="v">Basiq360</span></div>
+      <div class="credit"><span class="k">Delivery</span><span class="v">Phase 1 in 6 weeks + 6 cycles</span></div>
+      <div class="credit"><span class="k">Status</span><span class="v">Live in production</span></div>
+    </div>
+  </div>
+</header>
+
+<section class="challenge">
+  <div class="wrap sec-head">
+    <span class="eyebrow">The Challenge</span>
+    <h2>A warehouse running on handwriting.</h2>
+    <p>Binny Footwear tracked inventory by writing article, colour, size, and quantity directly onto master cartons. But cartons get unpacked and repacked constantly — and nothing recorded those events. The records and the shelf drifted apart.</p>
+  </div>
+  <div class="wrap">
+    <div class="feat-grid">
+      <div class="feat"><div class="fnum">01</div><h3>Inventory mismatches</h3><p>Recorded stock stopped reflecting the physical stock on the shelf.</p></div>
+      <div class="feat"><div class="fnum">02</div><h3>Phantom stock</h3><p>Cartons that existed in the system held different — or fewer — items than expected.</p></div>
+      <div class="feat"><div class="fnum">03</div><h3>Dispatch errors</h3><p>Wrong products shipped, because no one could trust what was inside a carton.</p></div>
+      <div class="feat"><div class="fnum">04</div><h3>No audit trail</h3><p>When a discrepancy surfaced, there was no way to trace when or why contents changed.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="metrics">
+  <div class="wrap">
+    <span class="eyebrow">In Production Today</span>
+    <div class="metric-grid">
+      <div class="metric"><div class="num">56,300<span class="u">+</span></div><div class="lbl">Pairs with permanent QR identity</div></div>
+      <div class="metric"><div class="num">1,000<span class="u">+</span></div><div class="lbl">Master cartons under lifecycle control</div></div>
+      <div class="metric"><div class="num">3,400<span class="u">+</span></div><div class="lbl">Live SKUs — client self-serves daily</div></div>
+      <div class="metric"><div class="num">&lt;1<span class="u">s</span></div><div class="lbl">Scan-to-confirmation on warehouse phones</div></div>
+      <div class="metric"><div class="num">20–30</div><div class="lbl">Concurrent warehouse operators</div></div>
+      <div class="metric"><div class="num">6<span class="u"> wk</span></div><div class="lbl">Kickoff to deployed Phase 1</div></div>
+      <div class="metric"><div class="num">0</div><div class="lbl">Phantom-stock discrepancies after enforcement</div></div>
+      <div class="metric"><div class="num">100<span class="u">%</span></div><div class="lbl">Barcodes preserved at go-live migration</div></div>
+    </div>
+  </div>
+</section>
+
+<section class="solution">
+  <div class="wrap sec-head">
+    <span class="eyebrow">The Solution</span>
+    <h2>A digital hierarchy that mirrors the physical one.</h2>
+    <p>Two levels of tracking, and a lifecycle the system enforces rather than merely records — so the digital record can never drift from reality.</p>
+  </div>
+  <div class="wrap">
+    <div class="two-col">
+      <div class="htier">
+        <span class="tag">Inner · Permanent</span>
+        <h3>Child Box</h3>
+        <p>One pair of footwear per box, carrying a permanent QR code that follows it from the production line all the way to dispatch.</p>
+        <span class="chip">1 pair = 1 identity</span>
+      </div>
+      <div class="htier">
+        <span class="tag">Outer · Dynamic</span>
+        <h3>Master Carton</h3>
+        <p>A temporary grouping container with a dynamic QR and a strict, enforced lifecycle. A child box lives in only one active carton at a time.</p>
+        <span class="chip">CREATED → ACTIVE → CLOSED → DISPATCHED</span>
+      </div>
+    </div>
+
+    <div class="pipeline" role="list">
+      <div class="stage" role="listitem"><span class="n">01</span><span class="s">Pack</span><span class="d">Scan pairs into a carton</span></div>
+      <div class="stage" role="listitem"><span class="n">02</span><span class="s">Store</span><span class="d">Carton closed &amp; shelved</span></div>
+      <div class="stage" role="listitem"><span class="n">03</span><span class="s">Unpack</span><span class="d">Logged: who, when, why</span></div>
+      <div class="stage" role="listitem"><span class="n">04</span><span class="s">Repack</span><span class="d">Lineage carried across cartons</span></div>
+      <div class="stage" role="listitem"><span class="n">05</span><span class="s">Dispatch</span><span class="d">Linked to a customer record</span></div>
+    </div>
+
+    <div class="status-line">
+      <span>Full traceability:</span>
+      <b>child box</b><span class="arw">→</span><b>carton A</b><span class="arw">→</span><b>unpacked</b><span class="arw">→</span><b>carton B</b><span class="arw">→</span><b>dispatched</b>
+    </div>
+  </div>
+</section>
+
+<section class="impact">
+  <div class="wrap sec-head">
+    <span class="eyebrow">Business Impact</span>
+    <h2>An entire class of errors — made impossible.</h2>
+    <p>The platform didn't just digitize a paper process. It moved the rules into the database, where they hold even under concurrent operators.</p>
+  </div>
+  <div class="wrap">
+    <div class="ledger">
+      <div class="ledger-row ledger-head">
+        <div class="cell">Before</div><div class="cell mid"></div><div class="cell">After</div>
+      </div>
+      <div class="ledger-row"><div class="cell before">Handwritten carton labels</div><div class="cell mid">→</div><div class="cell after">Scan-verified identity for every pair</div></div>
+      <div class="ledger-row"><div class="cell before">No record of unpack / repack events</div><div class="cell mid">→</div><div class="cell after">Every event timestamped &amp; attributed</div></div>
+      <div class="ledger-row"><div class="cell before">Phantom stock &amp; dispatch errors</div><div class="cell mid">→</div><div class="cell after">Record locked to reality by DB constraints</div></div>
+      <div class="ledger-row"><div class="cell before">Discrepancies untraceable</div><div class="cell mid">→</div><div class="cell after">End-to-end lineage for any pair</div></div>
+      <div class="ledger-row"><div class="cell before">Reconciliation done by hand</div><div class="cell mid">→</div><div class="cell after">Auto-reconciled on every scan</div></div>
+      <div class="ledger-row"><div class="cell before">Dedicated scanner hardware</div><div class="cell mid">→</div><div class="cell after">Any warehouse phone, online or offline</div></div>
+    </div>
+  </div>
+</section>
+
+<section class="features">
+  <div class="wrap sec-head">
+    <span class="eyebrow">What We Built</span>
+    <h2>Built for warehouse reality.</h2>
+  </div>
+  <div class="wrap">
+    <div class="feat-grid">
+      <div class="feat"><div class="fnum">SCAN</div><h3>Scan-first PWA</h3><p>Installs on any phone — no app store, no hardware. Sub-second scans with an offline queue that syncs through Wi-Fi dead-zones.</p></div>
+      <div class="feat"><div class="fnum">PRINT</div><h3>Thermal labels</h3><p>Browser-generated TSPL templates for TSC printers — child-box labels and carton labels with a per-size assortment grid.</p></div>
+      <div class="feat"><div class="fnum">DATA</div><h3>Master data that fits</h3><p>Product Master with the client's real taxonomy &amp; HSN for GST, plus a Customer Master with GSTIN, marka, and delivery details.</p></div>
+      <div class="feat"><div class="fnum">RBAC</div><h3>Configurable Role Manager</h3><p>Admins set view / add / edit / delete rights per role — and the lifecycle stage up to which each action is allowed.</p></div>
+      <div class="feat"><div class="fnum">VIEW</div><h3>7-level drill-down</h3><p>Browse the catalog the way the client thinks: Section → Category → Article → Colour → Size, counted in pairs at every level.</p></div>
+      <div class="feat"><div class="fnum">AUDIT</div><h3>Traceability &amp; audit</h3><p>An immutable transaction log and system-wide audit trail record every state change with user, timestamp, and prior state.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="migration">
+  <div class="wrap sec-head">
+    <span class="eyebrow">Engineering Discipline</span>
+    <h2>A go-live migration done right.</h2>
+  </div>
+  <div class="wrap">
+    <div class="pull">
+      <div class="bignum">56,304<small>Child boxes migrated</small></div>
+      <p>Moving real inventory onto the live server, we migrated <b>1,000+ cartons and 56,300+ child boxes while preserving every physical barcode already pasted on the shelves</b> — so not a single label was reprinted, and no barcode could collide between environments. Run behind a full backup, as a dry-run-then-commit transaction, verified with integrity checks: <b>zero orphans, zero count mismatches.</b></p>
+    </div>
+    <div class="tech">
+      <span class="t">Next.js · TypeScript PWA</span>
+      <span class="t">Node.js · Express</span>
+      <span class="t">PostgreSQL</span>
+      <span class="t">JWT + configurable RBAC</span>
+      <span class="t">html5-qrcode</span>
+      <span class="t">TSPL thermal printing</span>
+      <span class="t">Dockerized deploy</span>
+    </div>
+  </div>
+</section>
+
+<section class="closing">
+  <div class="wrap">
+    <span class="eyebrow">In One Line</span>
+    <p class="thesis">Basiq360 took Binny Footwear from handwritten cartons to a <span class="lede-red">scan-verified digital warehouse</span> — and built a platform the client keeps growing on.</p>
+    <div class="barcode" aria-hidden="true" style="max-width:420px;margin:44px auto 0;height:36px;border-radius:4px;"></div>
+    <p class="footnote">Prepared for marketing &amp; company-profile use · Metrics reflect the live production system</p>
+  </div>
+</section>
+
+<script>
+  // Deterministic QR-like motif — finder patterns + fixed data fill (no randomness).
+  (function () {
+    var c = document.getElementById('qrCanvas');
+    if (!c) return;
+    var ctx = c.getContext('2d');
+    var N = 21, size = 296, pad = 22, cell = (size - pad * 2) / N;
+    var fg = getComputedStyle(document.documentElement).getPropertyValue('--ink').trim() || '#16202E';
+    var accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#E31E24';
+
+    function paint() {
+      fg = getComputedStyle(document.documentElement).getPropertyValue('--ink').trim();
+      accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+      ctx.clearRect(0, 0, size, size);
+      var grid = [];
+      for (var y = 0; y < N; y++) { grid[y] = []; for (var x = 0; x < N; x++) grid[y][x] = 0; }
+
+      // deterministic data fill via a simple hash pattern
+      for (var yy = 0; yy < N; yy++) {
+        for (var xx = 0; xx < N; xx++) {
+          grid[yy][xx] = ((xx * 7 + yy * 13 + xx * yy * 3) % 5 === 0 || (xx * 3 + yy * 5) % 7 === 0) ? 1 : 0;
+        }
+      }
+      // finder pattern helper
+      function finder(ox, oy) {
+        for (var y = 0; y < 7; y++) for (var x = 0; x < 7; x++) {
+          var edge = (x === 0 || x === 6 || y === 0 || y === 6);
+          var core = (x >= 2 && x <= 4 && y >= 2 && y <= 4);
+          grid[oy + y][ox + x] = (edge || core) ? 1 : 0;
+        }
+        // clear separator ring
+      }
+      finder(0, 0); finder(N - 7, 0); finder(0, N - 7);
+      // clear the 1-module quiet ring around finders
+      function clearRing(ox, oy) {
+        for (var y = -1; y <= 7; y++) for (var x = -1; x <= 7; x++) {
+          var gx = ox + x, gy = oy + y;
+          if (gx < 0 || gy < 0 || gx >= N || gy >= N) continue;
+          if (x === -1 || x === 7 || y === -1 || y === 7) grid[gy][gx] = 0;
+        }
+      }
+      clearRing(0, 0); clearRing(N - 7, 0); clearRing(0, N - 7);
+      finder(0, 0); finder(N - 7, 0); finder(0, N - 7);
+
+      for (var gy2 = 0; gy2 < N; gy2++) {
+        for (var gx2 = 0; gx2 < N; gx2++) {
+          if (!grid[gy2][gx2]) continue;
+          // accent the three finder cores
+          var inFinderCore =
+            (gx2 >= 2 && gx2 <= 4 && gy2 >= 2 && gy2 <= 4) ||
+            (gx2 >= N - 5 && gx2 <= N - 3 && gy2 >= 2 && gy2 <= 4) ||
+            (gx2 >= 2 && gx2 <= 4 && gy2 >= N - 5 && gy2 <= N - 3);
+          ctx.fillStyle = inFinderCore ? accent : fg;
+          ctx.fillRect(pad + gx2 * cell, pad + gy2 * cell, cell + 0.6, cell + 0.6);
+        }
+      }
+    }
+    paint();
+    if (window.matchMedia) {
+      var mq = window.matchMedia('(prefers-color-scheme: dark)');
+      if (mq.addEventListener) mq.addEventListener('change', paint);
+    }
+    // repaint on manual theme toggle (data-theme attribute change)
+    new MutationObserver(paint).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+  })();
+</script>

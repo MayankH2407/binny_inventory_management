@@ -57,6 +57,8 @@ Desktop.ini
 # Docker
 # =============================================================================
 postgres_data/
+# Local-only Compose override (per-dev-machine; points the browser API at localhost)
+docker-compose.override.yml
 
 # =============================================================================
 # Testing
