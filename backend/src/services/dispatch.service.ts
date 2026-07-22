@@ -627,11 +627,23 @@ export async function getDispatchById(id: string): Promise<DispatchRecord> {
          WHEN dr.sample_record_id IS NOT NULL THEN 'sample'
          WHEN dr.ecommerce_record_id IS NOT NULL THEN 'ecommerce'
        END as source_type,
-       COALESCE(mc.carton_barcode, sr.sample_barcode, er.ecommerce_barcode) as source_label
+       COALESCE(mc.carton_barcode, sr.sample_barcode, er.ecommerce_barcode) as source_label,
+       COALESCE(rc.returned_box_count, 0) AS returned_box_count,
+       COALESCE((dr.metadata->>'child_box_count')::int, 0) AS total_box_count,
+       CASE
+         WHEN COALESCE(rc.returned_box_count,0) = 0 THEN 'none'
+         WHEN COALESCE((dr.metadata->>'child_box_count')::int,0) > 0
+              AND COALESCE(rc.returned_box_count,0) < COALESCE((dr.metadata->>'child_box_count')::int,0) THEN 'partial'
+         ELSE 'full'
+       END AS return_status
      FROM dispatch_records dr
      LEFT JOIN master_cartons mc ON mc.id = dr.master_carton_id
      LEFT JOIN sample_records sr ON sr.id = dr.sample_record_id
      LEFT JOIN ecommerce_records er ON er.id = dr.ecommerce_record_id
+     LEFT JOIN LATERAL (
+       SELECT COUNT(DISTINCT ri.child_box_id) AS returned_box_count
+       FROM return_items ri WHERE ri.dispatch_record_id = dr.id
+     ) rc ON true
      WHERE dr.id = $1`,
     [id]
   );
@@ -647,6 +659,7 @@ export async function getDispatches(
     from_date?: string;
     to_date?: string;
     search?: string;
+    return_status?: string;
   },
   page: number = 1,
   limit: number = 25
@@ -672,6 +685,13 @@ export async function getDispatches(
     values.push(`%${filters.search}%`);
     paramIndex++;
   }
+  if (filters.return_status === 'none') {
+    conditions.push(`COALESCE(rc.returned_box_count,0) = 0`);
+  } else if (filters.return_status === 'partial') {
+    conditions.push(`COALESCE(rc.returned_box_count,0) > 0 AND COALESCE((dr.metadata->>'child_box_count')::int,0) > 0 AND COALESCE(rc.returned_box_count,0) < COALESCE((dr.metadata->>'child_box_count')::int,0)`);
+  } else if (filters.return_status === 'full') {
+    conditions.push(`COALESCE(rc.returned_box_count,0) > 0 AND (COALESCE((dr.metadata->>'child_box_count')::int,0) = 0 OR COALESCE(rc.returned_box_count,0) >= COALESCE((dr.metadata->>'child_box_count')::int,0))`);
+  }
 
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
@@ -681,6 +701,10 @@ export async function getDispatches(
      LEFT JOIN sample_records sr ON sr.id = dr.sample_record_id
      LEFT JOIN ecommerce_records er ON er.id = dr.ecommerce_record_id
      LEFT JOIN customers c ON c.id = dr.customer_id
+     LEFT JOIN LATERAL (
+       SELECT COUNT(DISTINCT ri.child_box_id) AS returned_box_count
+       FROM return_items ri WHERE ri.dispatch_record_id = dr.id
+     ) rc ON true
      ${whereClause}`,
     values
   );
@@ -701,7 +725,15 @@ export async function getDispatches(
        END as source_type,
        COALESCE(mc.carton_barcode, sr.sample_barcode, er.ecommerce_barcode) as source_label,
        c.firm_name AS customer_firm_name,
-       ps.article_summary, ps.colour_summary, ps.size_summary, ps.mrp_summary
+       ps.article_summary, ps.colour_summary, ps.size_summary, ps.mrp_summary,
+       COALESCE(rc.returned_box_count, 0) AS returned_box_count,
+       COALESCE((dr.metadata->>'child_box_count')::int, 0) AS total_box_count,
+       CASE
+         WHEN COALESCE(rc.returned_box_count,0) = 0 THEN 'none'
+         WHEN COALESCE((dr.metadata->>'child_box_count')::int,0) > 0
+              AND COALESCE(rc.returned_box_count,0) < COALESCE((dr.metadata->>'child_box_count')::int,0) THEN 'partial'
+         ELSE 'full'
+       END AS return_status
      FROM dispatch_records dr
      LEFT JOIN master_cartons mc ON mc.id = dr.master_carton_id
      LEFT JOIN sample_records sr ON sr.id = dr.sample_record_id
@@ -723,6 +755,10 @@ export async function getDispatches(
        JOIN child_boxes cb ON cb.id = src_boxes.id
        JOIN products p ON p.id = cb.product_id
      ) ps ON true
+     LEFT JOIN LATERAL (
+       SELECT COUNT(DISTINCT ri.child_box_id) AS returned_box_count
+       FROM return_items ri WHERE ri.dispatch_record_id = dr.id
+     ) rc ON true
      ${whereClause}
      ORDER BY dr.dispatch_date DESC, dr.created_at DESC, dr.id
      LIMIT $${paramIndex++} OFFSET $${paramIndex}`,

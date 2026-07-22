@@ -102,6 +102,14 @@ export const PERMISSION_CATALOG: PermissionModule[] = [
     ],
   },
   {
+    key: 'returns',
+    label: 'Returns',
+    actions: [
+      { key: 'create', label: 'Create', stage_aware: false },
+      { key: 'read',   label: 'View',   stage_aware: false },
+    ],
+  },
+  {
     key: 'samples',
     label: 'Samples',
     actions: [

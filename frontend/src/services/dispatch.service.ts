@@ -17,6 +17,7 @@ export const dispatchService = {
     destination?: string;
     from_date?: string;
     to_date?: string;
+    return_status?: 'none' | 'partial' | 'full';
   }): Promise<DispatchListResponse> {
     const response = await api.get<DispatchListResponse>('/dispatches', { params });
     return response.data;

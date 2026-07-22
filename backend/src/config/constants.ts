@@ -55,6 +55,13 @@ export const TRANSACTION_TYPES = {
   LEGACY_CARTON_OPENED: 'LEGACY_CARTON_OPENED',
   CARTON_SAMPLED: 'CARTON_SAMPLED',
   CARTON_ECOMMERCED: 'CARTON_ECOMMERCED',
+  CHILD_RETURNED: 'CHILD_RETURNED',
+  CARTON_RETURNED: 'CARTON_RETURNED',
+} as const;
+
+export const RETURN_ITEM_TYPE = {
+  BOX: 'BOX',
+  CARTON: 'CARTON',
 } as const;
 
 export const USER_ROLES = {
@@ -115,3 +122,4 @@ export type ProductCategory = typeof PRODUCT_CATEGORIES[keyof typeof PRODUCT_CAT
 export type ProductSection = typeof PRODUCT_SECTIONS[keyof typeof PRODUCT_SECTIONS];
 export type ProductLocation = typeof PRODUCT_LOCATIONS[keyof typeof PRODUCT_LOCATIONS];
 export type CustomerType = typeof CUSTOMER_TYPES[keyof typeof CUSTOMER_TYPES];
+export type ReturnItemType = typeof RETURN_ITEM_TYPE[keyof typeof RETURN_ITEM_TYPE];

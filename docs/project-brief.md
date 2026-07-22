@@ -119,6 +119,7 @@ Following Phase 1 go-live, the client requested a series of enhancements, tracke
 | 3  | Role Manager (configurable RBAC)         | Dev-complete; bundled for UAT   |
 | 4  | Legacy (pre-go-live) carton onboarding   | Dev-complete; bundled for UAT   |
 | 5  | Legacy carton unpack / repack            | Dev-complete; bundled for UAT   |
+| —  | Returns management (new module)          | Dev-complete (Jul 2026); awaiting UAT |
 
 ### Mod #1 — Child-Box Label Reprint
 Operators can reprint child-box QR labels after generation — both **per-row** and via **multi-select bulk** selection — mirroring the existing master-carton reprint. The label template is byte-identical to the original (tuned for the TSC thermal printer); reprints correctly use each box's original packed date rather than today's.
@@ -134,6 +135,9 @@ Allows onboarding finished-goods stock that was packed and sealed **before** go-
 
 ### Mod #5 — Legacy Carton Unpack / Repack
 Provides the path to bring legacy (opaque) stock into full per-box tracking. An **"Open for Repacking"** action converts a legacy carton into a normal, empty, trackable carton (keeping its barcode) — **no child boxes are auto-created**, because none ever existed. The operator then generates the real child-box labels, applies them to the physical boxes, scans them back into the same carton via the existing pack flow, and closes it. From that point the carton is counted as ordinary tracked pieces and no longer as a legacy carton. Endpoint: `POST /api/v1/master-cartons/:id/open-legacy`.
+
+### Mod — Returns Management (July 2026)
+Introduces a **Returns** capability that brings physically-returned stock back into sellable inventory, via two entry points. The **Returns module** works by **blind scan-in**: an operator scans an already-dispatched child-box QR or master-carton barcode, the system looks up where it was shipped from and its details, and on confirmation adds it back to stock with a return entry. Alternatively, from a **dispatch's detail page** staff can return **against that specific dispatch** — its items are listed with checkboxes so they choose exactly which cartons/boxes are coming back (partial returns allowed). An optional **"Reason for return"** remark can be recorded either way. Both **whole master cartons** and **loose child boxes** can be returned, from regular master-carton and e-commerce dispatches (sample returns are not covered in this version). Returned stock goes **straight back to sellable** — a returned loose box becomes free stock, and a returned carton becomes a closed, sellable carton with its boxes packed again — and immediately reappears in inventory counts. This first version tracks the **physical movement only** (no return value / credit notes and no approval step). Only items that are currently dispatched can be returned, and the system blocks returning something twice. A date-range **CSV returns report** (itemized by article/colour/size, with reason and origin dispatch) is available. A new **Returns** permission (view / create) is configurable in the Role Manager. Endpoints under `/api/v1/returns`.
 
 ---
 

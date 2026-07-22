@@ -23,12 +23,12 @@ export async function getDispatches(
   next: NextFunction
 ): Promise<void> {
   try {
-    const { page, limit, destination, from_date, to_date, search } = req.query as {
+    const { page, limit, destination, from_date, to_date, search, return_status } = req.query as {
       page?: number; limit?: number; destination?: string;
-      from_date?: string; to_date?: string; search?: string;
+      from_date?: string; to_date?: string; search?: string; return_status?: string;
     };
     const result = await dispatchService.getDispatches(
-      { destination, from_date, to_date, search },
+      { destination, from_date, to_date, search, return_status },
       page || 1,
       limit || 25
     );

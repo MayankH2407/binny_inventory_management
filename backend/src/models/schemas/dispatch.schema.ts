@@ -87,6 +87,7 @@ export const dispatchListQuerySchema = z.object({
   from_date: z.string().optional(),
   to_date: z.string().optional(),
   search: z.string().optional(),
+  return_status: z.enum(['none', 'partial', 'full']).optional(),
 });
 
 export type CreateDispatchInput = z.infer<typeof createDispatchSchema>;

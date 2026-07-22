@@ -126,8 +126,40 @@ export interface DispatchRecord {
   customer_firm_name?: string;
   source_type?: 'master_carton' | 'sample' | 'ecommerce';
   source_label?: string;
+  returned_box_count?: number;
+  total_box_count?: number;
+  return_status?: 'none' | 'partial' | 'full';
   created_at: Date;
   updated_at: Date;
+}
+
+export interface ReturnRecord {
+  id: string;
+  dispatch_record_id: string | null;
+  customer_id: string | null;
+  returned_by: string;
+  return_date: Date;
+  reason: string | null;
+  notes: string | null;
+  metadata: Record<string, unknown> | null;
+  customer_firm_name?: string;
+  returned_by_name?: string;
+  source_label?: string;
+  item_count?: number;
+  box_count?: number;
+  pairs?: number;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface ReturnItem {
+  id: string;
+  return_record_id: string;
+  child_box_id: string | null;
+  master_carton_id: string | null;
+  dispatch_record_id: string | null;
+  item_type: 'BOX' | 'CARTON';
+  created_at: Date;
 }
 
 export interface AuditLog {

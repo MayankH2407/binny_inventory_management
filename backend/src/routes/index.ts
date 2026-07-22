@@ -7,6 +7,7 @@ import childBoxRoutes from './childBox.routes';
 import masterCartonRoutes from './masterCarton.routes';
 import inventoryRoutes from './inventory.routes';
 import dispatchRoutes from './dispatch.routes';
+import returnRoutes from './return.routes';
 import reportRoutes from './report.routes';
 import customerRoutes from './customer.routes';
 import sampleRoutes from './sample.routes';
@@ -33,6 +34,7 @@ router.use('/samples', sampleRoutes);
 router.use('/ecommerce', ecommerceRoutes);
 router.use('/inventory', inventoryRoutes);
 router.use('/dispatches', dispatchRoutes);
+router.use('/returns', returnRoutes);
 router.use('/reports', reportRoutes);
 router.use('/customers', customerRoutes);
 

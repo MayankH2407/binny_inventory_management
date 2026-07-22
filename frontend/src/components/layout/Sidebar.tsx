@@ -24,6 +24,7 @@ import {
   FlaskConical,
   ShoppingCart,
   ShieldCheck,
+  Undo2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { NAV_ITEMS } from '@/constants';
@@ -49,6 +50,7 @@ const iconMap: Record<string, React.ElementType> = {
   FlaskConical,
   ShoppingCart,
   ShieldCheck,
+  Undo2,
 };
 
 interface SidebarProps {

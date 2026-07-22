@@ -309,6 +309,91 @@ export async function exportCartonInventoryCSV(status?: string): Promise<string>
   return toCSV(headers, rows);
 }
 
+export async function exportReturnCSV(fromDate?: string, toDate?: string): Promise<string> {
+  const conditions: string[] = [];
+  const values: unknown[] = [];
+  let paramIndex = 1;
+
+  if (fromDate) {
+    conditions.push(`rr.return_date >= $${paramIndex++}`);
+    values.push(fromDate);
+  }
+  if (toDate) {
+    conditions.push(`rr.return_date <= $${paramIndex++}`);
+    values.push(toDate);
+  }
+
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+  // Itemized: one row per return × product variant (and, for whole-carton returns,
+  // per returned carton) — mirrors exportDispatchCSV's grouping style.
+  const result = await query(`
+    SELECT
+      rr.return_date,
+      COALESCE(odmc.carton_barcode, oder.ecommerce_barcode) AS origin_dispatch,
+      COALESCE(c.firm_name, 'Walk-in / No Customer') AS customer_name,
+      ri.item_type,
+      mci.carton_barcode,
+      p.section,
+      p.article_name,
+      p.article_code,
+      p.colour,
+      p.size,
+      p.hsn_code,
+      COUNT(DISTINCT ri.child_box_id) AS box_count,
+      COALESCE(SUM(cb.quantity), 0) AS pairs,
+      p.mrp,
+      u.name AS returned_by_name,
+      rr.reason,
+      rr.notes
+    FROM return_records rr
+    LEFT JOIN customers c ON c.id = rr.customer_id
+    JOIN users u ON u.id = rr.returned_by
+    JOIN return_items ri ON ri.return_record_id = rr.id
+    JOIN child_boxes cb ON cb.id = ri.child_box_id
+    JOIN products p ON p.id = cb.product_id
+    LEFT JOIN master_cartons mci ON mci.id = ri.master_carton_id
+    -- Origin dispatch resolved per item (handles blind scan-in, where the return
+    -- itself has no single dispatch link)
+    LEFT JOIN dispatch_records dr ON dr.id = ri.dispatch_record_id
+    LEFT JOIN master_cartons odmc ON odmc.id = dr.master_carton_id
+    LEFT JOIN ecommerce_records oder ON oder.id = dr.ecommerce_record_id
+    ${whereClause}
+    GROUP BY rr.id, c.id, u.id, p.id, ri.item_type, mci.id, odmc.id, oder.id
+    ORDER BY customer_name, rr.return_date DESC, mci.carton_barcode, p.article_name, p.colour, p.size
+  `, values);
+
+  const headers = [
+    'Return Date', 'Origin Dispatch', 'Customer', 'Item Type', 'Carton Barcode',
+    'Section', 'Article', 'Article Code', 'Colour', 'Size', 'HSN Code',
+    'Boxes', 'Pairs', 'MRP', 'Returned By', 'Reason', 'Notes',
+  ];
+
+  const num = (v: unknown) => (v === null || v === undefined ? '' : Number(v).toFixed(2));
+
+  const rows = result.rows.map((r: Record<string, unknown>) => [
+    r.return_date ? new Date(r.return_date as string).toISOString().slice(0, 10) : '',
+    String(r.origin_dispatch ?? ''),
+    String(r.customer_name ?? ''),
+    String(r.item_type ?? ''),
+    String(r.carton_barcode ?? ''),
+    String(r.section ?? ''),
+    String(r.article_name ?? ''),
+    String(r.article_code ?? ''),
+    String(r.colour ?? ''),
+    String(r.size ?? ''),
+    String(r.hsn_code ?? ''),
+    String(r.box_count ?? ''),
+    String(r.pairs ?? ''),
+    num(r.mrp),
+    String(r.returned_by_name ?? ''),
+    String(r.reason ?? ''),
+    String(r.notes ?? ''),
+  ]);
+
+  return toCSV(headers, rows);
+}
+
 export async function exportEcommerceReportCSV(filters: {
   from?: Date;
   to?: Date;

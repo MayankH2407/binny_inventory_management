@@ -244,8 +244,88 @@ export interface DispatchRecord {
   colour_summary?: string | null;
   size_summary?: string | null;
   mrp_summary?: number | null;
+  // Return-status roll-up (backend-computed)
+  return_status?: 'none' | 'partial' | 'full';
+  returned_box_count?: number;
+  total_box_count?: number;
   created_at: string;
   updated_at: string;
+}
+
+// ---------- Returns ----------
+export interface ReturnItem {
+  id: string;
+  item_type: 'BOX' | 'CARTON';
+  barcode: string;
+  article_name?: string;
+  colour?: string;
+  size?: string;
+  mrp?: number;
+  carton_barcode?: string | null;
+  dispatch_record_id?: string | null;
+  origin_dispatch_label?: string | null;
+}
+
+export interface ReturnRecord {
+  id: string;
+  return_date: string;
+  created_at: string;
+  dispatch_record_id?: string | null;
+  customer_id?: string | null;
+  customer_firm_name?: string | null;
+  returned_by_name?: string | null;
+  source_label?: string | null;
+  source_type?: string | null;
+  dispatch_date?: string | null;
+  notes?: string | null;
+  reason?: string | null;
+  item_count?: number;
+  box_count?: number;
+  article_summary?: string | null;
+  colour_summary?: string | null;
+  size_summary?: string | null;
+  pairs?: number | null;
+  items?: ReturnItem[];
+}
+
+export interface ReturnableItem {
+  item_type: 'BOX' | 'CARTON';
+  id: string;
+  barcode: string;
+  status: string;
+  child_count?: number;
+  returnable: boolean;
+  reason?: string;
+  returned?: boolean;
+  returned_at?: string | null;
+  channel?: string;
+  article_name?: string;
+  colour?: string;
+  size?: string;
+  mrp?: number;
+  product_summary?: {
+    article_summary?: string;
+    colour_summary?: string;
+    size_summary?: string;
+    box_count?: number;
+    pairs?: number;
+    mrp?: number;
+  };
+  origin_dispatch?: {
+    id: string;
+    dispatch_date: string;
+    customer_firm_name?: string;
+    source_label?: string;
+  } | null;
+}
+
+export interface CreateReturnRequest {
+  dispatch_record_id?: string;
+  customer_id?: string;
+  return_date?: string;
+  notes?: string;
+  reason?: string;
+  items: Array<{ barcode: string; item_type: 'BOX' | 'CARTON' }>;
 }
 
 // ---------- Report types ----------

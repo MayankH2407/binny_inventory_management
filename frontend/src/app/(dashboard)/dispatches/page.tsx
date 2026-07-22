@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { Search, ClipboardList, ChevronDown, ChevronUp, Truck, User, Package, FlaskConical, ShoppingCart, Download } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { Search, ClipboardList, ChevronDown, ChevronUp, ChevronRight, Truck, User, Package, FlaskConical, ShoppingCart, Download } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
@@ -27,6 +28,8 @@ interface CustomerGroup {
   totalCartons: number;
   totalChildBoxes: number;
   destinations: string[];
+  fullyReturned: number;
+  partiallyReturned: number;
 }
 
 function SourceTypeBadge({ sourceType, sourceLabel }: { sourceType?: DispatchSourceType; sourceLabel?: string | null }) {
@@ -60,16 +63,28 @@ function sourceIcon(sourceType?: DispatchSourceType) {
   return <Package className="h-4 w-4 text-brand-text-muted shrink-0" />;
 }
 
+function ReturnStatusBadge({ returnStatus }: { returnStatus?: 'none' | 'partial' | 'full' }) {
+  if (returnStatus === 'full') {
+    return <Badge variant="red" size="sm">Fully Returned</Badge>;
+  }
+  if (returnStatus === 'partial') {
+    return <Badge variant="orange" size="sm">Partially Returned</Badge>;
+  }
+  return null;
+}
+
 export default function DispatchesPage() {
+  const router = useRouter();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [sourceTypeFilter, setSourceTypeFilter] = useState<string>('');
+  const [returnStatusFilter, setReturnStatusFilter] = useState<string>('');
   const [expandedCustomer, setExpandedCustomer] = useState<string | null>(null);
 
   const { data, isLoading } = useApiQuery(
-    ['dispatches', String(page), search, fromDate, toDate],
+    ['dispatches', String(page), search, fromDate, toDate, returnStatusFilter],
     () =>
       dispatchService.getAll({
         page,
@@ -77,6 +92,7 @@ export default function DispatchesPage() {
         search: search || undefined,
         from_date: fromDate || undefined,
         to_date: toDate || undefined,
+        return_status: (returnStatusFilter || undefined) as 'none' | 'partial' | 'full' | undefined,
       }),
     { placeholderData: keepPreviousData }
   );
@@ -104,6 +120,8 @@ export default function DispatchesPage() {
         if (record.destination && !existing.destinations.includes(record.destination)) {
           existing.destinations.push(record.destination);
         }
+        if (record.return_status === 'full') existing.fullyReturned += 1;
+        if (record.return_status === 'partial') existing.partiallyReturned += 1;
       } else {
         groupMap.set(key, {
           customerName: record.customer_firm_name || 'Walk-in / No Customer',
@@ -113,6 +131,8 @@ export default function DispatchesPage() {
           totalCartons: 1,
           totalChildBoxes: record.child_count ?? 0,
           destinations: record.destination ? [record.destination] : [],
+          fullyReturned: record.return_status === 'full' ? 1 : 0,
+          partiallyReturned: record.return_status === 'partial' ? 1 : 0,
         });
       }
     }
@@ -227,6 +247,22 @@ export default function DispatchesPage() {
                   }}
                 />
               </div>
+              <div className="w-44">
+                <Select
+                  placeholder="All Returns"
+                  options={[
+                    { value: '', label: 'All Returns' },
+                    { value: 'none', label: 'Not Returned' },
+                    { value: 'partial', label: 'Partially Returned' },
+                    { value: 'full', label: 'Fully Returned' },
+                  ]}
+                  value={returnStatusFilter}
+                  onChange={(e) => {
+                    setReturnStatusFilter(e.target.value);
+                    setPage(1);
+                  }}
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -280,6 +316,20 @@ export default function DispatchesPage() {
                             <span className="text-xs text-brand-text-muted">
                               Latest: {formatDateTime(group.latestDate)}
                             </span>
+                            {(group.fullyReturned > 0 || group.partiallyReturned > 0) && (
+                              <span className="text-xs font-medium text-amber-600">
+                                {[
+                                  group.fullyReturned > 0
+                                    ? `${group.fullyReturned} fully returned`
+                                    : null,
+                                  group.partiallyReturned > 0
+                                    ? `${group.partiallyReturned} partial`
+                                    : null,
+                                ]
+                                  .filter(Boolean)
+                                  .join(' · ')}
+                              </span>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -297,7 +347,16 @@ export default function DispatchesPage() {
                           {group.records.map((record) => (
                             <div
                               key={record.id}
-                              className="bg-white rounded-lg border border-brand-border p-4"
+                              role="button"
+                              tabIndex={0}
+                              onClick={() => router.push(ROUTES.DISPATCH_DETAIL(record.id))}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                  e.preventDefault();
+                                  router.push(ROUTES.DISPATCH_DETAIL(record.id));
+                                }
+                              }}
+                              className="bg-white rounded-lg border border-brand-border p-4 cursor-pointer hover:border-binny-navy/40 hover:shadow-sm transition-all"
                             >
                               <div className="flex items-start justify-between gap-3">
                                 <div className="min-w-0 flex-1">
@@ -313,7 +372,13 @@ export default function DispatchesPage() {
                                         ({record.child_count} boxes)
                                       </span>
                                     )}
+                                    <ReturnStatusBadge returnStatus={record.return_status} />
                                   </div>
+                                  {record.return_status && record.return_status !== 'none' && (
+                                    <p className="text-xs text-amber-600 font-medium mb-1.5">
+                                      {record.returned_box_count} of {record.total_box_count} boxes returned
+                                    </p>
+                                  )}
 
                                   {/* Product details */}
                                   {record.article_summary && (
@@ -349,10 +414,11 @@ export default function DispatchesPage() {
                                     </p>
                                   )}
                                 </div>
-                                <div className="text-right shrink-0">
+                                <div className="text-right shrink-0 flex items-center gap-1">
                                   <p className="text-xs text-brand-text-muted">
                                     {formatDateTime(record.dispatch_date)}
                                   </p>
+                                  <ChevronRight className="h-4 w-4 text-brand-text-muted" />
                                 </div>
                               </div>
                             </div>
