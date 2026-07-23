@@ -12,7 +12,7 @@ import { ROUTES } from '@/constants';
 import { childBoxService } from '@/services/childBox.service';
 import { productService } from '@/services/product.service';
 import { useApiQuery, useApiMutation } from '@/hooks/useApi';
-import type { BulkCreateMultiSizeRequest, ChildBoxWithProduct, Product } from '@/types';
+import type { BulkCreateMultiSizeRequest, ChildBoxWithProduct } from '@/types';
 import { formatCurrency } from '@/lib/utils';
 import { compareSizes } from '@/lib/sizeSort';
 import Link from 'next/link';
@@ -47,51 +47,34 @@ export default function GenerateQRPage() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Load ALL active products for the article dropdown. A product has one row per
-  // size/colour variant, so the catalog is thousands of rows but only a few dozen
-  // distinct articles (deduped below). The old limit of 200 rows got consumed by a
-  // handful of articles' variants, hiding every other article from the list/search.
-  // (Future optimisation: a dedicated distinct-articles endpoint.)
-  const { data: productsData, isLoading: productsLoading } = useApiQuery(
-    ['products-for-generate'],
-    () => productService.getAll({ limit: 100000, is_active: true }),
+  // Distinct-articles endpoint: one representative product id per article_name,
+  // deduped server-side. A product has one row per size/colour variant, so the
+  // catalog is thousands of rows but only a few hundred distinct articles — this
+  // used to load every single active product row and dedupe client-side, which
+  // meant the whole catalog was fetched just to populate this dropdown.
+  const { data: articles, isLoading: articlesLoading } = useApiQuery(
+    ['product-articles'],
+    () => productService.getArticles(),
   );
 
-  const products = productsData?.data ?? [];
-
-  // Build unique article options for the first dropdown
+  // Build article options for the first dropdown. Articles are already distinct
+  // by article_name (server-side), so only the search filter is applied here —
+  // the list is small enough to filter client-side.
   const articleOptions = useMemo(() => {
-    // Dedupe case-insensitively + trimmed: the same article can exist under
-    // multiple article_name casings (e.g. "MOGLI PLUS 01" vs "Mogli Plus 01",
-    // a residue of the going-forward-only Title-Case normalization). Without
-    // this, such an article appears once per casing that has active rows.
-    const seen = new Map<string, Product>();
-    for (const p of products) {
-      const key = p.article_name.trim().toLowerCase();
-      if (!seen.has(key)) {
-        seen.set(key, p);
-      }
-    }
-    let options = Array.from(seen.values()).map((p) => ({
-      value: p.id,
-      label: `${p.article_name}${p.article_code ? ` (${p.article_code})` : ''}`,
-      articleName: p.article_name,
+    const opts = (articles ?? []).map((a) => ({
+      value: a.id,
+      label: `${a.article_name}${a.article_code ? ` (${a.article_code})` : ''}`,
+      articleName: a.article_name,
     }));
 
-    // Apply search filter
-    if (searchTerm.trim()) {
-      const term = searchTerm.toLowerCase();
-      options = options.filter(
-        (o) =>
-          o.label.toLowerCase().includes(term) ||
-          o.articleName.toLowerCase().includes(term)
-      );
-    }
-
-    return options;
-  }, [products, searchTerm]);
-
-  const selectedProduct = products.find((p) => p.id === productId);
+    if (!searchTerm.trim()) return opts;
+    const term = searchTerm.toLowerCase();
+    return opts.filter(
+      (o) =>
+        o.label.toLowerCase().includes(term) ||
+        o.articleName.toLowerCase().includes(term)
+    );
+  }, [articles, searchTerm]);
 
   // Fetch available colours when an article (product) is selected
   const { data: colourOptions, isLoading: coloursLoading } = useApiQuery(
@@ -102,7 +85,15 @@ export default function GenerateQRPage() {
 
   // The actual product id used for size lookup is the colour-specific one
   const effectiveProductId = colourProductId || productId;
-  const effectiveProduct = products.find((p) => p.id === effectiveProductId) || selectedProduct;
+
+  // Full product record for the selected article/colour. Fetched by id (cheap,
+  // single row) rather than looked up in a full products list — mirrors the
+  // getColours/getSizes cascade already used above.
+  const { data: effectiveProduct } = useApiQuery(
+    ['product-detail', effectiveProductId],
+    () => productService.getById(effectiveProductId),
+    { enabled: !!effectiveProductId },
+  );
 
   // Fetch sibling sizes when a colour is selected
   const { data: siblingProducts, isLoading: sizesLoading } = useApiQuery(
@@ -185,7 +176,7 @@ export default function GenerateQRPage() {
     printChildBoxLabels(generatedBoxes);
   };
 
-  if (productsLoading) return <PageSpinner />;
+  if (articlesLoading) return <PageSpinner />;
 
   if (!canCreate) {
     router.replace(ROUTES.INVENTORY);

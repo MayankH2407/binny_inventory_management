@@ -22,13 +22,15 @@ import { parseQRCode } from '../../utils';
 import { childBoxService } from '../../services/childBox.service';
 import { samplesService } from '../../services/samples.service';
 import { customerService } from '../../services/customer.service';
+import { masterCartonService } from '../../services/masterCarton.service';
 import { useApiMutation } from '../../hooks/useApi';
 import RoleGate from '../../components/RoleGate';
 import BarcodeScanner from '../../components/BarcodeScanner';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
+import Badge from '../../components/ui/Badge';
 import EmptyState from '../../components/ui/EmptyState';
-import type { ChildBoxWithProduct, SampleRecord, Customer } from '../../types';
+import type { ChildBoxWithProduct, SampleRecord, Customer, MasterCarton } from '../../types';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -224,6 +226,12 @@ function SampleCreateScreen() {
   const [manualInput, setManualInput] = useState('');
   const [validating, setValidating] = useState(false);
 
+  // ── Master carton scan state ─────────────────────────────────────────────────
+  const [scannedCartons, setScannedCartons] = useState<MasterCarton[]>([]);
+  const [cartonScannerOpen, setCartonScannerOpen] = useState(false);
+  const [manualCartonInput, setManualCartonInput] = useState('');
+  const [validatingCarton, setValidatingCarton] = useState(false);
+
   // ── Mutation ─────────────────────────────────────────────────────────────────
   const createMutation = useApiMutation<SampleRecord, Parameters<typeof samplesService.create>[0]>(
     (vars) => samplesService.create(vars),
@@ -314,14 +322,63 @@ function SampleCreateScreen() {
     ]);
   };
 
+  // ── Master carton validation + add ───────────────────────────────────────────
+  const addCarton = async (raw: string) => {
+    const parsed = parseQRCode(raw);
+    const barcode = parsed.type === 'master' ? parsed.id : raw.trim().toUpperCase();
+
+    if (scannedCartons.some((c) => c.carton_barcode === barcode)) {
+      Alert.alert('Already scanned', `Carton ${barcode} is already in the list.`);
+      return;
+    }
+
+    setValidatingCarton(true);
+    try {
+      const carton = await masterCartonService.getByBarcode(barcode);
+      if (carton.status === 'DISPATCHED') {
+        Alert.alert('Carton unavailable', 'This carton has already been dispatched.');
+        return;
+      }
+      if (carton.status === 'CREATED' || carton.child_count === 0) {
+        Alert.alert('Carton unavailable', 'This carton is empty. Pack boxes first.');
+        return;
+      }
+      setScannedCartons((prev) => [...prev, carton]);
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (err: any) {
+      const msg = err?.response?.data?.message ?? err?.message ?? 'Master carton not found';
+      Alert.alert('Scan failed', msg);
+    } finally {
+      setValidatingCarton(false);
+    }
+  };
+
+  const handleScanCarton = (raw: string) => {
+    setCartonScannerOpen(false);
+    addCarton(raw);
+  };
+
+  const handleManualAddCarton = () => {
+    const trimmed = manualCartonInput.trim();
+    if (!trimmed) return;
+    setManualCartonInput('');
+    addCarton(trimmed);
+  };
+
+  const handleRemoveCarton = (cartonId: string) => {
+    setScannedCartons((prev) => prev.filter((c) => c.id !== cartonId));
+  };
+
+  const totalCartonBoxes = scannedCartons.reduce((sum, c) => sum + c.child_count, 0);
+
   // ── Submit ───────────────────────────────────────────────────────────────────
   const handleSubmit = () => {
     if (!name.trim()) {
       Alert.alert('Validation', 'Sample name is required.');
       return;
     }
-    if (scannedBarcodes.length === 0) {
-      Alert.alert('Validation', 'Scan at least one child box before creating the sample.');
+    if (scannedBarcodes.length === 0 && scannedCartons.length === 0) {
+      Alert.alert('Validation', 'Scan at least one child box or master carton before creating the sample.');
       return;
     }
 
@@ -333,6 +390,7 @@ function SampleCreateScreen() {
       sample_date: sampleDate.trim() || null,
       notes: notes.trim() || null,
       child_box_barcodes: scannedBarcodes,
+      carton_barcodes: scannedCartons.map((c) => c.carton_barcode),
     });
   };
 
@@ -531,13 +589,87 @@ function SampleCreateScreen() {
           )}
         </Card>
 
+        {/* ── Scan Master Carton section ──────────────────────────────────── */}
+        <Card style={styles.scanCard}>
+          <View style={styles.scanHeader}>
+            <Text style={styles.sectionTitle}>
+              Scanned Cartons ({scannedCartons.length}{scannedCartons.length > 0 ? `, ${totalCartonBoxes} boxes` : ''})
+            </Text>
+          </View>
+
+          <Text style={styles.cartonHint}>
+            Scan a whole master carton to add all of its packed boxes at once. The carton stays intact.
+          </Text>
+
+          <Button
+            title={validatingCarton ? 'Validating…' : 'Scan Master Carton'}
+            onPress={() => setCartonScannerOpen(true)}
+            icon={<Ionicons name="cube-outline" size={18} color={COLORS.surface} />}
+            fullWidth
+            disabled={validatingCarton}
+            style={styles.scanBtn}
+          />
+
+          <View style={styles.manualRow}>
+            <TextInput
+              style={styles.manualInput}
+              value={manualCartonInput}
+              onChangeText={setManualCartonInput}
+              placeholder="Enter carton barcode manually…"
+              placeholderTextColor={COLORS.textLight}
+              autoCorrect={false}
+              autoCapitalize="characters"
+              returnKeyType="done"
+              onSubmitEditing={handleManualAddCarton}
+            />
+            <TouchableOpacity
+              style={styles.addBtn}
+              onPress={handleManualAddCarton}
+              activeOpacity={0.75}
+              disabled={!manualCartonInput.trim()}
+            >
+              <Text style={styles.addBtnText}>Add</Text>
+            </TouchableOpacity>
+          </View>
+
+          {scannedCartons.length > 0 && (
+            <View style={styles.scannedList}>
+              {scannedCartons.map((carton, idx) => (
+                <View
+                  key={carton.id}
+                  style={[styles.scannedRow, idx < scannedCartons.length - 1 && styles.scannedRowBorder]}
+                >
+                  <Badge label="CARTON" type="carton" />
+                  <View style={styles.scannedInfo}>
+                    <Text style={styles.scannedBarcode} numberOfLines={1}>
+                      {carton.carton_barcode}
+                    </Text>
+                    <Text style={styles.scannedMeta} numberOfLines={1}>
+                      {[carton.article_summary, carton.colour_summary, carton.size_summary]
+                        .filter(Boolean)
+                        .join(' · ') || `${carton.child_count} boxes`}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.trashBtn}
+                    onPress={() => handleRemoveCarton(carton.id)}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  >
+                    <Ionicons name="trash-outline" size={20} color={COLORS.error} />
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </View>
+          )}
+        </Card>
+
         {/* ── Submit ───────────────────────────────────────────────────────── */}
         <Button
-          title={`Create Sample (${scannedBarcodes.length} boxes)`}
+          title={`Create Sample (${scannedBarcodes.length} boxes${scannedCartons.length > 0 ? ` + ${scannedCartons.length} carton${scannedCartons.length !== 1 ? 's' : ''}` : ''})`}
           onPress={handleSubmit}
           icon={<Ionicons name="checkmark-circle-outline" size={18} color={COLORS.surface} />}
           fullWidth
-          disabled={scannedBarcodes.length === 0 || !name.trim() || createMutation.isPending}
+          disabled={(scannedBarcodes.length === 0 && scannedCartons.length === 0) || !name.trim() || createMutation.isPending}
           loading={createMutation.isPending}
           style={styles.submitBtn}
         />
@@ -550,6 +682,15 @@ function SampleCreateScreen() {
         onScan={handleScan}
         expectedType="child"
         title="Scan Child Box"
+      />
+
+      {/* Master carton scanner modal */}
+      <BarcodeScanner
+        visible={cartonScannerOpen}
+        onClose={() => setCartonScannerOpen(false)}
+        onScan={handleScanCarton}
+        expectedType="master"
+        title="Scan a master carton"
       />
 
       {/* Customer picker modal */}
@@ -687,6 +828,11 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     color: COLORS.error,
+  },
+  cartonHint: {
+    fontSize: 12,
+    color: COLORS.textSecondary,
+    marginBottom: 12,
   },
   scanBtn: {
     marginBottom: 12,

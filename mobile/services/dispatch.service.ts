@@ -16,6 +16,7 @@ export const dispatchService = {
     search?: string;
     start_date?: string;
     end_date?: string;
+    return_status?: 'none' | 'partial' | 'full';
   }): Promise<DispatchListResponse> {
     const response = await api.get<DispatchListResponse>('/dispatches', { params });
     return response.data;
@@ -28,6 +29,15 @@ export const dispatchService = {
 
   async create(data: CreateDispatchRequest): Promise<DispatchRecord> {
     const response = await api.post<DispatchRecord>('/dispatches', data);
+    return response.data;
+  },
+
+  async exportCsv(params?: { from_date?: string; to_date?: string }): Promise<string> {
+    const response = await api.get<string>('/dispatches/export', {
+      params,
+      responseType: 'text',
+      transformResponse: [(d) => d],
+    });
     return response.data;
   },
 };

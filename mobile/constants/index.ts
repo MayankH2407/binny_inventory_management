@@ -61,3 +61,9 @@ export const ECOMMERCE_STATUS_COLORS: Record<string, string> = {
   CLOSED: COLORS.statusClosed,
   DISPATCHED: COLORS.statusDispatched,
 };
+
+export const RETURN_STATUS_COLORS: Record<'none' | 'partial' | 'full', string> = {
+  none: COLORS.textLight,
+  partial: COLORS.warning,
+  full: COLORS.error,
+};

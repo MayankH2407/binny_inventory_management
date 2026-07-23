@@ -73,6 +73,9 @@ export default function MenuScreen() {
         {renderItem({ icon: 'archive-outline', label: 'Master Cartons', color: COLORS.info, route: '/master-cartons' }, 1)}
         {renderItem({ icon: 'add-circle-outline', label: 'Pack', color: COLORS.success, route: '/master-cartons/create' }, 2)}
         {renderItem({ icon: 'paper-plane-outline', label: 'Dispatch', color: '#F97316', route: '/dispatch' }, 3)}
+        <RoleGate allow={['Admin', 'Supervisor', 'Dispatch Operator']}>
+          {renderItem({ icon: 'return-down-back-outline', label: 'Returns', color: '#0D9488', route: '/returns' }, 3.5)}
+        </RoleGate>
         {renderItem({ icon: 'open-outline', label: 'Unpack', color: COLORS.warning, route: '/unpack' }, 4)}
         {renderItem({ icon: 'swap-horizontal-outline', label: 'Repack', color: '#8B5CF6', route: '/repack' }, 5)}
         {renderItem({ icon: 'file-tray-outline', label: 'Storage', color: COLORS.info, route: '/storage' }, 6)}

@@ -92,6 +92,9 @@ export interface ChildBoxWithProduct extends ChildBox {
   size: string;
   mrp: number;
   sku: string;
+  /** For channel views: whether this box is loose or reached via an allocated carton. */
+  source?: 'loose' | 'carton';
+  carton_barcode?: string | null;
 }
 
 export type MasterCartonStatus = 'CREATED' | 'ACTIVE' | 'CLOSED' | 'DISPATCHED';
@@ -195,6 +198,10 @@ export interface DispatchRecord {
   colour_summary?: string | null;
   size_summary?: string | null;
   mrp_summary?: number | null;
+  // Return-status (computed server-side): how much of this dispatch has been returned.
+  return_status?: 'none' | 'partial' | 'full';
+  returned_box_count?: number;
+  total_box_count?: number;
   created_at: string;
   updated_at: string;
 }
@@ -311,6 +318,98 @@ export interface AssortmentItem {
   size: string;
   mrp: number;
   count: number;
+}
+
+// ─── Carton-level membership (samples & e-commerce) ─────────────────────────
+// A whole master carton allocated intact to a sample/e-commerce record.
+// Shape mirrors backend getSampleCartons / getEcommerceCartons — verify field
+// names against those services when wiring the service methods.
+export interface CartonMembership {
+  id: string;
+  master_carton_id: string;
+  carton_barcode: string;
+  child_count: number;
+  article_summary?: string | null;
+  colour_summary?: string | null;
+  size_summary?: string | null;
+  mrp_summary?: number | null;
+  mapped_at?: string | null;
+}
+
+// ─── Returns ────────────────────────────────────────────────────────────────
+export interface ReturnItem {
+  id: string;
+  item_type: 'BOX' | 'CARTON';
+  barcode: string;
+  article_name?: string;
+  colour?: string;
+  size?: string;
+  mrp?: number;
+  carton_barcode?: string | null;
+  dispatch_record_id?: string | null;
+  origin_dispatch_label?: string | null;
+}
+
+export interface ReturnRecord {
+  id: string;
+  return_date: string;
+  created_at: string;
+  dispatch_record_id?: string | null;
+  customer_id?: string | null;
+  customer_firm_name?: string | null;
+  returned_by_name?: string | null;
+  source_label?: string | null;
+  reason?: string | null;
+  notes?: string | null;
+  item_count?: number;
+  box_count?: number;
+  pairs?: number | null;
+  article_summary?: string | null;
+  colour_summary?: string | null;
+  size_summary?: string | null;
+  items?: ReturnItem[];
+}
+
+// Blind-scan lookup result (GET /returns/lookup/:barcode).
+export interface ReturnableItem {
+  item_type: 'BOX' | 'CARTON';
+  id: string;
+  barcode: string;
+  status: string;
+  child_count?: number;
+  returnable: boolean;
+  reason?: string;
+  channel?: string;
+  article_name?: string;
+  colour?: string;
+  size?: string;
+  mrp?: number;
+  product_summary?: {
+    article_summary?: string | null;
+    colour_summary?: string | null;
+    size_summary?: string | null;
+    box_count?: number;
+    pairs?: number;
+    mrp?: number | null;
+  };
+  origin_dispatch?: {
+    id: string;
+    dispatch_date: string;
+    customer_firm_name?: string | null;
+    source_label?: string;
+  } | null;
+  // On GET /returns/dispatch/:id/items, items already returned are flagged:
+  returned?: boolean;
+  returned_at?: string | null;
+}
+
+export interface CreateReturnRequest {
+  dispatch_record_id?: string;
+  customer_id?: string;
+  return_date?: string;
+  reason?: string;
+  notes?: string;
+  items: Array<{ barcode: string; item_type: 'BOX' | 'CARTON' }>;
 }
 
 export interface InventoryStockSummary {

@@ -8,24 +8,21 @@ import {
   TouchableOpacity,
   RefreshControl,
   ScrollView,
-  Platform,
   Alert,
   ActivityIndicator,
 } from 'react-native';
 import { Stack, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useInfiniteQuery } from '@tanstack/react-query';
-import { COLORS, CHILD_BOX_STATUS_COLORS, RETURN_STATUS_COLORS } from '../../constants';
-import { dispatchService } from '../../services/dispatch.service';
+import { COLORS } from '../../constants';
+import { returnsService } from '../../services/returns.service';
 import { shareCsv } from '../../utils/exportCsv';
-import type { DispatchRecord, DispatchSourceType } from '../../types';
+import type { ReturnRecord } from '../../types';
 import Card from '../../components/ui/Card';
 import EmptyState from '../../components/ui/EmptyState';
 import Spinner from '../../components/ui/Spinner';
 import RoleGate from '../../components/RoleGate';
 import { formatDate } from '../../utils';
-
-type ReturnStatusFilter = 'none' | 'partial' | 'full' | undefined;
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -46,7 +43,7 @@ const fmtISO = (d: Date): string => d.toISOString().split('T')[0];
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export default function DispatchScreen() {
+export default function ReturnsScreen() {
   // Search
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
@@ -56,11 +53,8 @@ export default function DispatchScreen() {
   const [toInput, setToInput] = useState('');
 
   // Validated dates sent to the API
-  const [startDate, setStartDate] = useState<string | undefined>();
-  const [endDate, setEndDate] = useState<string | undefined>();
-
-  // Return-status filter
-  const [returnStatus, setReturnStatus] = useState<ReturnStatusFilter>(undefined);
+  const [fromDate, setFromDate] = useState<string | undefined>();
+  const [toDate, setToDate] = useState<string | undefined>();
 
   // Export
   const [exporting, setExporting] = useState(false);
@@ -76,8 +70,8 @@ export default function DispatchScreen() {
   // ── Sync validated API dates from text inputs (also 300 ms debounced) ──────
   useEffect(() => {
     const timer = setTimeout(() => {
-      setStartDate(toISO(fromInput));
-      setEndDate(toISO(toInput));
+      setFromDate(toISO(fromInput));
+      setToDate(toISO(toInput));
     }, 300);
     return () => clearTimeout(timer);
   }, [fromInput, toInput]);
@@ -91,36 +85,34 @@ export default function DispatchScreen() {
     const e = fmtISO(end);
     setFromInput(s);
     setToInput(e);
-    // Set immediately — no need to wait for the effect debounce on chip taps
-    setStartDate(s);
-    setEndDate(e);
+    setFromDate(s);
+    setToDate(e);
   }, []);
 
   const clearDates = useCallback(() => {
     setFromInput('');
     setToInput('');
-    setStartDate(undefined);
-    setEndDate(undefined);
+    setFromDate(undefined);
+    setToDate(undefined);
   }, []);
 
   // ── Infinite query ─────────────────────────────────────────────────────────
   const query = useInfiniteQuery({
-    queryKey: ['dispatches', { search, startDate, endDate, returnStatus }],
+    queryKey: ['returns', { search, fromDate, toDate }],
     queryFn: ({ pageParam }) =>
-      dispatchService.getAll({
+      returnsService.getAll({
         page: pageParam,
         limit: PAGE_SIZE,
         search: search || undefined,
-        start_date: startDate,
-        end_date: endDate,
-        return_status: returnStatus || undefined,
+        from_date: fromDate,
+        to_date: toDate,
       }),
     getNextPageParam: (last) =>
       last.page < last.totalPages ? last.page + 1 : undefined,
     initialPageParam: 1,
   });
 
-  const items: DispatchRecord[] =
+  const items: ReturnRecord[] =
     query.data?.pages.flatMap((p) => p.data) ?? [];
 
   const handleLoadMore = useCallback(() => {
@@ -133,126 +125,86 @@ export default function DispatchScreen() {
   const handleExport = useCallback(async () => {
     setExporting(true);
     try {
-      const csv = await dispatchService.exportCsv({ from_date: startDate, to_date: endDate });
-      await shareCsv('dispatch-report.csv', csv);
+      const csv = await returnsService.exportCsv({ from_date: fromDate, to_date: toDate });
+      await shareCsv('returns-report.csv', csv);
     } catch (err: any) {
       Alert.alert(
         'Export failed',
-        err?.response?.data?.message ?? err?.message ?? 'Could not export the dispatch report.'
+        err?.response?.data?.message ?? err?.message ?? 'Could not export the returns report.'
       );
     } finally {
       setExporting(false);
     }
-  }, [startDate, endDate]);
+  }, [fromDate, toDate]);
 
   // ─── Row renderer ──────────────────────────────────────────────────────────
 
-  const renderItem = useCallback(({ item: dispatch }: { item: DispatchRecord }) => {
-    // Meta line: "12 boxes · ₹1,450.00 · LR 12345"
+  const renderItem = useCallback(({ item: ret }: { item: ReturnRecord }) => {
     const metaParts: string[] = [];
-    metaParts.push(`${dispatch.child_count ?? '?'} boxes`);
-    if (dispatch.mrp_summary != null) {
-      metaParts.push(`₹${Number(dispatch.mrp_summary).toFixed(2)}`);
+    if (ret.item_count != null) {
+      metaParts.push(`${ret.item_count} item${ret.item_count === 1 ? '' : 's'}`);
     }
-    if (dispatch.lr_number) {
-      metaParts.push(`LR ${dispatch.lr_number}`);
+    if (ret.box_count != null) {
+      metaParts.push(`${ret.box_count} box${ret.box_count === 1 ? '' : 'es'}`);
     }
     const metaLine = metaParts.join(' · ');
-
-    // Source type chip
-    const sourceType: DispatchSourceType =
-      dispatch.source_type ??
-      (dispatch.master_carton_id ? 'master_carton' : 'master_carton');
-    const sourceChipStyle =
-      sourceType === 'sample'
-        ? styles.sourceChipSample
-        : sourceType === 'ecommerce'
-        ? styles.sourceChipEcommerce
-        : styles.sourceChipCarton;
-    const sourceChipTextStyle =
-      sourceType === 'sample'
-        ? styles.sourceChipTextSample
-        : sourceType === 'ecommerce'
-        ? styles.sourceChipTextEcommerce
-        : styles.sourceChipTextCarton;
-    const sourceChipLabel =
-      sourceType === 'sample'
-        ? 'Sample'
-        : sourceType === 'ecommerce'
-        ? 'E-commerce'
-        : 'Carton';
-
-    // Display barcode: prefer source_label, then carton_barcode, else '—'
-    const displayBarcode = dispatch.source_label ?? dispatch.carton_barcode ?? '—';
-
-    // Return-status pill (only shown when some/all of the dispatch has been returned)
-    const showReturnStatus = !!dispatch.return_status && dispatch.return_status !== 'none';
-    const returnStatusColor: string = dispatch.return_status
-      ? RETURN_STATUS_COLORS[dispatch.return_status]
-      : COLORS.textLight;
-    const returnStatusLabel = dispatch.return_status === 'full' ? 'Full Return' : 'Partial Return';
 
     return (
       <TouchableOpacity
         activeOpacity={0.7}
-        onPress={() => router.push(`/dispatch/${dispatch.id}` as any)}
+        onPress={() => router.push(`/returns/${ret.id}` as any)}
         style={styles.rowTouchable}
       >
         <Card style={styles.itemCard}>
-          {/* Row 1: Barcode + source chip + dispatch date */}
+          {/* Row 1: source badge + date */}
           <View style={styles.row1}>
-            <Text style={styles.barcode} numberOfLines={1}>
-              {displayBarcode}
-            </Text>
-            <View style={[styles.sourceChip, sourceChipStyle]}>
-              <Text style={[styles.sourceChipText, sourceChipTextStyle]}>{sourceChipLabel}</Text>
+            <View
+              style={[
+                styles.sourceChip,
+                ret.dispatch_record_id ? styles.sourceChipDispatch : styles.sourceChipBlind,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.sourceChipText,
+                  ret.dispatch_record_id ? styles.sourceChipTextDispatch : styles.sourceChipTextBlind,
+                ]}
+              >
+                {ret.dispatch_record_id ? 'Against Dispatch' : 'Blind Scan-in'}
+              </Text>
             </View>
-            {showReturnStatus && (
-              <View style={[styles.returnPill, { backgroundColor: returnStatusColor + '18' }]}>
-                <Text style={[styles.returnPillText, { color: returnStatusColor }]}>
-                  {returnStatusLabel}
-                </Text>
-              </View>
-            )}
-            <Text style={styles.dateText}>
-              {formatDate(dispatch.dispatch_date)}
-            </Text>
+            <Text style={styles.dateText}>{formatDate(ret.return_date)}</Text>
           </View>
 
-          {/* Return progress */}
-          {showReturnStatus && (
-            <Text style={styles.returnProgressLine}>
-              {dispatch.returned_box_count ?? 0} of {dispatch.total_box_count ?? dispatch.child_count ?? '?'} returned
-            </Text>
-          )}
-
-          {/* Customer firm name */}
+          {/* Customer / source label */}
           <Text
-            style={[
-              styles.customerLine,
-              !dispatch.customer_firm_name && styles.mutedText,
-            ]}
+            style={[styles.customerLine, !ret.customer_firm_name && styles.mutedText]}
             numberOfLines={1}
           >
-            {dispatch.customer_firm_name ?? '— No customer —'}
+            {ret.customer_firm_name ?? 'Blind scan-in'}
           </Text>
 
-          {/* Article summary */}
-          {!!dispatch.article_summary && (
+          {!!ret.source_label && (
             <Text style={styles.secondaryLine} numberOfLines={1}>
-              {dispatch.article_summary}
+              {ret.source_label}
             </Text>
           )}
 
-          {/* Meta: boxes · MRP · LR */}
-          <Text style={styles.metaLine} numberOfLines={1}>
-            {metaLine}
-          </Text>
+          {!!ret.article_summary && (
+            <Text style={styles.secondaryLine} numberOfLines={1}>
+              {ret.article_summary}
+            </Text>
+          )}
 
-          {/* Destination */}
-          {!!dispatch.destination && (
-            <Text style={styles.destinationLine} numberOfLines={1}>
-              Destination: {dispatch.destination}
+          {!!metaLine && (
+            <Text style={styles.metaLine} numberOfLines={1}>
+              {metaLine}
+            </Text>
+          )}
+
+          {!!ret.reason && (
+            <Text style={styles.reasonLine} numberOfLines={2}>
+              {ret.reason}
             </Text>
           )}
         </Card>
@@ -284,7 +236,7 @@ export default function DispatchScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ title: 'Dispatches' }} />
+      <Stack.Screen options={{ title: 'Returns' }} />
 
       <View style={styles.container}>
         {/* Search bar */}
@@ -299,7 +251,7 @@ export default function DispatchScreen() {
             style={styles.searchInput}
             value={searchInput}
             onChangeText={setSearchInput}
-            placeholder="Search by carton barcode, customer..."
+            placeholder="Search by customer, barcode, notes..."
             placeholderTextColor={COLORS.textLight}
             returnKeyType="search"
             autoCorrect={false}
@@ -349,32 +301,20 @@ export default function DispatchScreen() {
             </View>
           </View>
 
-          {/* Quick-select chips */}
+          {/* Quick-select chips + export */}
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
             style={styles.chipsScroll}
             contentContainerStyle={styles.chipsContent}
           >
-            <TouchableOpacity
-              style={styles.chip}
-              onPress={() => applyRange(1)}
-              activeOpacity={0.7}
-            >
+            <TouchableOpacity style={styles.chip} onPress={() => applyRange(1)} activeOpacity={0.7}>
               <Text style={styles.chipText}>Today</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.chip}
-              onPress={() => applyRange(7)}
-              activeOpacity={0.7}
-            >
+            <TouchableOpacity style={styles.chip} onPress={() => applyRange(7)} activeOpacity={0.7}>
               <Text style={styles.chipText}>Last 7 days</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.chip}
-              onPress={() => applyRange(30)}
-              activeOpacity={0.7}
-            >
+            <TouchableOpacity style={styles.chip} onPress={() => applyRange(30)} activeOpacity={0.7}>
               <Text style={styles.chipText}>Last 30 days</Text>
             </TouchableOpacity>
             {(fromInput || toInput) && (
@@ -404,35 +344,6 @@ export default function DispatchScreen() {
           </ScrollView>
         </View>
 
-        {/* Return-status filter */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.returnFilterScroll}
-          contentContainerStyle={styles.chipsContent}
-        >
-          {(
-            [
-              { value: undefined, label: 'All' },
-              { value: 'none', label: 'Not Returned' },
-              { value: 'partial', label: 'Partial' },
-              { value: 'full', label: 'Full' },
-            ] as Array<{ value: ReturnStatusFilter; label: string }>
-          ).map((opt) => {
-            const active = returnStatus === opt.value;
-            return (
-              <TouchableOpacity
-                key={opt.label}
-                style={[styles.chip, active && styles.chipActive]}
-                onPress={() => setReturnStatus(opt.value)}
-                activeOpacity={0.7}
-              >
-                <Text style={[styles.chipText, active && styles.chipTextActive]}>{opt.label}</Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-
         {/* List / loading / empty */}
         {query.isLoading && items.length === 0 ? (
           <View style={styles.centered}>
@@ -440,9 +351,9 @@ export default function DispatchScreen() {
           </View>
         ) : !query.isLoading && items.length === 0 ? (
           <EmptyState
-            icon="paper-plane-outline"
-            title="No dispatches yet"
-            message="Dispatch history will appear here."
+            icon="return-down-back-outline"
+            title="No returns yet"
+            message="Returned stock will appear here."
           />
         ) : (
           <FlatList
@@ -464,11 +375,11 @@ export default function DispatchScreen() {
           />
         )}
 
-        {/* FAB — Create dispatch (Admin / Supervisor / Dispatch Operator only) */}
+        {/* FAB — New return (Admin / Supervisor / Dispatch Operator only) */}
         <RoleGate allow={['Admin', 'Supervisor', 'Dispatch Operator']}>
           <TouchableOpacity
             style={styles.fab}
-            onPress={() => router.push('/dispatch/create' as any)}
+            onPress={() => router.push('/returns/create' as any)}
             activeOpacity={0.85}
           >
             <Ionicons name="add" size={28} color="#FFFFFF" />
@@ -587,37 +498,6 @@ const styles = StyleSheet.create({
   chipExportText: {
     color: COLORS.primary,
   },
-  chipActive: {
-    backgroundColor: COLORS.primary,
-  },
-  chipTextActive: {
-    color: COLORS.surface,
-  },
-
-  // Return-status filter
-  returnFilterScroll: {
-    flexGrow: 0,
-    marginHorizontal: 12,
-    marginBottom: 8,
-  },
-
-  // Return-status pill (row card)
-  returnPill: {
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 10,
-    flexShrink: 0,
-  },
-  returnPillText: {
-    fontSize: 10,
-    fontWeight: '700',
-  },
-  returnProgressLine: {
-    fontSize: 12,
-    color: COLORS.warning,
-    fontWeight: '600',
-    marginBottom: 3,
-  },
 
   // List
   listContent: {
@@ -641,13 +521,6 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     gap: 6,
   },
-  barcode: {
-    flex: 1,
-    fontSize: 14,
-    fontWeight: '700',
-    color: COLORS.text,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-  },
   dateText: {
     fontSize: 12,
     color: COLORS.textSecondary,
@@ -665,31 +538,29 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '700',
   },
-  sourceChipCarton: {
+  sourceChipDispatch: {
     backgroundColor: '#EEF0FF',
   },
-  sourceChipTextCarton: {
+  sourceChipTextDispatch: {
     color: COLORS.primary,
   },
-  sourceChipSample: {
-    backgroundColor: '#FEE2E2',
+  sourceChipBlind: {
+    backgroundColor: COLORS.borderLight,
   },
-  sourceChipTextSample: {
-    color: COLORS.error,
+  sourceChipTextBlind: {
+    color: COLORS.textSecondary,
   },
-  sourceChipEcommerce: {
-    backgroundColor: '#F3E8FF',
-  },
-  sourceChipTextEcommerce: {
-    color: CHILD_BOX_STATUS_COLORS.ECOMMERCE,
-  },
+
   customerLine: {
     fontSize: 14,
+    fontWeight: '600',
     color: COLORS.text,
     marginBottom: 3,
   },
   mutedText: {
     color: COLORS.textSecondary,
+    fontWeight: '400',
+    fontStyle: 'italic',
   },
   secondaryLine: {
     fontSize: 13,
@@ -701,9 +572,10 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
     marginBottom: 3,
   },
-  destinationLine: {
+  reasonLine: {
     fontSize: 12,
     color: COLORS.textLight,
+    fontStyle: 'italic',
     marginTop: 1,
   },
 

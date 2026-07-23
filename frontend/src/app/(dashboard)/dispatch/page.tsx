@@ -4,7 +4,7 @@ import { useState, useCallback, type FormEvent } from 'react';
 import { Truck, ScanLine, X, Package, FlaskConical, ShoppingCart } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
-import Select from '@/components/ui/Select';
+import SearchableSelect from '@/components/ui/SearchableSelect';
 import { Card } from '@/components/ui/Card';
 import QRScanner from '@/components/scanning/QRScanner';
 import HIDScannerInput from '@/components/scanning/HIDScannerInput';
@@ -14,7 +14,7 @@ import { masterCartonService } from '@/services/masterCarton.service';
 import { sampleService } from '@/services/sample.service';
 import { ecommerceService } from '@/services/ecommerce.service';
 import { customerService } from '@/services/customer.service';
-import { useApiQuery, useApiMutation } from '@/hooks/useApi';
+import { useApiMutation } from '@/hooks/useApi';
 import type { MasterCarton, ChildBoxWithProduct, SampleRecord, EcommerceRecord } from '@/types';
 import toast from 'react-hot-toast';
 import { ROUTES } from '@/constants';
@@ -58,12 +58,41 @@ export default function DispatchPage() {
     notes: '',
   });
 
-  const { data: customersData } = useApiQuery(
-    ['customers-for-dispatch'],
-    // Load all active customers (not just the first 200) so none are hidden.
-    () => customerService.getAll({ limit: 100000, is_active: true }),
+  // Fetches a page of matching customers for the searchable Customer dropdown,
+  // instead of loading every active customer up front.
+  const fetchCustomerOptions = useCallback(
+    (search: string) =>
+      customerService
+        .getAll({ search: search || undefined, is_active: true, limit: 50 })
+        .then((r) =>
+          r.data.map((c) => ({
+            value: c.id,
+            label: `${c.firm_name}${c.delivery_location ? ` — ${c.delivery_location}` : ''}`,
+          }))
+        ),
+    []
   );
-  const customers = customersData?.data ?? [];
+
+  // Selecting a customer auto-fills the destination from their delivery_location
+  // (if the destination field is still empty). The dropdown only hands back the
+  // id, so look the customer up by id to get delivery_location.
+  const handleCustomerChange = useCallback(
+    (selectedId: string) => {
+      setCustomerId(selectedId);
+      if (!selectedId) return;
+      customerService
+        .getById(selectedId)
+        .then((customer) => {
+          const location = customer.delivery_location;
+          if (!location) return;
+          setFormData((prev) => (prev.destination ? prev : { ...prev, destination: location }));
+        })
+        .catch(() => {
+          // Best-effort auto-fill only; selection itself already succeeded.
+        });
+    },
+    []
+  );
 
   // ── Master Carton helpers ──
   const addCarton = useCallback(
@@ -245,25 +274,17 @@ export default function DispatchPage() {
               <h3 className="font-semibold text-brand-text-dark">Dispatch Details</h3>
             </div>
             <form className="space-y-4" onSubmit={handleSubmit}>
-              <Select
-                label={sourceType === 'master_carton' ? 'Customer *' : 'Customer (Optional)'}
-                placeholder="Select a customer..."
-                options={customers.map((c) => ({
-                  value: c.id,
-                  label: `${c.firm_name}${c.delivery_location ? ` — ${c.delivery_location}` : ''}`,
-                }))}
-                value={customerId}
-                onChange={(e) => {
-                  const selectedId = e.target.value;
-                  setCustomerId(selectedId);
-                  if (selectedId) {
-                    const selectedCustomer = customers.find((c) => c.id === selectedId);
-                    if (selectedCustomer?.delivery_location && !formData.destination) {
-                      updateField('destination', selectedCustomer.delivery_location);
-                    }
-                  }
-                }}
-              />
+              <div>
+                <label className="block text-sm font-medium text-brand-text-dark mb-1.5">
+                  {sourceType === 'master_carton' ? 'Customer *' : 'Customer (Optional)'}
+                </label>
+                <SearchableSelect
+                  value={customerId}
+                  onChange={handleCustomerChange}
+                  fetchOptions={fetchCustomerOptions}
+                  placeholder="Select a customer..."
+                />
+              </div>
               <Input
                 label="Destination (Optional)"
                 placeholder="e.g., Mumbai Warehouse"

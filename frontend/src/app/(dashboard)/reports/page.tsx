@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { Download, Calendar } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import Select from '@/components/ui/Select';
+import SearchableSelect from '@/components/ui/SearchableSelect';
 import { Card } from '@/components/ui/Card';
 import { Table, TableHead, TableBody, TableRow, TableHeader, TableCell } from '@/components/ui/Table';
 import StatusBadge from '@/components/ui/StatusBadge';
@@ -170,14 +171,15 @@ export default function ReportsPage() {
     { enabled: activeTab === 'ecommerce', placeholderData: keepPreviousData }
   );
 
-  // Customers for sample report filter
-  const { data: customersData } = useApiQuery(
-    ['customers-for-reports'],
-    // Load all active customers (not just the first 200) so none are hidden.
-    () => customerService.getAll({ limit: 100000, is_active: true }),
-    { enabled: activeTab === 'samples' }
+  // Fetches a page of matching customers for the searchable Customer filter on
+  // the Samples tab, instead of loading every active customer up front.
+  const fetchCustomerOptions = useCallback(
+    (search: string) =>
+      customerService
+        .getAll({ search: search || undefined, is_active: true, limit: 50 })
+        .then((r) => r.data.map((c) => ({ value: c.id, label: c.firm_name }))),
+    []
   );
-  const customers = customersData?.data ?? [];
 
   const handleExport = async (endpoint: string, filename: string, params?: Record<string, string>) => {
     try {
@@ -427,7 +429,7 @@ export default function ReportsPage() {
           toDate={sampleToDate}
           status={sampleStatus}
           customerId={sampleCustomerId}
-          customers={customers}
+          fetchCustomerOptions={fetchCustomerOptions}
           onFromDateChange={setSampleFromDate}
           onToDateChange={setSampleToDate}
           onStatusChange={setSampleStatus}
@@ -929,7 +931,7 @@ function SamplesTab({
   toDate,
   status,
   customerId,
-  customers,
+  fetchCustomerOptions,
   onFromDateChange,
   onToDateChange,
   onStatusChange,
@@ -941,7 +943,7 @@ function SamplesTab({
   toDate: string;
   status: string;
   customerId: string;
-  customers: Array<{ id: string; firm_name: string }>;
+  fetchCustomerOptions: (search: string) => Promise<{ value: string; label: string }[]>;
   onFromDateChange: (v: string) => void;
   onToDateChange: (v: string) => void;
   onStatusChange: (v: string) => void;
@@ -978,16 +980,17 @@ function SamplesTab({
             value={status}
             onChange={(e) => onStatusChange(e.target.value)}
           />
-          <Select
-            label="Customer"
-            placeholder="All customers"
-            options={[
-              { value: '', label: 'All Customers' },
-              ...customers.map((c) => ({ value: c.id, label: c.firm_name })),
-            ]}
-            value={customerId}
-            onChange={(e) => onCustomerChange(e.target.value)}
-          />
+          <div>
+            <label className="block text-sm font-medium text-brand-text-dark mb-1.5">
+              Customer
+            </label>
+            <SearchableSelect
+              value={customerId}
+              onChange={onCustomerChange}
+              fetchOptions={fetchCustomerOptions}
+              placeholder="All Customers"
+            />
+          </div>
         </div>
       </Card>
 

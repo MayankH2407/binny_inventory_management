@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { Plus, Search, Package, Upload, Download, FileSpreadsheet, AlertCircle, CheckCircle, Printer } from 'lucide-react';
 import { printChildBoxLabels } from '@/lib/childBoxLabel';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import Select from '@/components/ui/Select';
+import SearchableSelect from '@/components/ui/SearchableSelect';
 import { Card } from '@/components/ui/Card';
 import Modal from '@/components/ui/Modal';
 import {
@@ -83,15 +84,15 @@ export default function ChildBoxesPage() {
     { placeholderData: keepPreviousData }
   );
 
-  const { data: productsData } = useApiQuery(
-    ['products-list'],
-    // Load all active products so the Product filter lists every article, not
-    // just the first 200 variant rows (catalog is thousands of rows / dozens of
-    // articles — see generate page for the same fix).
-    () => productService.getAll({ limit: 100000, is_active: true }),
+  // Fetches a page of matching products for the searchable Product filter,
+  // instead of loading the whole catalog (thousands of variant rows) up front.
+  const fetchProductOptions = useCallback(
+    (search: string) =>
+      productService
+        .getAll({ search: search || undefined, is_active: true, limit: 50 })
+        .then((r) => r.data.map((p) => ({ value: p.id, label: `${p.article_name} (${p.sku})` }))),
+    []
   );
-
-  const products = productsData?.data ?? [];
 
   // Indeterminate state for header checkbox (reflects the CURRENT page only)
   useEffect(() => {
@@ -273,19 +274,14 @@ export default function ChildBoxesPage() {
               }}
               className="w-full sm:w-44"
             />
-            <Select
-              options={[
-                { value: '', label: 'All Products' },
-                ...products.map((p) => ({
-                  value: p.id,
-                  label: `${p.article_name} (${p.sku})`,
-                })),
-              ]}
+            <SearchableSelect
               value={productFilter}
-              onChange={(e) => {
-                setProductFilter(e.target.value);
+              onChange={(value) => {
+                setProductFilter(value);
                 setPage(1);
               }}
+              fetchOptions={fetchProductOptions}
+              placeholder="All Products"
               className="w-full sm:w-56"
             />
           </div>
