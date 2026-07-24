@@ -165,6 +165,11 @@ export async function updateUser(
     fields.push(`is_active = $${paramIndex++}`);
     values.push(input.is_active);
   }
+  if (input.password !== undefined) {
+    const passwordHash = await hashPassword(input.password);
+    fields.push(`password_hash = $${paramIndex++}`);
+    values.push(passwordHash);
+  }
 
   if (fields.length === 0) {
     return getUserById(id);
@@ -183,7 +188,8 @@ export async function updateUser(
     entityType: 'user',
     entityId: id,
     oldValues: { email: oldUser.email, name: oldUser.name, role: oldUser.role },
-    newValues: input as Record<string, unknown>,
+    // Never write the raw password to the audit log — only note that it changed.
+    newValues: { ...input, password: input.password ? '[REDACTED]' : undefined } as Record<string, unknown>,
   });
 
   // Re-fetch with role name

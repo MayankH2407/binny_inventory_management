@@ -1,12 +1,15 @@
-import { ChildBoxStatus, MasterCartonStatus, TransactionType, UserRole } from '../config/constants';
+import { ChildBoxStatus, MasterCartonStatus, TransactionType } from '../config/constants';
 
+// Role names are dynamic (custom roles created via Role Manager), so `role`
+// here is a plain string, not the fixed UserRole enum from constants.ts
+// (that enum is only for the legacy authorize() RBAC guard's built-in roles).
 export interface User {
   id: string;
   email: string;
   password_hash: string;
   name: string;
   role_id: string;
-  role: UserRole;
+  role: string;
   is_active: boolean;
   last_login_at: Date | null;
   refresh_token: string | null;
@@ -18,7 +21,7 @@ export interface UserSafe {
   id: string;
   email: string;
   name: string;
-  role: UserRole;
+  role: string;
   is_active: boolean;
   last_login_at: Date | null;
   created_at: Date;

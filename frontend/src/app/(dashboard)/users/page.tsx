@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Plus, Search, Shield, UserCheck, UserX } from 'lucide-react';
+import { Plus, Search, Shield, UserCheck, UserX, Pencil } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import Select from '@/components/ui/Select';
@@ -15,20 +15,36 @@ import api from '@/services/api';
 import { useCan } from '@/hooks/useCan';
 import { useApiQuery, useApiMutation } from '@/hooks/useApi';
 import type { User } from '@/types';
+import type { Role } from '@/types/role';
 import { formatDateTime } from '@/lib/utils';
 import toast from 'react-hot-toast';
 
 export default function UsersPage() {
   const canCreate = useCan('users:create');
   const canRead = useCan('users:read');
+  const canUpdate = useCan('users:update');
   const [search, setSearch] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [editingUser, setEditingUser] = useState<User | null>(null);
   const [newUser, setNewUser] = useState({
     name: '',
     email: '',
     password: '',
     role: 'Warehouse Operator',
   });
+  const [editForm, setEditForm] = useState({
+    name: '',
+    email: '',
+    role: '',
+    password: '',
+  });
+
+  // All roles (built-in + custom, created via Role Manager) for the role pickers below.
+  const { data: rolesData } = useApiQuery(['roles'], async () => {
+    const response = await api.get<{ roles: Role[] }>('/roles');
+    return response.data;
+  });
+  const roleOptions = (rolesData?.roles ?? []).map((r) => ({ value: r.name, label: r.name }));
 
   const { data, isLoading, refetch } = useApiQuery(
     ['users', search],
@@ -51,6 +67,35 @@ export default function UsersPage() {
       onSuccess: () => {
         setShowCreateModal(false);
         setNewUser({ name: '', email: '', password: '', role: 'Warehouse Operator' });
+        refetch();
+      },
+    }
+  );
+
+  function openEdit(user: User) {
+    setEditForm({ name: user.name, email: user.email, role: user.role, password: '' });
+    setEditingUser(user);
+  }
+
+  const { mutate: saveEdit, isPending: isSaving } = useApiMutation(
+    async () => {
+      if (!editingUser) return;
+      const body: { name: string; email: string; role: string; password?: string } = {
+        name: editForm.name,
+        email: editForm.email,
+        role: editForm.role,
+      };
+      if (editForm.password.trim()) {
+        body.password = editForm.password;
+      }
+      const response = await api.put<User>(`/users/${editingUser.id}`, body);
+      return response.data;
+    },
+    {
+      successMessage: 'User updated successfully',
+      invalidateKeys: [['users']],
+      onSuccess: () => {
+        setEditingUser(null);
         refetch();
       },
     }
@@ -141,7 +186,7 @@ export default function UsersPage() {
                       }
                       size="sm"
                     >
-                      {ROLE_LABELS[user.role]}
+                      {ROLE_LABELS[user.role] ?? user.role}
                     </Badge>
                   </TableCell>
                   <TableCell>
@@ -153,20 +198,32 @@ export default function UsersPage() {
                     {formatDateTime(user.created_at)}
                   </TableCell>
                   <TableCell>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => toggleUserStatus(user.id, user.is_active)}
-                      leftIcon={
-                        user.is_active ? (
-                          <UserX className="h-3.5 w-3.5" />
-                        ) : (
-                          <UserCheck className="h-3.5 w-3.5" />
-                        )
-                      }
-                    >
-                      {user.is_active ? 'Deactivate' : 'Activate'}
-                    </Button>
+                    <div className="flex items-center gap-1">
+                      {canUpdate && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => openEdit(user)}
+                          leftIcon={<Pencil className="h-3.5 w-3.5" />}
+                        >
+                          Edit
+                        </Button>
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => toggleUserStatus(user.id, user.is_active)}
+                        leftIcon={
+                          user.is_active ? (
+                            <UserX className="h-3.5 w-3.5" />
+                          ) : (
+                            <UserCheck className="h-3.5 w-3.5" />
+                          )
+                        }
+                      >
+                        {user.is_active ? 'Deactivate' : 'Activate'}
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
@@ -216,14 +273,56 @@ export default function UsersPage() {
           />
           <Select
             label="Role"
-            options={[
-              { value: 'Warehouse Operator', label: 'Warehouse Operator' },
-              { value: 'Dispatch Operator', label: 'Dispatch Operator' },
-              { value: 'Supervisor', label: 'Supervisor' },
-              { value: 'Admin', label: 'Admin' },
-            ]}
+            options={roleOptions}
             value={newUser.role}
             onChange={(e) => setNewUser((prev) => ({ ...prev, role: e.target.value }))}
+          />
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={editingUser !== null && canUpdate}
+        onClose={() => setEditingUser(null)}
+        title="Edit User"
+        description="Update this user's details, role, or login credentials"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setEditingUser(null)}>
+              Cancel
+            </Button>
+            <Button onClick={() => saveEdit(undefined as void)} isLoading={isSaving}>
+              Save Changes
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <Input
+            label="Full Name"
+            placeholder="Enter full name"
+            value={editForm.name}
+            onChange={(e) => setEditForm((prev) => ({ ...prev, name: e.target.value }))}
+          />
+          <Input
+            label="Email"
+            type="email"
+            placeholder="Enter email address"
+            value={editForm.email}
+            onChange={(e) => setEditForm((prev) => ({ ...prev, email: e.target.value }))}
+          />
+          <Select
+            label="Role"
+            options={roleOptions}
+            value={editForm.role}
+            onChange={(e) => setEditForm((prev) => ({ ...prev, role: e.target.value }))}
+          />
+          <Input
+            label="New Password"
+            type="password"
+            placeholder="Leave blank to keep current password"
+            value={editForm.password}
+            onChange={(e) => setEditForm((prev) => ({ ...prev, password: e.target.value }))}
+            helperText="Only fill this in to reset the user's login password."
           />
         </div>
       </Modal>

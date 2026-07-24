@@ -3,18 +3,18 @@ export interface UserPermission {
   max_stage: string | null;
 }
 
+// Role names are dynamic (custom roles created via Role Manager), so `role`
+// is a plain string, not a fixed union of the built-in role names.
 export interface User {
   id: string;
   name: string;
   email: string;
-  role: UserRole;
+  role: string;
   is_active: boolean;
   created_at: string;
   updated_at: string;
   permissions?: UserPermission[];
 }
-
-export type UserRole = 'Admin' | 'Supervisor' | 'Warehouse Operator' | 'Dispatch Operator';
 
 export interface LoginRequest {
   email: string;
