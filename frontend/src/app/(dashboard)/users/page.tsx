@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Plus, Search, Shield, UserCheck, UserX, Pencil } from 'lucide-react';
+import { Plus, Search, Shield, UserCheck, UserX, Pencil, Eye, EyeOff } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
 import Select from '@/components/ui/Select';
@@ -38,6 +38,8 @@ export default function UsersPage() {
     role: '',
     password: '',
   });
+  const [showNewUserPassword, setShowNewUserPassword] = useState(false);
+  const [showEditPassword, setShowEditPassword] = useState(false);
 
   // All roles (built-in + custom, created via Role Manager) for the role pickers below.
   const { data: rolesData } = useApiQuery(['roles'], async () => {
@@ -74,6 +76,7 @@ export default function UsersPage() {
 
   function openEdit(user: User) {
     setEditForm({ name: user.name, email: user.email, role: user.role, password: '' });
+    setShowEditPassword(false);
     setEditingUser(user);
   }
 
@@ -266,10 +269,20 @@ export default function UsersPage() {
           />
           <Input
             label="Password"
-            type="password"
+            type={showNewUserPassword ? 'text' : 'password'}
             placeholder="Enter initial password"
             value={newUser.password}
             onChange={(e) => setNewUser((prev) => ({ ...prev, password: e.target.value }))}
+            rightIcon={
+              <button
+                type="button"
+                onClick={() => setShowNewUserPassword((s) => !s)}
+                className="hover:text-brand-text-dark transition-colors"
+                tabIndex={-1}
+              >
+                {showNewUserPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            }
           />
           <Select
             label="Role"
@@ -318,11 +331,21 @@ export default function UsersPage() {
           />
           <Input
             label="New Password"
-            type="password"
+            type={showEditPassword ? 'text' : 'password'}
             placeholder="Leave blank to keep current password"
             value={editForm.password}
             onChange={(e) => setEditForm((prev) => ({ ...prev, password: e.target.value }))}
             helperText="Only fill this in to reset the user's login password."
+            rightIcon={
+              <button
+                type="button"
+                onClick={() => setShowEditPassword((s) => !s)}
+                className="hover:text-brand-text-dark transition-colors"
+                tabIndex={-1}
+              >
+                {showEditPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            }
           />
         </div>
       </Modal>

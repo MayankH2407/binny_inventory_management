@@ -483,7 +483,7 @@ export interface PaginatedApiResponse<T> {
 export interface ApiError {
   message: string;
   statusCode: number;
-  errors?: Record<string, string[]>;
+  errors?: string[];
 }
 
 // ---------- Request types ----------
