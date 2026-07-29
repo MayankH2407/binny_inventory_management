@@ -14,6 +14,7 @@ import {
   X,
   BarChart3,
   Boxes,
+  Printer,
 } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
@@ -40,6 +41,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useQueryClient } from '@tanstack/react-query';
 import { formatDateTime, formatCurrency } from '@/lib/utils';
 import { checkFootAvailability } from '@/lib/sampleFoot';
+import { printSampleLabel } from '@/lib/sampleLabel';
 import toast from 'react-hot-toast';
 
 export default function SampleDetailPage() {
@@ -216,6 +218,14 @@ export default function SampleDetailPage() {
               leftIcon={<Copy className="h-4 w-4" />}
             >
               Copy Barcode
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => printSampleLabel(sample)}
+              leftIcon={<Printer className="h-4 w-4" />}
+            >
+              Print Label
             </Button>
             {canAddBox && (
               <Button

@@ -39,6 +39,8 @@ interface TraceResult {
     status: string;
     child_count: number;
     max_capacity: number;
+    is_legacy?: boolean;
+    legacy_pairs?: number | null;
     created_at: string;
     child_boxes?: { id: string; barcode: string; article_name: string; colour: string; size: string; status: string }[];
     [key: string]: unknown;
@@ -270,7 +272,11 @@ export default function ScanTracePage() {
                     </div>
                     <div className="flex justify-between">
                       <span className="text-brand-text-muted">Boxes</span>
-                      <span className="font-semibold">{traceResult.masterCarton.child_count} / {traceResult.masterCarton.max_capacity}</span>
+                      <span className="font-semibold">
+                        {traceResult.masterCarton.is_legacy && traceResult.masterCarton.legacy_pairs != null
+                          ? `${traceResult.masterCarton.legacy_pairs} / ${traceResult.masterCarton.legacy_pairs}`
+                          : `${traceResult.masterCarton.child_count} / ${traceResult.masterCarton.max_capacity}`}
+                      </span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-brand-text-muted">Status</span>

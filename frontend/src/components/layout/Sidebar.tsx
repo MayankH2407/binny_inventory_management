@@ -108,7 +108,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
           const Icon = iconMap[item.icon];
           const isActive =
             pathname === item.href ||
-            (item.href !== '/dashboard' && pathname.startsWith(item.href));
+            (item.href !== '/dashboard' && pathname.startsWith(item.href + '/'));
 
           return (
             <Link
