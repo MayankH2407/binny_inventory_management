@@ -8,6 +8,9 @@ import {
   addBoxToSampleSchema,
   removeBoxFromSampleSchema,
   scanCartonToSampleSchema,
+  takeOutCartonBoxesSchema,
+  removeCartonFromSampleSchema,
+  setBoxFootSchema,
   sampleIdParamSchema,
   sampleListQuerySchema,
   sampleBarcodeParamSchema,
@@ -89,6 +92,27 @@ router.post(
   authorizePermission('samples:update'),
   validate({ body: removeBoxFromSampleSchema }),
   sampleController.removeBoxFromSample
+);
+
+router.post(
+  '/take-out-carton-boxes',
+  authorizePermission('samples:update'),
+  validate({ body: takeOutCartonBoxesSchema }),
+  sampleController.takeOutCartonBoxes
+);
+
+router.post(
+  '/remove-carton',
+  authorizePermission('samples:update'),
+  validate({ body: removeCartonFromSampleSchema }),
+  sampleController.removeCartonFromSample
+);
+
+router.post(
+  '/set-box-foot',
+  authorizePermission('samples:update'),
+  validate({ body: setBoxFootSchema }),
+  sampleController.setBoxFoot
 );
 
 router.post(

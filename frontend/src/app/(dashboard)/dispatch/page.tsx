@@ -4,7 +4,7 @@ import { useState, useCallback, type FormEvent } from 'react';
 import { Truck, ScanLine, X, Package, FlaskConical, ShoppingCart } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
-import Select from '@/components/ui/Select';
+import SearchableSelect from '@/components/ui/SearchableSelect';
 import { Card } from '@/components/ui/Card';
 import QRScanner from '@/components/scanning/QRScanner';
 import HIDScannerInput from '@/components/scanning/HIDScannerInput';
@@ -14,8 +14,8 @@ import { masterCartonService } from '@/services/masterCarton.service';
 import { sampleService } from '@/services/sample.service';
 import { ecommerceService } from '@/services/ecommerce.service';
 import { customerService } from '@/services/customer.service';
-import { useApiQuery, useApiMutation } from '@/hooks/useApi';
-import type { MasterCarton, ChildBoxWithProduct, SampleRecord, EcommerceRecord } from '@/types';
+import { useApiMutation } from '@/hooks/useApi';
+import type { MasterCarton, ChildBoxWithProduct, SampleRecord, SampleChildBoxRow, EcommerceRecord } from '@/types';
 import toast from 'react-hot-toast';
 import { ROUTES } from '@/constants';
 import { useRouter } from 'next/navigation';
@@ -43,6 +43,9 @@ export default function DispatchPage() {
   // Sample state (single)
   const [selectedSample, setSelectedSample] = useState<SampleRecord | null>(null);
   const [showSampleScanner, setShowSampleScanner] = useState(false);
+  const [sampleChildren, setSampleChildren] = useState<SampleChildBoxRow[]>([]);
+  // All checked by default — unchecking anything triggers a scoped (partial) dispatch.
+  const [selectedBoxIds, setSelectedBoxIds] = useState<Set<string>>(new Set());
 
   // Ecommerce state (single)
   const [selectedEc, setSelectedEc] = useState<EcommerceRecord | null>(null);
@@ -58,12 +61,41 @@ export default function DispatchPage() {
     notes: '',
   });
 
-  const { data: customersData } = useApiQuery(
-    ['customers-for-dispatch'],
-    // Load all active customers (not just the first 200) so none are hidden.
-    () => customerService.getAll({ limit: 100000, is_active: true }),
+  // Fetches a page of matching customers for the searchable Customer dropdown,
+  // instead of loading every active customer up front.
+  const fetchCustomerOptions = useCallback(
+    (search: string) =>
+      customerService
+        .getAll({ search: search || undefined, is_active: true, limit: 50 })
+        .then((r) =>
+          r.data.map((c) => ({
+            value: c.id,
+            label: `${c.firm_name}${c.delivery_location ? ` — ${c.delivery_location}` : ''}`,
+          }))
+        ),
+    []
   );
-  const customers = customersData?.data ?? [];
+
+  // Selecting a customer auto-fills the destination from their delivery_location
+  // (if the destination field is still empty). The dropdown only hands back the
+  // id, so look the customer up by id to get delivery_location.
+  const handleCustomerChange = useCallback(
+    (selectedId: string) => {
+      setCustomerId(selectedId);
+      if (!selectedId) return;
+      customerService
+        .getById(selectedId)
+        .then((customer) => {
+          const location = customer.delivery_location;
+          if (!location) return;
+          setFormData((prev) => (prev.destination ? prev : { ...prev, destination: location }));
+        })
+        .catch(() => {
+          // Best-effort auto-fill only; selection itself already succeeded.
+        });
+    },
+    []
+  );
 
   // ── Master Carton helpers ──
   const addCarton = useCallback(
@@ -108,15 +140,29 @@ export default function DispatchPage() {
         return;
       }
       if (record.status === 'CREATED') {
-        toast.error('Sample has no boxes (CREATED status)');
+        toast.error('This sample is empty — add boxes first.');
         return;
       }
+      const children = await sampleService.getChildren(record.id);
       setSelectedSample(record);
+      setSampleChildren(children);
+      setSelectedBoxIds(new Set(children.map((c) => c.child_box_id)));
       toast.success(`Sample found: ${record.name}`);
     } catch {
       toast.error('Sample not found');
     }
   }, []);
+
+  const toggleSampleBox = (childBoxId: string) => {
+    setSelectedBoxIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(childBoxId)) next.delete(childBoxId);
+      else next.add(childBoxId);
+      return next;
+    });
+  };
+
+  const sampleScopeIsPartial = selectedSample !== null && selectedBoxIds.size < sampleChildren.length;
 
   // ── Ecommerce helpers ──
   const lookupEc = useCallback(async (code: string) => {
@@ -144,7 +190,7 @@ export default function DispatchPage() {
     sourceType === 'master_carton'
       ? scannedCartons.length > 0 && !!customerId
       : sourceType === 'sample'
-      ? selectedSample !== null
+      ? selectedSample !== null && selectedBoxIds.size > 0
       : selectedEc !== null;
 
   const buildPayload = () => {
@@ -160,7 +206,16 @@ export default function DispatchPage() {
       return { ...base, master_carton_ids: scannedCartons.map((c) => c.id) };
     }
     if (sourceType === 'sample') {
-      return { ...base, sample_record_id: selectedSample!.id };
+      return {
+        ...base,
+        sample_record_id: selectedSample!.id,
+        // Omitted entirely (not just "all checked") when nothing was
+        // unchecked, so an untouched review list is byte-identical to the
+        // pre-scoping behavior.
+        ...(sampleScopeIsPartial
+          ? { sample_scope: { child_box_ids: Array.from(selectedBoxIds), release_remainder: true as const } }
+          : {}),
+      };
     }
     return { ...base, ecommerce_record_id: selectedEc!.id };
   };
@@ -173,6 +228,8 @@ export default function DispatchPage() {
       onSuccess: () => {
         setScannedCartons([]);
         setSelectedSample(null);
+        setSampleChildren([]);
+        setSelectedBoxIds(new Set());
         setSelectedEc(null);
         setCustomerId('');
         setFormData({ destination: '', vehicle_number: '', transport_details: '', lr_number: '', notes: '' });
@@ -208,7 +265,9 @@ export default function DispatchPage() {
     sourceType === 'master_carton'
       ? `Create Dispatch (${scannedCartons.length} carton${scannedCartons.length !== 1 ? 's' : ''})`
       : sourceType === 'sample'
-      ? `Create Dispatch${selectedSample ? ` — ${selectedSample.name}` : ''}`
+      ? sampleScopeIsPartial
+        ? `Dispatch ${selectedBoxIds.size} of ${sampleChildren.length} items`
+        : `Create Dispatch${selectedSample ? ` — ${selectedSample.name}` : ''}`
       : `Create Dispatch${selectedEc ? ` — ${selectedEc.name}` : ''}`;
 
   return (
@@ -245,25 +304,17 @@ export default function DispatchPage() {
               <h3 className="font-semibold text-brand-text-dark">Dispatch Details</h3>
             </div>
             <form className="space-y-4" onSubmit={handleSubmit}>
-              <Select
-                label={sourceType === 'master_carton' ? 'Customer *' : 'Customer (Optional)'}
-                placeholder="Select a customer..."
-                options={customers.map((c) => ({
-                  value: c.id,
-                  label: `${c.firm_name}${c.delivery_location ? ` — ${c.delivery_location}` : ''}`,
-                }))}
-                value={customerId}
-                onChange={(e) => {
-                  const selectedId = e.target.value;
-                  setCustomerId(selectedId);
-                  if (selectedId) {
-                    const selectedCustomer = customers.find((c) => c.id === selectedId);
-                    if (selectedCustomer?.delivery_location && !formData.destination) {
-                      updateField('destination', selectedCustomer.delivery_location);
-                    }
-                  }
-                }}
-              />
+              <div>
+                <label className="block text-sm font-medium text-brand-text-dark mb-1.5">
+                  {sourceType === 'master_carton' ? 'Customer *' : 'Customer (Optional)'}
+                </label>
+                <SearchableSelect
+                  value={customerId}
+                  onChange={handleCustomerChange}
+                  fetchOptions={fetchCustomerOptions}
+                  placeholder="Select a customer..."
+                />
+              </div>
               <Input
                 label="Destination (Optional)"
                 placeholder="e.g., Mumbai Warehouse"
@@ -454,32 +505,76 @@ export default function DispatchPage() {
               )}
 
               {selectedSample ? (
-                <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-                  <div className="flex items-start justify-between">
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold text-brand-text-dark">{selectedSample.name}</p>
-                      <p className="text-xs font-mono text-brand-text-muted">{selectedSample.sample_barcode}</p>
-                      {(selectedSample.customer_firm_name || selectedSample.recipient_name) && (
-                        <p className="text-xs text-brand-text-muted mt-0.5">
-                          Recipient: {selectedSample.customer_firm_name ?? selectedSample.recipient_name}
+                <>
+                  <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+                    <div className="flex items-start justify-between">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-brand-text-dark">{selectedSample.name}</p>
+                        <p className="text-xs font-mono text-brand-text-muted">{selectedSample.sample_barcode}</p>
+                        {(selectedSample.customer_firm_name || selectedSample.recipient_name) && (
+                          <p className="text-xs text-brand-text-muted mt-0.5">
+                            Recipient: {selectedSample.customer_firm_name ?? selectedSample.recipient_name}
+                          </p>
+                        )}
+                        {selectedSample.purpose && (
+                          <p className="text-xs text-brand-text-muted">Purpose: {selectedSample.purpose}</p>
+                        )}
+                        <p className="text-xs text-brand-text-muted">
+                          {selectedSample.child_count} boxes &middot; {selectedSample.status}
                         </p>
-                      )}
-                      {selectedSample.purpose && (
-                        <p className="text-xs text-brand-text-muted">Purpose: {selectedSample.purpose}</p>
-                      )}
-                      <p className="text-xs text-brand-text-muted">
-                        {selectedSample.child_count} boxes &middot; {selectedSample.status}
-                      </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedSample(null);
+                          setSampleChildren([]);
+                          setSelectedBoxIds(new Set());
+                        }}
+                        className="p-1 rounded text-brand-text-muted hover:text-brand-error hover:bg-red-100 transition-colors shrink-0"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedSample(null)}
-                      className="p-1 rounded text-brand-text-muted hover:text-brand-error hover:bg-red-100 transition-colors shrink-0"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
                   </div>
-                </div>
+
+                  {sampleChildren.length > 0 && (
+                    <div className="mt-3">
+                      <p className="text-xs font-medium text-brand-text-muted mb-2">
+                        Confirm what's actually shipping — uncheck anything staying behind.
+                      </p>
+                      <div className="max-h-[240px] overflow-y-auto space-y-1 border border-brand-border rounded-lg p-2">
+                        {sampleChildren.map((box) => (
+                          <label key={box.id} className="flex items-center gap-2 p-1.5 rounded hover:bg-gray-50 cursor-pointer text-sm">
+                            <input
+                              type="checkbox"
+                              checked={selectedBoxIds.has(box.child_box_id)}
+                              onChange={() => toggleSampleBox(box.child_box_id)}
+                              className="h-4 w-4"
+                            />
+                            <span className="font-mono text-xs text-brand-text-muted">{box.barcode}</span>
+                            <span className="text-xs text-brand-text-dark truncate">
+                              {box.article_name} · {box.colour} · {box.size}
+                              {box.foot !== 'PAIR' ? ` · ${box.foot === 'LEFT' ? 'Left' : 'Right'} shoe` : ''}
+                            </span>
+                            {box.source === 'carton' && (
+                              <span className="text-[10px] text-brand-text-muted ml-auto shrink-0">[{box.carton_barcode}]</span>
+                            )}
+                          </label>
+                        ))}
+                      </div>
+
+                      {sampleScopeIsPartial && (
+                        <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                          <p className="text-xs text-amber-800">
+                            <strong>{sampleChildren.length - selectedBoxIds.size} item(s) will be removed from this sample and returned to stock.</strong>{' '}
+                            Only the {selectedBoxIds.size} checked item(s) are recorded as dispatched. Any carton with unchecked
+                            boxes goes back to stock too (its checked boxes come out individually first).
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
               ) : (
                 <div className="mt-4 text-center py-6">
                   <FlaskConical className="h-10 w-10 mx-auto mb-2 text-brand-text-muted/30" />

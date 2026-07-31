@@ -19,6 +19,7 @@ import { keepPreviousData } from '@tanstack/react-query';
 import { formatDateTime } from '@/lib/utils';
 import { useRouter } from 'next/navigation';
 import { useCan } from '@/hooks/useCan';
+import { sampleStatusLabel, sampleStatusVariant } from '@/lib/sampleStatus';
 
 export default function SamplesPage() {
   const router = useRouter();
@@ -86,10 +87,10 @@ export default function SamplesPage() {
             <Select
               options={[
                 { value: '', label: 'All Statuses' },
-                { value: 'CREATED', label: 'Created' },
-                { value: 'ACTIVE', label: 'Active' },
-                { value: 'CLOSED', label: 'Closed' },
-                { value: 'DISPATCHED', label: 'Dispatched' },
+                { value: 'CREATED', label: 'Empty' },
+                { value: 'ACTIVE', label: 'Open' },
+                { value: 'CLOSED', label: 'Ready to dispatch' },
+                { value: 'DISPATCHED', label: 'Sent' },
               ]}
               value={statusFilter}
               onChange={(e) => {
@@ -122,7 +123,12 @@ export default function SamplesPage() {
                 >
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-sm font-medium text-brand-text-dark">{sample.name}</span>
-                    <StatusBadge status={sample.status} size="sm" />
+                    <StatusBadge
+                      status={sample.status}
+                      label={sampleStatusLabel(sample.status)}
+                      variant={sampleStatusVariant(sample.status)}
+                      size="sm"
+                    />
                   </div>
                   {(sample.customer_firm_name || sample.recipient_name) && (
                     <p className="text-xs text-brand-text-muted mb-1">
@@ -174,7 +180,12 @@ export default function SamplesPage() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <StatusBadge status={sample.status} size="sm" />
+                        <StatusBadge
+                          status={sample.status}
+                          label={sampleStatusLabel(sample.status)}
+                          variant={sampleStatusVariant(sample.status)}
+                          size="sm"
+                        />
                       </TableCell>
                       <TableCell>
                         <span className="font-semibold">{sample.child_count}</span>

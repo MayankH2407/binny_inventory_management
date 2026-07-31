@@ -109,12 +109,51 @@ export async function removeBoxFromSample(
   next: NextFunction
 ): Promise<void> {
   try {
-    const { child_box_id, sample_record_id } = req.body;
+    const { mapping_id, child_box_id, sample_record_id } = req.body;
     const sample = await sampleService.removeBoxFromSample(
-      { child_box_id, sample_record_id },
+      { mapping_id, child_box_id, sample_record_id },
       req.user!.userId
     );
     sendSuccess(res, sample, 'Child box removed from sample record successfully');
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function takeOutCartonBoxes(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const sample = await sampleService.takeOutCartonBoxes(req.body, req.user!.userId);
+    sendSuccess(res, sample, 'Boxes taken out of carton successfully');
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function removeCartonFromSample(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const sample = await sampleService.removeCartonFromSample(req.body, req.user!.userId);
+    sendSuccess(res, sample, 'Carton released from sample successfully');
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function setBoxFoot(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const sample = await sampleService.setBoxFoot(req.body, req.user!.userId);
+    sendSuccess(res, sample, 'Box foot updated successfully');
   } catch (error) {
     next(error);
   }

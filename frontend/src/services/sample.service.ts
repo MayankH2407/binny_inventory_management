@@ -1,5 +1,5 @@
 import api from './api';
-import type { SampleRecord, ChildBoxWithProduct, AssortmentItem, CartonMembership } from '@/types';
+import type { SampleRecord, SampleChildBoxRow, AssortmentItem, CartonMembership } from '@/types';
 
 export interface SampleListResponse {
   data: SampleRecord[];
@@ -46,7 +46,8 @@ export const sampleService = {
   },
 
   async create(data: {
-    name: string;
+    // Optional — the backend auto-generates a sensible default when omitted.
+    name?: string | null;
     customer_id?: string | null;
     recipient_name?: string | null;
     purpose?: string | null;
@@ -72,8 +73,37 @@ export const sampleService = {
     return response.data;
   },
 
-  async removeBox(data: { child_box_id: string; sample_record_id: string }): Promise<any> {
-    const response = await api.post('/samples/remove-box', data);
+  // mapping_id is preferred (unambiguous — a sample can hold both feet of one
+  // box as two separate mappings). child_box_id is kept for back-compat.
+  async removeBox(data: { mapping_id?: string; child_box_id?: string; sample_record_id: string }): Promise<SampleRecord> {
+    const response = await api.post<SampleRecord>('/samples/remove-box', data);
+    return response.data;
+  },
+
+  // Take specific boxes out of a whole-carton allocation — they become loose,
+  // individually-tracked (foot-splittable) sample items. Optionally also
+  // release the rest of the carton back to stock in the same call.
+  async takeOutCartonBoxes(data: {
+    sample_record_id: string;
+    master_carton_id: string;
+    child_box_ids: string[];
+    box_feet?: Record<string, 'LEFT' | 'RIGHT' | 'PAIR'>;
+    release_carton?: boolean;
+  }): Promise<SampleRecord> {
+    const response = await api.post<SampleRecord>('/samples/take-out-carton-boxes', data);
+    return response.data;
+  },
+
+  // Release a whole carton allocation back to stock, untouched.
+  async removeCarton(data: { sample_record_id: string; master_carton_id: string }): Promise<SampleRecord> {
+    const response = await api.post<SampleRecord>('/samples/remove-carton', data);
+    return response.data;
+  },
+
+  // Change the foot on an existing loose mapping — e.g. "send just the left
+  // shoe" as a deliberate action after the box is already in the sample.
+  async setBoxFoot(data: { sample_record_id: string; mapping_id: string; foot: 'LEFT' | 'RIGHT' | 'PAIR' }): Promise<SampleRecord> {
+    const response = await api.post<SampleRecord>('/samples/set-box-foot', data);
     return response.data;
   },
 
@@ -92,8 +122,8 @@ export const sampleService = {
     return response.data;
   },
 
-  async getChildren(id: string): Promise<ChildBoxWithProduct[]> {
-    const response = await api.get<ChildBoxWithProduct[]>(`/samples/${id}/children`);
+  async getChildren(id: string): Promise<SampleChildBoxRow[]> {
+    const response = await api.get<SampleChildBoxRow[]>(`/samples/${id}/children`);
     return response.data;
   },
 

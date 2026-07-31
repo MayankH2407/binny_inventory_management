@@ -49,6 +49,17 @@ export const createDispatchSchema = z.object({
     .string()
     .max(1000, 'Notes must not exceed 1000 characters')
     .optional(),
+  // Ship only SOME of a sample's contents — everything else currently in the
+  // sample is released back to available stock (not committed to ship later;
+  // see sample.service.ts recomputeSampleChildCount / releaseCartonFromSample).
+  // release_remainder is a literal `true`, not a default, so this can never
+  // happen without the caller (the UI) explicitly acknowledging it in words.
+  sample_scope: z
+    .object({
+      child_box_ids: z.array(z.string().uuid('Invalid child box ID format')).min(1).max(500),
+      release_remainder: z.literal(true),
+    })
+    .optional(),
 }).refine(
   (data) => {
     const sources = [
@@ -73,6 +84,12 @@ export const createDispatchSchema = z.object({
   {
     message: 'Customer is required for master carton dispatch',
     path: ['customer_id'],
+  }
+).refine(
+  (data) => data.sample_scope === undefined || data.sample_record_id !== undefined,
+  {
+    message: 'sample_scope can only be used with sample_record_id',
+    path: ['sample_scope'],
   }
 );
 

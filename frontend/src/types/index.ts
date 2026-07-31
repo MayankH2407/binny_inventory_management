@@ -137,6 +137,40 @@ export interface CartonMembership {
   colour_summary: string | null;
   size_summary: string | null;
   mrp_summary: number | null;
+  // How many of this carton's boxes have been individually taken out into this
+  // sample as loose items (see sample.service.ts takeBoxOutOfCartonAllocation).
+  taken_out_count?: number;
+}
+
+// ---------- Sample child-box row (GET /samples/:id/children) ----------
+// Deliberately NOT ChildBoxWithProduct: that type's `id` means "the child box's
+// own id" everywhere else, but this endpoint's `id` is actually the MAPPING id
+// (sample_box_mapping.id for loose rows, carton_child_mapping.id for
+// carton-sourced rows) — reusing ChildBoxWithProduct here is exactly the type
+// mismatch that caused the original "remove box" bug (mapping id sent where a
+// child box id was expected). child_box_id is the real box id.
+export interface SampleChildBoxRow {
+  id: string; // mapping id — use this for take-out/remove/set-foot calls
+  child_box_id: string;
+  sample_record_id: string;
+  is_active: boolean;
+  barcode: string;
+  status: ChildBoxStatus;
+  quantity: number;
+  article_name: string;
+  article_code: string;
+  sku: string;
+  size: string;
+  colour: string;
+  mrp: number;
+  foot: 'LEFT' | 'RIGHT' | 'PAIR';
+  source: 'loose' | 'carton';
+  carton_barcode: string | null;
+  // Present only when source === 'carton' — the carton this row came from.
+  master_carton_id: string | null;
+  // Present only when source === 'loose' AND this box was taken out of a
+  // carton allocation individually — which carton it originally came from.
+  source_master_carton_id: string | null;
 }
 
 // ---------- SampleRecord ----------
@@ -158,8 +192,9 @@ export interface SampleRecord {
   created_by: string;
   created_at: string;
   updated_at: string;
-  child_boxes?: ChildBoxWithProduct[];
+  child_boxes?: SampleChildBoxRow[];
   creator?: User;
+  creator_name?: string | null;
   customer?: Customer | null;
   customer_firm_name?: string | null;
   article_summary?: string | null;
@@ -516,6 +551,12 @@ export interface CreateDispatchRequest {
   vehicle_number?: string;
   dispatch_date?: string;
   notes?: string;
+  // Ship only some of a sample's contents — everything else in the sample is
+  // released back to available stock. Only valid with sample_record_id.
+  sample_scope?: {
+    child_box_ids: string[];
+    release_remainder: true;
+  };
 }
 
 export interface UnpackRequest {

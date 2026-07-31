@@ -4,6 +4,7 @@ import { MASTER_CARTON_STATUS, CHILD_BOX_STATUS, SAMPLE_STATUS, ECOMMERCE_STATUS
 import { NotFoundError, BadRequestError } from '../utils/errors';
 import { createAuditLog } from './auditLog.service';
 import { CreateDispatchInput } from '../models/schemas/dispatch.schema';
+import { deactivateLooseMapping, releaseCartonFromSample, takeBoxOutOfCartonAllocation, recomputeSampleChildCount } from './sample.service';
 import { logger } from '../utils/logger';
 
 export async function createDispatch(
@@ -226,6 +227,91 @@ async function _dispatchSample(
       }
     }
 
+    // Optional partial dispatch: ship only some of the sample's contents.
+    // Everything not selected is released back to available stock BEFORE the
+    // sample is marked DISPATCHED, so the existing all-or-nothing logic below
+    // (which processes "every currently active mapping") is correct by
+    // construction once this has run — it only ever sees what's left, i.e.
+    // exactly the selected scope.
+    let scopeReleasedBoxCount = 0;
+    const scopeReleasedCartonBarcodes: string[] = [];
+    if (input.sample_scope) {
+      const looseResult = await client.query(
+        `SELECT id AS mapping_id, child_box_id FROM sample_box_mapping
+         WHERE sample_record_id = $1 AND is_active = true FOR UPDATE`,
+        [sampleRecordId]
+      );
+      const cartonAllocResult = await client.query(
+        `SELECT scm.master_carton_id, mc.carton_barcode, ccm.child_box_id
+         FROM sample_carton_mapping scm
+         JOIN carton_child_mapping ccm ON ccm.master_carton_id = scm.master_carton_id AND ccm.is_active = true
+         JOIN master_cartons mc ON mc.id = scm.master_carton_id
+         WHERE scm.sample_record_id = $1 AND scm.is_active = true
+         FOR UPDATE OF scm, mc`,
+        [sampleRecordId]
+      );
+
+      const currentBoxIds = new Set<string>([
+        ...looseResult.rows.map((r: { child_box_id: string }) => r.child_box_id),
+        ...cartonAllocResult.rows.map((r: { child_box_id: string }) => r.child_box_id),
+      ]);
+      const selectedSet = new Set(input.sample_scope.child_box_ids);
+      const invalidIds = input.sample_scope.child_box_ids.filter((id) => !currentBoxIds.has(id));
+      if (invalidIds.length > 0) {
+        const bcResult = await client.query(
+          `SELECT barcode FROM child_boxes WHERE id = ANY($1::uuid[])`,
+          [invalidIds]
+        );
+        const barcodes = bcResult.rows.map((r: { barcode: string }) => r.barcode);
+        throw new BadRequestError(
+          `These boxes are not currently in this sample: ${barcodes.length > 0 ? barcodes.join(', ') : invalidIds.join(', ')}`
+        );
+      }
+
+      // Loose boxes not selected -> leave the sample (back to FREE, or stays
+      // SAMPLE if the other foot is still live elsewhere).
+      for (const row of looseResult.rows as { mapping_id: string; child_box_id: string }[]) {
+        if (selectedSet.has(row.child_box_id)) continue;
+        const cbResult = await client.query('SELECT barcode FROM child_boxes WHERE id = $1', [row.child_box_id]);
+        await deactivateLooseMapping(client, {
+          mappingId: row.mapping_id,
+          childBoxId: row.child_box_id,
+          childBarcode: cbResult.rows[0].barcode,
+          sampleRecordId,
+          sampleBarcode: sample.sample_barcode,
+          userId: dispatchedBy,
+        });
+        scopeReleasedBoxCount++;
+      }
+
+      // Cartons: none selected -> release whole carton; some selected -> take
+      // those out individually then release the rest; all selected -> leave
+      // alone (the existing carton-dispatch loop below ships it whole).
+      const cartonGroups = new Map<string, { carton_barcode: string; box_ids: string[] }>();
+      for (const row of cartonAllocResult.rows as { master_carton_id: string; carton_barcode: string; child_box_id: string }[]) {
+        if (!cartonGroups.has(row.master_carton_id)) {
+          cartonGroups.set(row.master_carton_id, { carton_barcode: row.carton_barcode, box_ids: [] });
+        }
+        cartonGroups.get(row.master_carton_id)!.box_ids.push(row.child_box_id);
+      }
+      for (const [cartonId, group] of cartonGroups) {
+        const selectedInCarton = group.box_ids.filter((id) => selectedSet.has(id));
+        if (selectedInCarton.length === 0) {
+          await releaseCartonFromSample(client, { sampleRecordId, masterCartonId: cartonId, userId: dispatchedBy });
+          scopeReleasedCartonBarcodes.push(group.carton_barcode);
+        } else if (selectedInCarton.length < group.box_ids.length) {
+          for (const boxId of selectedInCarton) {
+            await takeBoxOutOfCartonAllocation(client, { sampleRecordId, childBoxId: boxId, userId: dispatchedBy });
+          }
+          await releaseCartonFromSample(client, { sampleRecordId, masterCartonId: cartonId, userId: dispatchedBy });
+          scopeReleasedCartonBarcodes.push(`${group.carton_barcode} (${group.box_ids.length - selectedInCarton.length} boxes)`);
+        }
+        // else: every box in this carton was selected — leave the allocation as-is.
+      }
+
+      await recomputeSampleChildCount(client, sampleRecordId);
+    }
+
     // Mark sample record as DISPATCHED
     await client.query(
       `UPDATE sample_records SET status = $1, dispatched_at = NOW(), updated_at = NOW() WHERE id = $2`,
@@ -354,7 +440,16 @@ async function _dispatchSample(
         input.vehicle_number || null,
         dispatchDate,
         input.notes || null,
-        JSON.stringify({ child_box_count: shippedCount }),
+        JSON.stringify(
+          input.sample_scope
+            ? {
+                child_box_count: shippedCount,
+                scoped: true,
+                released_box_count: scopeReleasedBoxCount,
+                released_carton_barcodes: scopeReleasedCartonBarcodes,
+              }
+            : { child_box_count: shippedCount }
+        ),
       ]
     );
 
