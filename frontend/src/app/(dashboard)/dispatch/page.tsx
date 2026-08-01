@@ -540,7 +540,7 @@ export default function DispatchPage() {
                   {sampleChildren.length > 0 && (
                     <div className="mt-3">
                       <p className="text-xs font-medium text-brand-text-muted mb-2">
-                        Confirm what's actually shipping — uncheck anything staying behind.
+                        Confirm what&apos;s actually shipping — uncheck anything staying behind.
                       </p>
                       <div className="max-h-[240px] overflow-y-auto space-y-1 border border-brand-border rounded-lg p-2">
                         {sampleChildren.map((box) => (

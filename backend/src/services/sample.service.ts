@@ -83,7 +83,28 @@ async function getActiveSampleFeet(client: PoolClient, childBoxId: string): Prom
   return r.rows.map((row: { foot: string }) => row.foot);
 }
 
-// Throws BadRequest/—unless the requested foot of this box is free to be sampled.
+// Throws BadRequest unless the requested foot of this box is free to be
+// sampled, given its OTHER active sample-foot mappings (independent of the
+// box's own status — see assertFootAvailable below for the status-gated
+// version used when adding a not-yet-sampled box).
+function assertNoConflictingFoot(barcode: string, activeFeet: string[], requestedFoot: Foot): void {
+  if (activeFeet.includes('PAIR')) {
+    throw new BadRequestError(`Child box ${barcode} is already fully in a sample (as a pair).`);
+  }
+  if (requestedFoot === 'PAIR') {
+    if (activeFeet.length > 0) {
+      throw new BadRequestError(
+        `Child box ${barcode} already has its ${activeFeet.join('/').toLowerCase()} foot in a sample; cannot add the whole pair.`
+      );
+    }
+  } else if (activeFeet.includes(requestedFoot)) {
+    throw new BadRequestError(
+      `The ${requestedFoot.toLowerCase()} foot of child box ${barcode} is already in a sample.`
+    );
+  }
+}
+
+// Throws BadRequest unless the requested foot of this box is free to be sampled.
 function assertFootAvailable(
   barcode: string,
   status: string,
@@ -100,20 +121,7 @@ function assertFootAvailable(
       `Child box ${barcode} is currently ${status} and cannot be added to a sample. Only FREE or GENERATED boxes (or a box with a free foot) can be sampled.`
     );
   }
-  if (activeFeet.includes('PAIR')) {
-    throw new BadRequestError(`Child box ${barcode} is already fully in a sample (as a pair).`);
-  }
-  if (requestedFoot === 'PAIR') {
-    if (activeFeet.length > 0) {
-      throw new BadRequestError(
-        `Child box ${barcode} already has its ${activeFeet.join('/').toLowerCase()} foot in a sample; cannot add the whole pair.`
-      );
-    }
-  } else if (activeFeet.includes(requestedFoot)) {
-    throw new BadRequestError(
-      `The ${requestedFoot.toLowerCase()} foot of child box ${barcode} is already in a sample.`
-    );
-  }
+  assertNoConflictingFoot(barcode, activeFeet, requestedFoot);
 }
 
 // ---------------------------------------------------------------------------
@@ -248,8 +256,11 @@ export async function takeBoxOutOfCartonAllocation(
 
   // Cheap safety net — a PACKED box cannot have active sample feet, so this can
   // only ever fail on corrupt data, but it's the one source of truth for the rule.
+  // Uses the status-agnostic check: unlike assertFootAvailable, PACKED is the
+  // expected starting status here (the box is still physically inside the
+  // carton), not a disqualifying one.
   const activeFeet = await getActiveSampleFeet(client, params.childBoxId);
-  assertFootAvailable(row.box_barcode, row.box_status, activeFeet, foot);
+  assertNoConflictingFoot(row.box_barcode, activeFeet, foot);
 
   // 1. Leave the carton for real.
   await client.query(

@@ -420,7 +420,7 @@ export default function CreateSamplePage() {
           onClick={() => setDetailsOpen(!detailsOpen)}
           className="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors"
         >
-          <span className="text-sm font-medium text-brand-text-dark">Who's it for? (optional)</span>
+          <span className="text-sm font-medium text-brand-text-dark">Who&apos;s it for? (optional)</span>
           {detailsOpen ? <ChevronDown className="h-4 w-4 text-brand-text-muted" /> : <ChevronRight className="h-4 w-4 text-brand-text-muted" />}
         </button>
 
