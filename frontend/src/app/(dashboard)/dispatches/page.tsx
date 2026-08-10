@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Search, ClipboardList, ChevronDown, ChevronUp, ChevronRight, Truck, User, Package, FlaskConical, ShoppingCart, Download } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -81,7 +81,8 @@ export default function DispatchesPage() {
   const [toDate, setToDate] = useState('');
   const [sourceTypeFilter, setSourceTypeFilter] = useState<string>('');
   const [returnStatusFilter, setReturnStatusFilter] = useState<string>('');
-  const [expandedCustomer, setExpandedCustomer] = useState<string | null>(null);
+  const [expandedCustomers, setExpandedCustomers] = useState<Set<string>>(new Set());
+  const lastGroupKeysRef = useRef<string | null>(null);
 
   const { data, isLoading } = useApiQuery(
     ['dispatches', String(page), search, fromDate, toDate, returnStatusFilter],
@@ -142,8 +143,26 @@ export default function DispatchesPage() {
     );
   }, [data, sourceTypeFilter]);
 
+  // Default every customer group on the current page to expanded — a page is
+  // already capped at PAGE_SIZE records, so there's no "too many to show"
+  // case that needs collapsing by default. Re-derive whenever the visible
+  // set of groups actually changes (new search/filter/page), but don't
+  // clobber a user's own manual collapse within the same result set.
+  useEffect(() => {
+    const keys = customerGroups.map((g) => g.customerId || 'no-customer');
+    const signature = keys.slice().sort().join(',');
+    if (lastGroupKeysRef.current === signature) return;
+    lastGroupKeysRef.current = signature;
+    setExpandedCustomers(new Set(keys));
+  }, [customerGroups]);
+
   const toggleCustomer = (key: string) => {
-    setExpandedCustomer((prev) => (prev === key ? null : key));
+    setExpandedCustomers((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
   };
 
   const [isExporting, setIsExporting] = useState(false);
@@ -198,8 +217,8 @@ export default function DispatchesPage() {
 
       <Card padding={false}>
         <div className="p-4 border-b border-brand-border bg-binny-navy-50/50">
-          <div className="flex flex-col sm:flex-row gap-3">
-            <div className="flex-1">
+          <div className="flex flex-col lg:flex-row gap-3">
+            <div className="flex-1 min-w-[160px]">
               <Input
                 placeholder="Search by customer, destination, LR number, vehicle, barcode..."
                 value={search}
@@ -210,27 +229,35 @@ export default function DispatchesPage() {
                 leftIcon={<Search className="h-4 w-4" />}
               />
             </div>
-            <div className="flex gap-2 flex-wrap">
-              <Input
-                type="date"
-                placeholder="From"
-                value={fromDate}
-                onChange={(e) => {
-                  setFromDate(e.target.value);
-                  setPage(1);
-                }}
-                className="w-36"
-              />
-              <Input
-                type="date"
-                placeholder="To"
-                value={toDate}
-                onChange={(e) => {
-                  setToDate(e.target.value);
-                  setPage(1);
-                }}
-                className="w-36"
-              />
+            {/* Wrapped in sized divs (not className on Input) because Input's outer
+                wrapper is hardcoded w-full and ignores a width className passed to
+                it — without this wrapper each date field claims the full row width
+                and forces every filter onto its own line. flex-wrap on phones (the
+                4 controls alone don't fit under ~600px); lg:flex-nowrap once the
+                outer row switches to single-line, so nothing wraps mid-row there. */}
+            <div className="flex gap-2 flex-wrap lg:flex-nowrap">
+              <div className="w-36">
+                <Input
+                  type="date"
+                  placeholder="From"
+                  value={fromDate}
+                  onChange={(e) => {
+                    setFromDate(e.target.value);
+                    setPage(1);
+                  }}
+                />
+              </div>
+              <div className="w-36">
+                <Input
+                  type="date"
+                  placeholder="To"
+                  value={toDate}
+                  onChange={(e) => {
+                    setToDate(e.target.value);
+                    setPage(1);
+                  }}
+                />
+              </div>
               <div className="w-44">
                 <Select
                   placeholder="All source types"
@@ -281,7 +308,7 @@ export default function DispatchesPage() {
             <div className="divide-y divide-brand-border">
               {customerGroups.map((group) => {
                 const groupKey = group.customerId || 'no-customer';
-                const isExpanded = expandedCustomer === groupKey;
+                const isExpanded = expandedCustomers.has(groupKey);
 
                 return (
                   <div key={groupKey}>
