@@ -427,7 +427,7 @@ export async function bulkCreateProductsBySizeRange(
         [
           articleName, sku, articleCode, colour, String(size), input.mrp,
           description || null, input.category, section, input.location || null,
-          articleGroup || null, input.hsn_code || null, null, null,
+          articleGroup || null, input.hsn_code || null, input.size_from, input.size_to,
         ]
       );
 
