@@ -19,7 +19,9 @@ const ADMIN_NAME = 'System Administrator';
  * Auto-seeds roles and admin user on every startup.
  * - Ensures all default roles exist.
  * - Creates admin user if missing.
- * - Verifies admin password matches the default — resets if not.
+ * Never touches an existing admin user's password — a real deployed instance
+ * may have had its admin password rotated deliberately (e.g. by the client),
+ * and this must not silently revert that to the public default on restart.
  * Safe to call repeatedly (idempotent).
  */
 export async function autoSeed(): Promise<void> {
@@ -60,18 +62,11 @@ export async function autoSeed(): Promise<void> {
       );
       logger.info(`Auto-seed: admin user created (${ADMIN_EMAIL})`);
     } else {
-      // Verify password matches default — reset if corrupted
-      const isValid = await bcrypt.compare(ADMIN_PASSWORD, adminResult.rows[0].password_hash);
-      if (!isValid) {
-        const passwordHash = await bcrypt.hash(ADMIN_PASSWORD, SALT_ROUNDS);
-        await client.query(
-          'UPDATE users SET password_hash = $1 WHERE id = $2',
-          [passwordHash, adminResult.rows[0].id]
-        );
-        logger.warn(`Auto-seed: admin password was out of sync — reset to default (${ADMIN_EMAIL})`);
-      } else {
-        logger.debug('Auto-seed: admin user verified, password OK');
-      }
+      // Admin user already exists — leave its password exactly as-is. It may
+      // have been rotated deliberately (e.g. by the client), and re-checking
+      // it against the known public default here would let this function
+      // silently overwrite a real, rotated credential on every restart.
+      logger.debug('Auto-seed: admin user already exists, leaving password untouched');
     }
 
     await client.query('COMMIT');
