@@ -65,8 +65,8 @@ Built by 2 Sonnet agents on an Opus plan. Adds to mobile: **Returns** (blind-sca
 - ⚠️ **3 PRE-EXISTING jest suite failures are unrelated** and expected: `hooks/useApi.test.ts`, `components/ui.test.tsx`, `services/api.test.ts`.
 - ⚠️ **Known bug noticed, NOT fixed (fix separately):** mobile dispatch date-filter is a no-op — `mobile/app/dispatch/index.tsx` + `dispatch.service.ts` send `start_date`/`end_date` but the backend reads `from_date`/`to_date`. (The new `exportCsv` already uses the correct `from_date`/`to_date`.)
 
-### 🔄 Returns (WEB) — deployed to TEST, awaiting UAT
-Module + rework + dispatch return-status. Committed as `45c03ab` (scope-isolated), deployed to TEST (`srv1409601`), migration `20260721100001` applied, verified read-only. **AWAITING CLIENT UAT. NOT on LIVE.** On sign-off → LIVE (backup + BOTH frontends `--env-file .env`).
+### 🔄 Returns (WEB) — DEPLOYED TO LIVE 2026-08-20
+Module + rework + dispatch return-status. Committed as `45c03ab`, deployed to TEST 2026-07-22, then to LIVE 2026-08-20 as part of a larger batch (see `progress.md`'s 2026-08-20 entry) alongside the Samples redesign and the E-commerce pool redesign. All three verified on LIVE via DB/dist checks (creds remain client-rotated, no authed verification possible from this side).
 
 ### 🔐 TEST TLS cert — fixed 2026-07-23
 Shared `edge-nginx` was serving an expired cert; fixed via `docker exec edge-nginx nginx -s reload` (valid now to Sep 20). **Recurrence risk ~Sep 20** — no deploy-hook reloads edge-nginx on renewal (shared infra; awaiting OK to add one).
@@ -81,9 +81,10 @@ Shared `edge-nginx` was serving an expired cert; fixed via `docker exec edge-ngi
 | Server | `srv1409601` | `srv1689976` (aka `187.127.130.99`) |
 | Path | `/opt/binny` | `/opt/binny` |
 | Containers | `binny-backend`, `binny-frontend`, `binny-db` | `binny-backend`, **BOTH** `binny-frontend` **&** `binny-frontend-root`, `binny-db` |
-| Data | ~5.5k products / ~114k child boxes | 720 products, ~56k child boxes, customers=0 |
-| Admin login | `admin@binny.com` / `Admin@123` (default, autoSeed-maintained) | **ROTATED by client** — verify via `docker exec` greps + DB + health only |
+| Data | ~5.5k products / ~114k child boxes | 5,351 products, ~573k child boxes, 279 customers (as of 2026-08-20) |
+| Admin login | `admin@binny.com` / `Admin@123` (default, autoSeed-maintained) | **ROTATED by client** — verify via `docker exec` greps + DB + health only. **As of 2026-08-20, `autoSeed.ts` no longer resets an existing admin's password on restart** (it used to, silently, every boot — fixed in commit `4bf78e0`) |
 | Env-gated caps | defaults (500/500) | `CHILD_BOX_MAX_PER_GENERATION=1500`, `PRODUCT_CSV_MAX_ROWS=2000` (+ `NEXT_PUBLIC_` equivalents baked at FE build) |
+| Feature parity (2026-08-20) | Returns, Samples redesign, E-commerce pool redesign, size_from/size_to fix all live on both TEST and LIVE | Child-box label variant differs: LIVE=Variant A, TEST=Variant B — this is a deliberate, still-undecided A/B test, not drift |
 
 ---
 
@@ -98,10 +99,13 @@ Shared `edge-nginx` was serving an expired cert; fixed via `docker exec edge-ngi
 4. Verify: running image IDs `== :latest`, health 200, feature-specific greps in the served bundle/dist.
 
 **LIVE deploy** (UAT-gated):
-1. **Backup first:** `pg_dump | gzip` → `/opt/binny/backup-pre-<change>-<date>.sql.gz` (also pull a copy locally).
-2. `git archive HEAD` clean-slate src (**`.env` untouched**) — `git archive HEAD` is deliberate: keeps the 4 held working-tree files OUT of LIVE.
-3. Rebuild `binny-backend` **+ BOTH** `binny-frontend` **&** `binny-frontend-root` with **`--env-file .env`** (detached), `up -d`, `migrate:up`.
-4. Verify: images `== :latest`, health 200 on **both** URLs, **caps preserved** (backend `printenv` 1500/2000 + baked into both frontends), feature greps. Client does UI spot-check (LIVE creds rotated → no authed calls from our side). Note PWA staleness (client close/reopen app).
+1. **Backup first:** `pg_dump -Fc` (custom format, restorable with `pg_restore --clean`) → `/opt/binny/backup-pre-<change>-<date>.dump` — **restore-test it into a scratch DB** before trusting it (row counts should match exactly), then pull a copy locally.
+2. `git archive HEAD` (or a throwaway integration branch/ref, if something needs baking in that isn't on `main` — e.g. the child-box label A/B variant, see below) clean-slate src (**`.env` untouched**).
+3. ⚠️ **If `main`'s `childBoxLabel.ts` doesn't match the label variant the target box is running**, don't sync-then-restore (ordering trap: a restore landing after `next build` bakes the wrong file into the bundle and only a dist-grep catches it). Instead build a local integration branch with the correct variant's file checked out and committed there first, and archive from that branch.
+4. Rebuild `binny-backend` **+ BOTH** `binny-frontend` **&** `binny-frontend-root` with **`--env-file .env`**, **serially, one at a time, and fully — confirm all three succeed before recreating any of them** (RAM on LIVE is the binding constraint, ~3-4G available; interleaving build-then-recreate risks a stale image on one portal against a migrated schema).
+5. `up -d --no-deps` naming all three services explicitly (never a bare `up -d` — would also evaluate `binny-db`).
+6. Migrate: dry-run first (`npx node-pg-migrate up --dry-run`, genuinely non-mutating) to confirm the expected pending set, then run for real. **If the target's `pgmigrations` ledger has any gaps (a later-dated migration applied before an earlier one that was never shipped), `node-pg-migrate` 7.x's default `checkOrder` will throw — pass `--no-check-order`.**
+7. Verify: images `== :latest`, health 200 on **both** URLs, **caps preserved** (backend `printenv` 1500/2000 + baked into both frontends), feature greps, `binny-db`/`binny-nginx` untouched. Client does UI spot-check (LIVE creds rotated → no authed calls from our side). Note PWA staleness (client close/reopen app).
 
 **Mobile APK:** EAS build, `preview` profile → TEST API; auth via `EXPO_TOKEN` env var (see `progress.md` EAS notes).
 
@@ -132,12 +136,14 @@ git push origin --delete transfer/device-20260723
 
 ## 7. Next-session TODO (priority order)
 
-1. **Verify the transfer** (§0): `git status` matches §2, `.env` files present, `docker compose up` boots locally.
-2. **Finish Mobile M7:** independent full-jest + Expo Router route sanity + drive the app → commit → optional APK.
-3. **Fix the mobile dispatch date-filter bug** (§3) — small, separate.
-4. **Returns (web):** chase client UAT on TEST → on sign-off deploy LIVE (§5).
-5. **Watch TEST cert ~Sep 20** (§3) — reload edge-nginx or add a deploy-hook if client OKs.
-6. Retire the `transfer/device-20260723` branch once the new machine is confirmed good.
+1. ~~**Verify the transfer**~~ — done, multiple sessions since.
+2. **Finish Mobile M7:** independent full-jest + Expo Router route sanity + drive the app → commit → optional APK. Still not committed as of 2026-08-20.
+3. **Fix the mobile dispatch date-filter bug** (§3) — small, separate, still outstanding.
+4. ~~**Returns (web):** chase client UAT on TEST → on sign-off deploy LIVE~~ — **DONE 2026-08-20**, deployed alongside Samples + E-commerce redesign.
+5. **Push `main` to `origin`** — as of 2026-08-20, `main` is 18 commits ahead of `origin/main` (which doesn't even have Returns). Held pending explicit user go-ahead, not yet done.
+6. Retire the `transfer/device-20260723` branch and the `deploy-live-20260820` integration branch (label-pin only, never merge) once both are confirmed no longer needed.
+7. **Client comms for the 2026-08-20 deploy** — see `progress.md`'s entry for the full list (Role Manager grants, re-login required, e-commerce workflow change, etc.).
+8. Watch TEST/LIVE cert renewal — last checked 2026-08-20, both valid into October 2026, no action needed yet.
 
 ---
 

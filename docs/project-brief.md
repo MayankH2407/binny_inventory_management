@@ -108,18 +108,22 @@ This eliminates phantom stock by ensuring the digital record always matches the 
 
 ---
 
-## 4A. Phase 6 — Post-UAT Client Enhancements (May–June 2026)
+## 4A. Phase 6 — Post-UAT Client Enhancements (May–August 2026)
 
-Following Phase 1 go-live, the client requested a series of enhancements, tracked as numbered modifications. Mod #1 is deployed to production; mods #2–#5 are complete and verified on the development environment and are bundled for a single combined UAT → production release.
+Following Phase 1 go-live, the client requested a series of enhancements, tracked as numbered modifications. All items below are now live in production unless noted.
 
 | #  | Enhancement                              | Status                          |
 |----|------------------------------------------|---------------------------------|
 | 1  | Child-box label reprint                  | **Live** (production + test)    |
-| 2  | 7-level inventory drill-down             | Dev-complete; bundled for UAT   |
-| 3  | Role Manager (configurable RBAC)         | Dev-complete; bundled for UAT   |
-| 4  | Legacy (pre-go-live) carton onboarding   | Dev-complete; bundled for UAT   |
-| 5  | Legacy carton unpack / repack            | Dev-complete; bundled for UAT   |
-| —  | Returns management (new module)          | Dev-complete (Jul 2026); awaiting UAT |
+| 2  | 7-level inventory drill-down             | **Live**                        |
+| 3  | Role Manager (configurable RBAC)         | **Live**                        |
+| 4  | Legacy (pre-go-live) carton onboarding   | **Live**                        |
+| 5  | Legacy carton unpack / repack            | **Live**                        |
+| —  | Returns management (new module)          | **Live** (deployed 2026-08-20)  |
+| —  | Samples module redesign (partial pull, scoped dispatch) | **Live** (deployed 2026-08-20) |
+| —  | E-commerce module redesign (scan-to-pool model) | **Live** (deployed 2026-08-20) |
+| —  | Inventory size-group fix (multi-size batch generation) | **Live** (deployed 2026-08-20) |
+| —  | Child-box label dimension A/B test (two variants under live comparison) | In progress — client has not yet picked a winner |
 
 ### Mod #1 — Child-Box Label Reprint
 Operators can reprint child-box QR labels after generation — both **per-row** and via **multi-select bulk** selection — mirroring the existing master-carton reprint. The label template is byte-identical to the original (tuned for the TSC thermal printer); reprints correctly use each box's original packed date rather than today's.
@@ -136,8 +140,17 @@ Allows onboarding finished-goods stock that was packed and sealed **before** go-
 ### Mod #5 — Legacy Carton Unpack / Repack
 Provides the path to bring legacy (opaque) stock into full per-box tracking. An **"Open for Repacking"** action converts a legacy carton into a normal, empty, trackable carton (keeping its barcode) — **no child boxes are auto-created**, because none ever existed. The operator then generates the real child-box labels, applies them to the physical boxes, scans them back into the same carton via the existing pack flow, and closes it. From that point the carton is counted as ordinary tracked pieces and no longer as a legacy carton. Endpoint: `POST /api/v1/master-cartons/:id/open-legacy`.
 
-### Mod — Returns Management (July 2026)
-Introduces a **Returns** capability that brings physically-returned stock back into sellable inventory, via two entry points. The **Returns module** works by **blind scan-in**: an operator scans an already-dispatched child-box QR or master-carton barcode, the system looks up where it was shipped from and its details, and on confirmation adds it back to stock with a return entry. Alternatively, from a **dispatch's detail page** staff can return **against that specific dispatch** — its items are listed with checkboxes so they choose exactly which cartons/boxes are coming back (partial returns allowed). An optional **"Reason for return"** remark can be recorded either way. Both **whole master cartons** and **loose child boxes** can be returned, from regular master-carton and e-commerce dispatches (sample returns are not covered in this version). Returned stock goes **straight back to sellable** — a returned loose box becomes free stock, and a returned carton becomes a closed, sellable carton with its boxes packed again — and immediately reappears in inventory counts. This first version tracks the **physical movement only** (no return value / credit notes and no approval step). Only items that are currently dispatched can be returned, and the system blocks returning something twice. A date-range **CSV returns report** (itemized by article/colour/size, with reason and origin dispatch) is available. A new **Returns** permission (view / create) is configurable in the Role Manager. Endpoints under `/api/v1/returns`.
+### Mod — Returns Management (July 2026, live August 2026)
+Introduces a **Returns** capability that brings physically-returned stock back into sellable inventory, via two entry points. The **Returns module** works by **blind scan-in**: an operator scans an already-dispatched child-box QR or master-carton barcode, the system looks up where it was shipped from and its details, and on confirmation adds it back to stock with a return entry. Alternatively, from a **dispatch's detail page** staff can return **against that specific dispatch** — its items are listed with checkboxes so they choose exactly which cartons/boxes are coming back (partial returns allowed). An optional **"Reason for return"** remark can be recorded either way. Both **whole master cartons** and **loose child boxes** can be returned, from regular master-carton and e-commerce dispatches (sample returns are not covered in this version). Returned stock goes **straight back to sellable** — a returned loose box becomes free stock, and a returned carton becomes a closed, sellable carton with its boxes packed again — and immediately reappears in inventory counts. This first version tracks the **physical movement only** (no return value / credit notes and no approval step). Only items that are currently dispatched can be returned, and the system blocks returning something twice. A date-range **CSV returns report** (itemized by article/colour/size, with reason and origin dispatch) is available. The **Dispatches list** also surfaces a return status (none / partial / full) per record, with a filter. A new **Returns** permission (view / create) is configurable in the Role Manager — not granted to any role by default at launch. Endpoints under `/api/v1/returns`.
+
+### Mod — Samples Module Redesign (August 2026)
+The original Samples workflow was scan-based and staff found it hard to follow, since real-world usage is rarely a whole carton — usually a single piece or a few pairs. The redesign keeps the underlying mechanics (per-foot sample tracking, whole-carton allocation) but changes the workflow: every scan defaults to a full pair with a per-item toggle to send one shoe only; scanning a whole carton is now an optional, de-emphasised path; and — new — specific boxes can be **pulled out of a carton allocation** individually without disturbing the rest of the carton. Partial dispatches now release any un-selected items back to general stock automatically. Sample lifecycle stages show friendly labels (Empty / Open / Ready to dispatch / Sent) instead of raw database status codes.
+
+### Mod — E-commerce Module Redesign (August 2026)
+Replaces the previous "create a named e-commerce record, then scan items into it" workflow with a simpler model: staff scan any available master carton or child box directly into an **E-commerce Area** pool — no naming or marketplace details needed at scan-in time. Marketplace, order reference, listing SKU, and order date are captured later, at the point of dispatch, on the Dispatch module's E-commerce tab (mirroring how master-carton dispatches already work). A pooled carton can be "Unpacked" into individually-dispatchable loose boxes that remain committed to e-commerce. Existing e-commerce records from before the redesign are preserved and remain visible read-only under a History tab; their boxes automatically appear in the new pool tagged with their original record reference.
+
+### Mod — Inventory Size-Group Display Fix (August 2026)
+The "Multi-size batch generation" bulk product-creation tool (used to create many size variants of one article/colour in one action) was not recording the size range on the products it created, so the Inventory drill-down's size-group level showed one combined total instead of separate entries per size batch (e.g. showing one "42 cartons" figure instead of a "6–9" and a "7–10" breakdown). Fixed going forward; existing products created before the fix are not retroactively updated.
 
 ---
 
@@ -395,6 +408,7 @@ Phase 1 will be considered successful when the following conditions are met:
 | 1.2     | 20-Mar-2026 | Basiq360 | Multi-Size QR Batch Generation: new bulk-multi-size endpoint, product sizes endpoint, generate page rewrite with per-size quantity inputs |
 | 1.3     | 03-Apr-2026 | Basiq360 | UAT bug fixes (button visibility, print labels, searchable product dropdown, customer-centric dispatch list). Phase 2 UI Enhancement Plan: design system modernization (brand-tinted shadows, CSS animations, skeleton loaders), component polish (gradient buttons, interactive cards, glass-effect layouts), page-specific enhancements (dashboard welcome banner, list page skeletons, form sticky submit), PWA improvements (branded splash, offline page, toast accent borders). All frontend-only, no new dependencies. |
 | 1.4     | 02-Jun-2026 | Basiq360 | Phase 6 post-UAT client enhancements documented (§4A): (#1) child-box label reprint — per-row + bulk [live]; (#2) 7-level inventory drill-down with new `/inventory/breakdown` endpoint; (#3) Role Manager / configurable RBAC — `role_permissions` table, `max_stage` constraints, `/admin/roles` UI, permission-gated routes; (#4) legacy pre-go-live carton CSV onboarding (`is_legacy` cartons surfaced in drill-down); (#5) legacy carton unpack/repack ("Open for Repacking"). Mods #2–#5 dev-complete, bundled for a single combined UAT → production release. |
+| 1.5     | 20-Aug-2026 | Basiq360 | Mods #2–#5 confirmed **live** (§4A table updated). Returns Management now **live** (deployed 2026-08-20, alongside the items below — was previously documented as "awaiting UAT" in v1.4's timeframe). Three further items added and deployed the same day: Samples Module Redesign (partial carton pull, scoped dispatch, friendly status labels), E-commerce Module Redesign (scan-to-pool model replacing the named-record workflow), and an Inventory size-group display fix for the multi-size batch generation tool. Child-box label dimension A/B test remains in progress, client has not yet picked a winner. |
 
 ---
 

@@ -150,7 +150,7 @@ ONBOARDING.md           # this file
 - Docker Desktop (Windows: WSL2 backend required)
 - Node 20+ (for occasional outside-container scripts; not strictly needed)
 - A `.env` at repo root — copy from `.env.example` if missing
-- SSH key at `~/.ssh/id_ed25519` if you need to deploy (see §6)
+- SSH access if you need to deploy (see §6) — **⚠️ as of 2026-08 (post device-transfer), use the SSH config aliases `alstone-vps` (TEST) and `surveydesk-hostinger` (LIVE), e.g. `ssh alstone-vps`. The bare `~/.ssh/id_ed25519` key path referenced later in this doc does not exist on the current machine — see the note in §6.**
 - Optional: an Expo access token from `kanikabehl`'s account if you'll be building APKs (§10)
 
 ### Bring up the stack
@@ -199,43 +199,72 @@ Or hit them via the running container with `docker compose exec binny_backend �
 
 ---
 
-## 6. Deploying to the testing portal
+## 6. Deploying to the testing portal (and to LIVE)
 
-Single target right now: **Hostinger VPS** serving <https://srv1409601.hstgr.cloud/binny/>. nginx reverse-proxies `/binny/` to the frontend container.
+⚠️ **SSH key correction (as of the 2026-07/08 device transfer):** every `-i ~/.ssh/id_ed25519` command below is **stale on the current machine** — that bare key file doesn't exist here. Use the SSH config aliases instead:
+- **TEST** (`srv1409601.hstgr.cloud`, `/opt/binny`) → `ssh alstone-vps`
+- **LIVE** (`srv1689976.hstgr.cloud` / `binnyfootwear.basiq360.com`, `/opt/binny`) → `ssh surveydesk-hostinger`
 
-There is **no GitHub Actions / webhook / cron git-pull**. Every deploy is manual. A `git push` alone does nothing to the portal.
+Both currently resolve to the same underlying key file per `~/.ssh/config` — use the aliases, never a hand-typed `-i` path.
 
-### Recipe
+There is **no GitHub Actions / webhook / cron git-pull**. Every deploy is manual, on both boxes. A `git push` alone does nothing to either portal.
+
+### TEST recipe
 
 ```bash
-# 1. Stream changed source into /opt/binny
-tar cf - backend/src frontend/src progress.md \
-  | ssh -i ~/.ssh/id_ed25519 root@srv1409601.hstgr.cloud "cd /opt/binny && tar xf -"
+# 1. Stream changed source into /opt/binny (git archive is preferred over a working-tree tar —
+#    it emits only tracked, committed content, so held/uncommitted work never leaks to the box)
+git archive HEAD backend/src backend/migrations frontend/src progress.md \
+  | ssh alstone-vps "cd /opt/binny && rm -rf backend/src frontend/src && tar xf -"
 
-# 2. Rebuild & restart on the server
-ssh -i ~/.ssh/id_ed25519 root@srv1409601.hstgr.cloud \
-  "cd /opt/binny && docker compose -f docker-compose.prod.yml build binny-backend binny-frontend \
-   && docker compose -f docker-compose.prod.yml up -d binny-backend binny-frontend"
+# 2. Rebuild & restart on the server (only one frontend on TEST — binny-frontend-root is not used there)
+ssh alstone-vps \
+  "cd /opt/binny && docker compose -f docker-compose.prod.yml --env-file .env build binny-backend binny-frontend \
+   && docker compose -f docker-compose.prod.yml --env-file .env up -d --no-deps binny-backend binny-frontend"
 
-# 3. Verify
+# 3. Migrate (build BEFORE migrate — migrations are baked into the image, not live-mounted)
+ssh alstone-vps "docker exec binny-backend npx node-pg-migrate up --no-check-order"
+
+# 4. Verify
 curl -sS https://srv1409601.hstgr.cloud/binny/api/v1/health
 ```
 
-Full frontend rebuild: ~90s. Backend: ~30s. `binny-db` stays up across deploys.
+Full frontend rebuild: ~90s–several minutes depending on host load. Backend: ~10-30s. `binny-db` stays up across deploys — the `rm -rf backend/src frontend/src` step is safe because running containers serve from baked images, not on-disk `src`.
 
-### Things to know
-- **SSH key:** `~/.ssh/id_ed25519` (your personal one). The `~/.ssh/binny-deploy` file in the project is dead — it was never added to the server's `authorized_keys`. Ignore it.
-- **Server repo path:** `/opt/binny/` — plain directory, NOT a git clone. Don't `git pull` on the server.
-- **DO NOT overwrite** `/opt/binny/.env` or `/opt/binny/.env.production` during a tar sync — they hold server-side secrets. The recipe above doesn't include them; keep it that way.
-- **Rsync is not installed locally on Windows** — use tar-over-ssh, not rsync.
-- The server is reachable at IP `76.13.245.90`, hostname `srv1409601.hstgr.cloud`, deploy user `root`.
+### LIVE recipe (UAT-gated — see `docs/live-deploy-checklist.md` for the full runbook)
+
+Same shape as TEST, with three differences that matter:
+1. **Backup first**, and restore-test the backup into a scratch DB before trusting it — see the checklist.
+2. **Both frontends must be rebuilt** — `binny-frontend` (hstgr fallback URL) **and** `binny-frontend-root` (canonical `binnyfootwear.basiq360.com`). Build serially, confirm both succeed, only then recreate either.
+3. **If a file on `main` doesn't match what LIVE is currently running** (e.g. the child-box label — LIVE and TEST deliberately run different label-variant A/B branches right now), don't sync-then-restore; build a throwaway local integration branch with the correct file checked out and committed there, and archive from that branch instead of `main`/`HEAD`. Never merge that branch.
+
+```bash
+ssh surveydesk-hostinger "cd /opt/binny && docker compose -f docker-compose.prod.yml --env-file .env \
+  build binny-backend"   # then binny-frontend, then binny-frontend-root — one at a time, confirm each succeeds
+ssh surveydesk-hostinger "cd /opt/binny && docker compose -f docker-compose.prod.yml --env-file .env \
+  up -d --no-deps binny-backend binny-frontend binny-frontend-root"
+ssh surveydesk-hostinger "docker exec binny-backend npx node-pg-migrate up --no-check-order --dry-run"  # confirm expected set first
+ssh surveydesk-hostinger "docker exec binny-backend npx node-pg-migrate up --no-check-order"
+```
+
+⚠️ **`--no-check-order`**: `node-pg-migrate` 7.x defaults to enforcing strict filename order against the applied-migrations ledger. If the target ever applied a later-dated migration while skipping an earlier one (has happened on LIVE), a plain `migrate:up` throws before touching any table. Harmless to work around, confusing if you don't know to expect it.
+
+⚠️ **LIVE's shared ingress is `binny-nginx`** — a hand-started container (not managed by `docker compose`), serving ~15 other unrelated clients on the same box. Never `docker compose down` on LIVE, never touch `binny-nginx` or its mounted conf, always pass `-f docker-compose.prod.yml` + explicit service names + `--no-deps`.
+
+### Things to know (both environments)
+- **Server repo path:** `/opt/binny/` on both boxes — plain directories, NOT a git clone. Don't `git pull` on either server.
+- **DO NOT overwrite** `/opt/binny/.env` during a sync — it holds server-side secrets, and on LIVE also the `NEXT_PUBLIC_*` caps baked at frontend build time. Neither recipe above includes it; keep it that way.
+- **Rsync is not installed locally on Windows** — use `git archive`/tar-over-ssh, not rsync.
+- **LIVE admin credentials are rotated by the client** — you cannot log in or make authenticated API calls against LIVE. Verify LIVE deploys via health endpoints, `docker exec` DB queries, and `docker exec` greps of the built artifacts (`dist` inside `binny-backend`, `.next` inside each frontend container — neither exists on the host filesystem, only inside the images).
+- The `~/.ssh/binny-deploy` file in the project is dead — it was never added to either server's `authorized_keys`. Ignore it; use the aliases above.
 
 ### When the client says "I don't see my changes on the portal"
 
 It's almost always one of:
-1. You pushed to GitHub but didn't run the deploy recipe.
+1. You pushed to GitHub but didn't run the deploy recipe (a `git push` does nothing to either portal on its own).
 2. You ran the deploy but the client has a stale browser cache (hard-refresh, or DevTools → Disable cache).
 3. Service worker (PWA) is serving an old asset. Mostly happens on first visit after a deploy; second refresh clears it.
+4. On LIVE specifically: check whether the change actually reached **both** frontend containers — `binny-frontend-root` (canonical domain) and `binny-frontend` (hstgr fallback) are built and served independently, and it's possible to rebuild one and forget the other.
 
 ---
 
@@ -354,9 +383,16 @@ Confirmed by client / project lead, do not change unilaterally:
 - Free-tier queue waits 10–30 min before starting a build. If the client needs faster turnaround, upgrade at <https://expo.dev/accounts/kanikabehl/settings/billing>.
 
 ### Hostinger testing server
-- SSH: `ssh -i ~/.ssh/id_ed25519 root@srv1409601.hstgr.cloud`
+- SSH: `ssh alstone-vps` (alias — the old `-i ~/.ssh/id_ed25519 root@srv1409601.hstgr.cloud` form is stale on the current machine)
 - Web: <https://srv1409601.hstgr.cloud/binny/>
 - See §6 for the deploy recipe.
+
+### Hostinger LIVE server
+- SSH: `ssh surveydesk-hostinger` (alias for `srv1689976.hstgr.cloud` / `187.127.130.99`)
+- Web: <https://binnyfootwear.basiq360.com/> (canonical) and <https://srv1689976.hstgr.cloud/binny/> (fallback)
+- Admin creds are client-rotated — no authenticated verification possible from our side.
+- Shares the box's nginx ingress (`binny-nginx`, not compose-managed) with ~15 other unrelated clients — see §6's do-not-touch notes.
+- See §6 and `docs/live-deploy-checklist.md` for the full deploy runbook.
 
 ### AWS (for production, coming soon)
 - Production will live under **Basiq360's existing AWS account** on subdomain `binny.basiq360.com`.
@@ -444,7 +480,7 @@ Things that have gone wrong on this project. None are catastrophic, but knowing 
 2. **Time-based checkpointer was noisy** — `scripts/progress-checkpoint.sh` rewrote a checkpoint file every 60s. Per-test-case cadence is preferred. If you find a `.progress-checkpoint.pid` file or a running checkpoint loop, stop it and delete the artifacts.
 3. **Windows file-watcher silence** — Next.js webpack watcher doesn't reliably see edits in Windows-host → Linux-container bind mounts. Polling env vars (`WATCHPACK_POLLING`, `CHOKIDAR_USEPOLLING`) are required on the dev compose. Removing them would silently kill HMR.
 4. **Stale browser cache after deploys** — Service worker + PWA + Next.js chunk caching means "I deployed but I don't see the change" reports are usually browser-side. First instinct: Ctrl+Shift+R the page, check DevTools Network → Disable cache, or try incognito.
-5. **`~/.ssh/binny-deploy` is dead** — there's a project-tracked key file by that name; it was never added to the server's `authorized_keys`. Always use `~/.ssh/id_ed25519` (your personal key). Don't waste time troubleshooting deploys with the wrong key.
+5. **`~/.ssh/binny-deploy` is dead** — there's a project-tracked key file by that name; it was never added to either server's `authorized_keys`. **As of the 2026-07/08 device transfer, `~/.ssh/id_ed25519` is ALSO stale** on the current machine — use the SSH config aliases `alstone-vps` (TEST) / `surveydesk-hostinger` (LIVE) instead. Don't waste time troubleshooting deploys with the wrong key or a nonexistent one.
 6. **Multi-colour master carton labels** — early label code aggregated only the first colour/article/MRP. The May 6, 2026 fix aggregates *distinct* values across all rows. Any new master-carton label work should keep that distinct-set pattern.
 7. **The `Article: ` prefix was redundant** — early child box label had `Article: MOGLI PLUS 02`. Client preferred just the name centred. Default is "show the value, not the label" for label printing. When in doubt, drop the field name.
 8. **`overflow: hidden` on `.label` silently eats content** — if a row stops appearing, first check whether the total table content overflowed past `48mm`. Reduce padding / shrink fonts / restructure rowspans before getting fancy with absolute positioning.
