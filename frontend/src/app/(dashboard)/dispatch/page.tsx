@@ -15,7 +15,7 @@ import { sampleService } from '@/services/sample.service';
 import { ecommerceService } from '@/services/ecommerce.service';
 import { customerService } from '@/services/customer.service';
 import { useApiMutation } from '@/hooks/useApi';
-import type { MasterCarton, ChildBoxWithProduct, SampleRecord, SampleChildBoxRow, EcommerceRecord } from '@/types';
+import type { MasterCarton, ChildBoxWithProduct, SampleRecord, SampleChildBoxRow, EcommercePoolLookupHit } from '@/types';
 import toast from 'react-hot-toast';
 import { ROUTES } from '@/constants';
 import { useRouter } from 'next/navigation';
@@ -47,9 +47,16 @@ export default function DispatchPage() {
   // All checked by default — unchecking anything triggers a scoped (partial) dispatch.
   const [selectedBoxIds, setSelectedBoxIds] = useState<Set<string>>(new Set());
 
-  // Ecommerce state (single)
-  const [selectedEc, setSelectedEc] = useState<EcommerceRecord | null>(null);
+  // Ecommerce state (multi — scanned straight out of the E-commerce Area pool)
+  const [scannedEcItems, setScannedEcItems] = useState<EcommercePoolLookupHit[]>([]);
   const [showEcScanner, setShowEcScanner] = useState(false);
+  const [ecFields, setEcFields] = useState({
+    reference_name: '',
+    marketplace: '',
+    order_reference: '',
+    listing_sku: '',
+    order_date: '',
+  });
 
   // Shared form
   const [customerId, setCustomerId] = useState('');
@@ -165,25 +172,48 @@ export default function DispatchPage() {
   const sampleScopeIsPartial = selectedSample !== null && selectedBoxIds.size < sampleChildren.length;
 
   // ── Ecommerce helpers ──
-  const lookupEc = useCallback(async (code: string) => {
-    const trimmed = code.trim();
-    if (!trimmed) return;
-    try {
-      const record = await ecommerceService.getByBarcode(trimmed);
-      if (record.status === 'DISPATCHED') {
-        toast.error('This e-commerce record has already been dispatched');
-        return;
+  // Scans a barcode straight against the E-commerce Area pool (see
+  // ecommerceService.lookupPoolItem) and, if eligible, adds it to the list of
+  // items this dispatch will ship. Keyed by "TYPE:BARCODE" for dedup since a
+  // box and a carton could theoretically share the same raw barcode text.
+  const ecItemKey = (item: { item_type: 'BOX' | 'CARTON'; barcode: string }) =>
+    `${item.item_type}:${item.barcode}`;
+
+  const addEcItem = useCallback(
+    async (code: string) => {
+      const trimmed = code.trim().toUpperCase();
+      if (!trimmed) return;
+      try {
+        const result = await ecommerceService.lookupPoolItem(trimmed);
+        if (!result.in_pool) {
+          toast.error(result.reason || `${result.barcode} is not available in the E-commerce Area`);
+          return;
+        }
+        const key = ecItemKey(result);
+        if (scannedEcItems.some((i) => ecItemKey(i) === key)) {
+          toast.error('Item already added');
+          return;
+        }
+        setScannedEcItems((prev) => [...prev, result]);
+        toast.success(
+          result.item_type === 'CARTON'
+            ? `Added carton ${result.barcode} (${result.box_count} boxes)`
+            : `Added box ${result.barcode}`
+        );
+      } catch {
+        toast.error('No master carton or child box found for that barcode');
       }
-      if (record.status === 'CREATED') {
-        toast.error('E-commerce record has no boxes (CREATED status)');
-        return;
-      }
-      setSelectedEc(record);
-      toast.success(`E-commerce record found: ${record.name}`);
-    } catch {
-      toast.error('E-commerce record not found');
-    }
-  }, []);
+    },
+    [scannedEcItems]
+  );
+
+  const removeEcItem = (key: string) => {
+    setScannedEcItems((prev) => prev.filter((i) => ecItemKey(i) !== key));
+  };
+
+  const updateEcField = (field: keyof typeof ecFields, value: string) => {
+    setEcFields((prev) => ({ ...prev, [field]: value }));
+  };
 
   // ── Submit ──
   const canSubmit =
@@ -191,7 +221,7 @@ export default function DispatchPage() {
       ? scannedCartons.length > 0 && !!customerId
       : sourceType === 'sample'
       ? selectedSample !== null && selectedBoxIds.size > 0
-      : selectedEc !== null;
+      : scannedEcItems.length > 0;
 
   const buildPayload = () => {
     const base = {
@@ -217,20 +247,39 @@ export default function DispatchPage() {
           : {}),
       };
     }
-    return { ...base, ecommerce_record_id: selectedEc!.id };
+    return {
+      ...base,
+      ecommerce_pool: {
+        items: scannedEcItems.map((i) => ({ item_type: i.item_type, barcode: i.barcode })),
+      },
+      reference_name: ecFields.reference_name || undefined,
+      marketplace: ecFields.marketplace || undefined,
+      order_reference: ecFields.order_reference || undefined,
+      listing_sku: ecFields.listing_sku || undefined,
+      order_date: ecFields.order_date || undefined,
+    };
   };
 
   const { mutate: createDispatch, isPending } = useApiMutation(
     () => dispatchService.create(buildPayload()),
     {
       successMessage: 'Dispatch created successfully',
-      invalidateKeys: [['master-cartons'], ['samples'], ['ecommerce'], ['dashboard-stats'], ['dispatches']],
+      invalidateKeys: [
+        ['master-cartons'],
+        ['samples'],
+        ['ecommerce'],
+        ['ecommerce-pool'],
+        ['ecommerce-pool-summary'],
+        ['dashboard-stats'],
+        ['dispatches'],
+      ],
       onSuccess: () => {
         setScannedCartons([]);
         setSelectedSample(null);
         setSampleChildren([]);
         setSelectedBoxIds(new Set());
-        setSelectedEc(null);
+        setScannedEcItems([]);
+        setEcFields({ reference_name: '', marketplace: '', order_reference: '', listing_sku: '', order_date: '' });
         setCustomerId('');
         setFormData({ destination: '', vehicle_number: '', transport_details: '', lr_number: '', notes: '' });
         router.push(ROUTES.DISPATCHES);
@@ -250,7 +299,7 @@ export default function DispatchPage() {
           ? 'Add at least one master carton'
           : sourceType === 'sample'
           ? 'Scan or enter a sample barcode'
-          : 'Scan or enter an e-commerce barcode'
+          : 'Scan at least one e-commerce item'
       );
       return;
     }
@@ -268,7 +317,7 @@ export default function DispatchPage() {
       ? sampleScopeIsPartial
         ? `Dispatch ${selectedBoxIds.size} of ${sampleChildren.length} items`
         : `Create Dispatch${selectedSample ? ` — ${selectedSample.name}` : ''}`
-      : `Create Dispatch${selectedEc ? ` — ${selectedEc.name}` : ''}`;
+      : `Create Dispatch (${scannedEcItems.length} item${scannedEcItems.length !== 1 ? 's' : ''})`;
 
   return (
     <div>
@@ -348,6 +397,48 @@ export default function DispatchPage() {
                 value={formData.notes}
                 onChange={(e) => updateField('notes', e.target.value)}
               />
+
+              {sourceType === 'ecommerce' && (
+                <div className="pt-4 border-t border-brand-border space-y-4">
+                  <h4 className="text-sm font-semibold text-brand-text-dark">
+                    E-commerce Details (Optional)
+                  </h4>
+                  <Input
+                    label="Reference Name"
+                    placeholder="e.g., internal batch/reference name"
+                    value={ecFields.reference_name}
+                    onChange={(e) => updateEcField('reference_name', e.target.value)}
+                  />
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <Input
+                      label="Marketplace"
+                      placeholder="e.g., Amazon, Flipkart..."
+                      value={ecFields.marketplace}
+                      onChange={(e) => updateEcField('marketplace', e.target.value)}
+                    />
+                    <Input
+                      label="Order Reference"
+                      placeholder="Order / invoice reference"
+                      value={ecFields.order_reference}
+                      onChange={(e) => updateEcField('order_reference', e.target.value)}
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <Input
+                      label="Listing SKU"
+                      placeholder="Marketplace listing SKU"
+                      value={ecFields.listing_sku}
+                      onChange={(e) => updateEcField('listing_sku', e.target.value)}
+                    />
+                    <Input
+                      label="Order Date"
+                      type="date"
+                      value={ecFields.order_date}
+                      onChange={(e) => updateEcField('order_date', e.target.value)}
+                    />
+                  </div>
+                </div>
+              )}
 
               {canCreate && (
                 <div className="pt-4 border-t border-brand-border">
@@ -586,77 +677,108 @@ export default function DispatchPage() {
 
           {/* ── E-commerce panel ── */}
           {sourceType === 'ecommerce' && (
-            <Card className="p-6">
-              <div className="flex items-center gap-2 mb-4">
-                <div className="p-2 rounded-lg" style={{ backgroundColor: '#F3F0FF' }}>
-                  <ShoppingCart className="h-4 w-4 text-purple-600" />
-                </div>
-                <h3 className="font-semibold text-brand-text-dark">Scan E-commerce Record</h3>
-              </div>
-
-              <HIDScannerInput
-                onScan={(code) => lookupEc(code)}
-                placeholder="Scan or enter e-commerce barcode..."
-                autoFocus={sourceType === 'ecommerce'}
-              />
-
-              <div className="mt-4 pt-4 border-t border-brand-border">
-                <Button
-                  variant={showEcScanner ? 'secondary' : 'outline'}
-                  size="sm"
-                  onClick={() => setShowEcScanner(!showEcScanner)}
-                  leftIcon={<ScanLine className="h-4 w-4" />}
-                >
-                  {showEcScanner ? 'Hide Camera' : 'Use Camera Instead'}
-                </Button>
-              </div>
-
-              {showEcScanner && (
-                <div className="mt-4">
-                  <QRScanner
-                    onScanSuccess={(code) => { lookupEc(code); setShowEcScanner(false); }}
-                    autoStart
-                  />
-                </div>
-              )}
-
-              {selectedEc ? (
-                <div className="mt-4 p-3 bg-purple-50 border border-purple-200 rounded-lg">
-                  <div className="flex items-start justify-between">
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold text-brand-text-dark">{selectedEc.name}</p>
-                      <p className="text-xs font-mono text-brand-text-muted">{selectedEc.ecommerce_barcode}</p>
-                      {selectedEc.marketplace && (
-                        <p className="text-xs text-brand-text-muted mt-0.5">
-                          Marketplace: {selectedEc.marketplace}
-                        </p>
-                      )}
-                      {selectedEc.order_reference && (
-                        <p className="text-xs text-brand-text-muted">Order: {selectedEc.order_reference}</p>
-                      )}
-                      {selectedEc.listing_sku && (
-                        <p className="text-xs text-brand-text-muted">SKU: {selectedEc.listing_sku}</p>
-                      )}
-                      <p className="text-xs text-brand-text-muted">
-                        {selectedEc.child_count} boxes &middot; {selectedEc.status}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedEc(null)}
-                      className="p-1 rounded text-brand-text-muted hover:text-brand-error hover:bg-purple-100 transition-colors shrink-0"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
+            <>
+              <Card className="p-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <div className="p-2 rounded-lg" style={{ backgroundColor: '#F3F0FF' }}>
+                    <ScanLine className="h-4 w-4 text-purple-600" />
                   </div>
+                  <h3 className="font-semibold text-brand-text-dark">Scan E-commerce Items</h3>
                 </div>
-              ) : (
-                <div className="mt-4 text-center py-6">
-                  <ShoppingCart className="h-10 w-10 mx-auto mb-2 text-brand-text-muted/30" />
-                  <p className="text-sm text-brand-text-muted">Scan or enter an e-commerce barcode</p>
+
+                <HIDScannerInput
+                  onScan={(code) => addEcItem(code)}
+                  placeholder="Scan or enter master carton / child box barcode..."
+                  autoFocus={sourceType === 'ecommerce'}
+                />
+
+                <div className="mt-4 pt-4 border-t border-brand-border">
+                  <Button
+                    variant={showEcScanner ? 'secondary' : 'outline'}
+                    size="sm"
+                    onClick={() => setShowEcScanner(!showEcScanner)}
+                    leftIcon={<ScanLine className="h-4 w-4" />}
+                  >
+                    {showEcScanner ? 'Hide Camera' : 'Use Camera Instead'}
+                  </Button>
                 </div>
-              )}
-            </Card>
+
+                {showEcScanner && (
+                  <div className="mt-4">
+                    <QRScanner onScanSuccess={(code) => addEcItem(code)} autoStart />
+                  </div>
+                )}
+              </Card>
+
+              <Card className="p-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <div className="p-2 rounded-lg" style={{ backgroundColor: '#F3F0FF' }}>
+                    <ShoppingCart className="h-4 w-4 text-purple-600" />
+                  </div>
+                  <h3 className="font-semibold text-brand-text-dark">
+                    Items to Dispatch ({scannedEcItems.length})
+                  </h3>
+                </div>
+                {scannedEcItems.length === 0 ? (
+                  <div className="text-center py-8">
+                    <ShoppingCart className="h-12 w-12 mx-auto mb-3 text-brand-text-muted/30" />
+                    <p className="text-sm text-brand-text-muted">
+                      Scan a master carton or child box from the E-commerce Area to add it here
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-[400px] overflow-y-auto scrollbar-hide">
+                    {scannedEcItems.map((item) => {
+                      const key = ecItemKey(item);
+                      return (
+                        <div
+                          key={key}
+                          className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+                        >
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 mb-0.5">
+                              <span
+                                className={`text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded ${
+                                  item.item_type === 'CARTON'
+                                    ? 'bg-purple-100 text-purple-700'
+                                    : 'bg-gray-200 text-gray-700'
+                                }`}
+                              >
+                                {item.item_type === 'CARTON' ? 'Carton' : 'Box'}
+                              </span>
+                              <span className="text-xs font-mono text-brand-text-muted">
+                                {item.barcode}
+                              </span>
+                            </div>
+                            {item.article_summary && (
+                              <p className="text-sm font-medium text-brand-text-dark">
+                                {item.article_summary}
+                              </p>
+                            )}
+                            {(item.colour_summary || item.size_summary) && (
+                              <p className="text-xs text-brand-text-muted">
+                                {[item.colour_summary, item.size_summary].filter(Boolean).join(' | ')}
+                                {item.mrp != null ? ` | ${formatCurrency(item.mrp)}` : ''}
+                              </p>
+                            )}
+                            <p className="text-xs text-brand-text-muted mt-0.5">
+                              {item.box_count} box{item.box_count !== 1 ? 'es' : ''} &middot; {item.pairs} pairs
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => removeEcItem(key)}
+                            className="p-1 rounded text-brand-text-muted hover:text-brand-error hover:bg-red-50 transition-colors shrink-0"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </Card>
+            </>
           )}
         </div>
       </div>

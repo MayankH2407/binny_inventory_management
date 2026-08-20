@@ -12,7 +12,6 @@ export const ROUTES = {
   SAMPLES_INVENTORY: '/samples/inventory',
   SAMPLE_DETAIL: (id: string) => `/samples/${id}`,
   ECOMMERCE: '/ecommerce',
-  ECOMMERCE_CREATE: '/ecommerce/create',
   ECOMMERCE_STOCK: '/ecommerce/stock',
   ECOMMERCE_DETAIL: (id: string) => `/ecommerce/${id}`,
   SCAN: '/scan',

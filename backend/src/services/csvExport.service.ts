@@ -1,6 +1,6 @@
 import { query } from '../config/database';
 import { getProductWiseReport, getDailyActivity, getSampleReport, getEcommerceReport, getCartonInventoryReport } from './report.service';
-import { SampleStatus, EcommerceStatus } from '../config/constants';
+import { SampleStatus } from '../config/constants';
 import { getCartonHierarchy } from './inventory.service';
 
 function toCSV(headers: string[], rows: string[][]): string {
@@ -59,13 +59,16 @@ export async function exportDispatchCSV(fromDate?: string, toDate?: string): Pro
   const result = await query(`
     SELECT
       dr.dispatch_date,
-      CASE
-        WHEN dr.master_carton_id IS NOT NULL THEN 'Master Carton'
-        WHEN dr.sample_record_id IS NOT NULL THEN 'Sample'
-        WHEN dr.ecommerce_record_id IS NOT NULL THEN 'E-commerce'
+      CASE dr.source_type
+        WHEN 'MASTER_CARTON' THEN 'Master Carton'
+        WHEN 'SAMPLE' THEN 'Sample'
+        WHEN 'ECOMMERCE' THEN 'E-commerce'
         ELSE ''
       END AS source_type,
-      COALESCE(mc.carton_barcode, sr.sample_barcode, er.ecommerce_barcode) AS source_barcode,
+      COALESCE(mc.carton_barcode, sr.sample_barcode, er.ecommerce_barcode, NULLIF(dr.order_reference, ''), NULLIF(dr.reference_name, ''), NULLIF(dr.marketplace, ''), CASE WHEN dr.source_type = 'ECOMMERCE' THEN 'E-commerce' END) AS source_barcode,
+      dr.marketplace,
+      dr.order_reference,
+      dr.listing_sku,
       COALESCE(c.firm_name, 'Walk-in / No Customer') AS customer_name,
       c.gstin,
       dr.destination,
@@ -97,8 +100,6 @@ export async function exportDispatchCSV(fromDate?: string, toDate?: string): Pro
       UNION ALL
       SELECT sbm.child_box_id FROM sample_box_mapping sbm WHERE sbm.sample_record_id = dr.sample_record_id AND sbm.is_active = true
       UNION ALL
-      SELECT ebm.child_box_id FROM ecommerce_box_mapping ebm WHERE ebm.ecommerce_record_id = dr.ecommerce_record_id AND ebm.is_active = true
-      UNION ALL
       -- Whole cartons scanned intact into a sample (carton stays PACKED; see scanCartonToSample).
       -- Both is_active filters matter: scm so a released/emptied allocation doesn't
       -- still count, ccm so a box taken out individually (takeBoxOutOfCartonAllocation)
@@ -107,10 +108,15 @@ export async function exportDispatchCSV(fromDate?: string, toDate?: string): Pro
       JOIN carton_child_mapping ccm ON ccm.master_carton_id = scm.master_carton_id AND ccm.is_active = true
       WHERE scm.sample_record_id = dr.sample_record_id AND scm.is_active = true
       UNION ALL
-      -- Whole cartons scanned intact into an e-commerce record (see scanCartonToEcommerce)
+      -- E-commerce pool: loose boxes shipped on this dispatch. No is_active filter —
+      -- a returned item must still show on its original shipment's CSV row.
+      SELECT ebm.child_box_id FROM ecommerce_box_mapping ebm WHERE ebm.dispatch_record_id = dr.id
+      UNION ALL
+      -- E-commerce pool: whole cartons shipped on this dispatch (carton stays intact
+      -- until unpacked; see ecommerce.service.ts#unpackCartonInEcommercePool).
       SELECT ccm.child_box_id FROM ecommerce_carton_mapping ecm
       JOIN carton_child_mapping ccm ON ccm.master_carton_id = ecm.master_carton_id AND ccm.is_active = true
-      WHERE ecm.ecommerce_record_id = dr.ecommerce_record_id AND ecm.is_active = true
+      WHERE ecm.dispatch_record_id = dr.id
     ) src ON true
     JOIN child_boxes cb ON cb.id = src.child_box_id
     JOIN products p ON p.id = cb.product_id
@@ -120,7 +126,8 @@ export async function exportDispatchCSV(fromDate?: string, toDate?: string): Pro
   `, values);
 
   const headers = [
-    'Dispatch Date', 'Source Type', 'Source Barcode', 'Customer', 'GSTIN', 'Destination',
+    'Dispatch Date', 'Source Type', 'Source Barcode', 'Marketplace', 'Order Reference', 'Listing SKU',
+    'Customer', 'GSTIN', 'Destination',
     'Contact Person', 'Contact Mobile', 'Section', 'Article', 'Article Code', 'Colour', 'Size', 'HSN Code',
     'Boxes', 'Pairs', 'MRP', 'Total Value', 'Vehicle', 'LR Number', 'Transport Details', 'Dispatched By', 'Notes',
   ];
@@ -131,6 +138,9 @@ export async function exportDispatchCSV(fromDate?: string, toDate?: string): Pro
     r.dispatch_date ? new Date(r.dispatch_date as string).toISOString().slice(0, 10) : '',
     String(r.source_type ?? ''),
     String(r.source_barcode ?? ''),
+    String(r.marketplace ?? ''),
+    String(r.order_reference ?? ''),
+    String(r.listing_sku ?? ''),
     String(r.customer_name ?? ''),
     String(r.gstin ?? ''),
     String(r.destination ?? ''),
@@ -333,7 +343,7 @@ export async function exportReturnCSV(fromDate?: string, toDate?: string): Promi
   const result = await query(`
     SELECT
       rr.return_date,
-      COALESCE(odmc.carton_barcode, oder.ecommerce_barcode) AS origin_dispatch,
+      COALESCE(odmc.carton_barcode, odsr.sample_barcode, oder.ecommerce_barcode, NULLIF(dr.order_reference, ''), NULLIF(dr.reference_name, ''), NULLIF(dr.marketplace, ''), CASE WHEN dr.source_type = 'ECOMMERCE' THEN 'E-commerce' END) AS origin_dispatch,
       COALESCE(c.firm_name, 'Walk-in / No Customer') AS customer_name,
       ri.item_type,
       mci.carton_barcode,
@@ -360,9 +370,10 @@ export async function exportReturnCSV(fromDate?: string, toDate?: string): Promi
     -- itself has no single dispatch link)
     LEFT JOIN dispatch_records dr ON dr.id = ri.dispatch_record_id
     LEFT JOIN master_cartons odmc ON odmc.id = dr.master_carton_id
+    LEFT JOIN sample_records odsr ON odsr.id = dr.sample_record_id
     LEFT JOIN ecommerce_records oder ON oder.id = dr.ecommerce_record_id
     ${whereClause}
-    GROUP BY rr.id, c.id, u.id, p.id, ri.item_type, mci.id, odmc.id, oder.id
+    GROUP BY rr.id, c.id, u.id, p.id, ri.item_type, mci.id, dr.id, odmc.id, odsr.id, oder.id
     ORDER BY customer_name, rr.return_date DESC, mci.carton_barcode, p.article_name, p.colour, p.size
   `, values);
 
@@ -400,28 +411,34 @@ export async function exportReturnCSV(fromDate?: string, toDate?: string): Promi
 export async function exportEcommerceReportCSV(filters: {
   from?: Date;
   to?: Date;
-  status?: EcommerceStatus;
   marketplace?: string;
 }): Promise<string> {
   const report = await getEcommerceReport(filters);
 
   const headers = [
-    'E-commerce Barcode', 'Name', 'Marketplace', 'Order Reference', 'Listing SKU',
-    'Status', 'Box Count', 'Mapped Date', 'Created At', 'Dispatched At', 'Created By',
+    'Dispatch Date', 'Reference Name', 'Marketplace', 'Order Reference', 'Listing SKU', 'Order Date',
+    'Customer', 'Destination', 'Box Count', 'Pairs', 'Article', 'Colour', 'Size',
+    'LR Number', 'Vehicle Number', 'Dispatched By', 'Notes',
   ];
 
   const rows = report.rows.map((r) => [
-    String(r.ecommerce_barcode ?? ''),
-    String(r.name ?? ''),
+    r.dispatch_date ? new Date(r.dispatch_date as string).toISOString().slice(0, 10) : '',
+    String(r.reference_name ?? ''),
     String(r.marketplace ?? ''),
     String(r.order_reference ?? ''),
     String(r.listing_sku ?? ''),
-    String(r.status ?? ''),
-    String(r.child_count ?? ''),
-    String(r.mapped_date ?? ''),
-    String(r.created_at ?? ''),
-    String(r.dispatched_at ?? ''),
-    String(r.creator_name ?? ''),
+    String(r.order_date ?? ''),
+    String(r.customer_firm_name ?? ''),
+    String(r.destination ?? ''),
+    String(r.box_count ?? ''),
+    String(r.pairs ?? ''),
+    String(r.article_summary ?? ''),
+    String(r.colour_summary ?? ''),
+    String(r.size_summary ?? ''),
+    String(r.lr_number ?? ''),
+    String(r.vehicle_number ?? ''),
+    String(r.dispatched_by_name ?? ''),
+    String(r.notes ?? ''),
   ]);
 
   return toCSV(headers, rows);

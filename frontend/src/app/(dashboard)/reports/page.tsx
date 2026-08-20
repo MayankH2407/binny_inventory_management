@@ -112,10 +112,10 @@ export default function ReportsPage() {
   const [sampleStatus, setSampleStatus] = useState('');
   const [sampleCustomerId, setSampleCustomerId] = useState('');
 
-  // Ecommerce report filters
+  // Ecommerce report filters — no status filter: an e-commerce dispatch either
+  // happened or it didn't, there's no lifecycle stage left to filter by.
   const [ecFromDate, setEcFromDate] = useState(weekAgo);
   const [ecToDate, setEcToDate] = useState(today);
-  const [ecStatus, setEcStatus] = useState('');
   const [ecMarketplace, setEcMarketplace] = useState('');
 
   // Stock Report
@@ -160,11 +160,10 @@ export default function ReportsPage() {
 
   // Ecommerce Report
   const { data: ecData, isLoading: ecLoading } = useApiQuery<EcommerceReportResponse>(
-    ['reports', 'ecommerce', ecFromDate, ecToDate, ecStatus, ecMarketplace],
+    ['reports', 'ecommerce', ecFromDate, ecToDate, ecMarketplace],
     () => reportService.getEcommerceReport({
       from: ecFromDate || undefined,
       to: ecToDate || undefined,
-      status: ecStatus || undefined,
       marketplace: ecMarketplace || undefined,
     }),
     { enabled: activeTab === 'ecommerce', placeholderData: keepPreviousData }
@@ -177,8 +176,8 @@ export default function ReportsPage() {
     () => customerService.getAll({ limit: 100000, is_active: true }),
     { enabled: activeTab === 'samples' }
   );
-  const customers = customersData?.data ?? [];
 
+  const customers = customersData?.data ?? [];
   const handleExport = async (endpoint: string, filename: string, params?: Record<string, string>) => {
     try {
       const blob = await reportService.exportCSV(endpoint, params);
@@ -335,7 +334,6 @@ export default function ReportsPage() {
                 const blob = await reportService.exportEcommerceReportCsv({
                   from: ecFromDate || undefined,
                   to: ecToDate || undefined,
-                  status: ecStatus || undefined,
                   marketplace: ecMarketplace || undefined,
                 });
                 const blobObj = new Blob([blob], { type: 'text/csv' });
@@ -440,11 +438,9 @@ export default function ReportsPage() {
           isLoading={ecLoading}
           fromDate={ecFromDate}
           toDate={ecToDate}
-          status={ecStatus}
           marketplace={ecMarketplace}
           onFromDateChange={setEcFromDate}
           onToDateChange={setEcToDate}
-          onStatusChange={setEcStatus}
           onMarketplaceChange={setEcMarketplace}
         />
       )}
@@ -1084,27 +1080,26 @@ function SamplesTab({
 }
 
 /* ─── E-commerce Tab ─── */
+// No status filter here: the pool redesign means an e-commerce dispatch
+// either happened or it didn't — there's no CREATED/ACTIVE/CLOSED lifecycle
+// left to filter by (see backend report.service.ts#getEcommerceReport).
 function EcommerceTab({
   data,
   isLoading,
   fromDate,
   toDate,
-  status,
   marketplace,
   onFromDateChange,
   onToDateChange,
-  onStatusChange,
   onMarketplaceChange,
 }: {
   data: EcommerceReportResponse | null;
   isLoading: boolean;
   fromDate: string;
   toDate: string;
-  status: string;
   marketplace: string;
   onFromDateChange: (v: string) => void;
   onToDateChange: (v: string) => void;
-  onStatusChange: (v: string) => void;
   onMarketplaceChange: (v: string) => void;
 }) {
   return (
@@ -1125,19 +1120,6 @@ function EcommerceTab({
             onChange={(e) => onToDateChange(e.target.value)}
             leftIcon={<Calendar className="h-4 w-4" />}
           />
-          <Select
-            label="Status"
-            placeholder="All statuses"
-            options={[
-              { value: '', label: 'All Statuses' },
-              { value: 'CREATED', label: 'Created' },
-              { value: 'ACTIVE', label: 'Active' },
-              { value: 'CLOSED', label: 'Closed' },
-              { value: 'DISPATCHED', label: 'Dispatched' },
-            ]}
-            value={status}
-            onChange={(e) => onStatusChange(e.target.value)}
-          />
           <Input
             label="Marketplace"
             placeholder="e.g., Amazon, Flipkart..."
@@ -1154,19 +1136,26 @@ function EcommerceTab({
           {/* Summary cards */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
             <Card className="p-4">
-              <p className="text-xs text-brand-text-muted mb-1">Total</p>
-              <p className="text-2xl font-bold text-brand-text-dark">{data.summary.total}</p>
+              <p className="text-xs text-brand-text-muted mb-1">Dispatches</p>
+              <p className="text-2xl font-bold text-brand-text-dark">{data.summary.dispatch_count}</p>
             </Card>
             <Card className="p-4">
-              <p className="text-xs text-brand-text-muted mb-1">Total Pairs</p>
-              <p className="text-2xl font-bold text-brand-text-dark">{data.summary.total_pairs}</p>
+              <p className="text-xs text-brand-text-muted mb-1">Boxes Shipped</p>
+              <p className="text-2xl font-bold text-brand-text-dark">{data.summary.box_count}</p>
             </Card>
-            {Object.entries(data.summary.by_status).map(([s, count]) => (
-              <Card key={s} className="p-4">
-                <p className="text-xs text-brand-text-muted mb-1">{s}</p>
-                <p className="text-2xl font-bold text-brand-text-dark">{count}</p>
-              </Card>
-            ))}
+            <Card className="p-4">
+              <p className="text-xs text-brand-text-muted mb-1">Pairs Shipped</p>
+              <p className="text-2xl font-bold text-brand-text-dark">{data.summary.pairs_total}</p>
+            </Card>
+            <Card className="p-4">
+              <p className="text-xs text-brand-text-muted mb-1">In E-commerce Area (Now)</p>
+              <p className="text-2xl font-bold text-brand-text-dark">{data.summary.pool.total_boxes}</p>
+              <p className="text-xs text-brand-text-muted mt-0.5">
+                {data.summary.pool.carton_items} carton{data.summary.pool.carton_items !== 1 ? 's' : ''} ·{' '}
+                {data.summary.pool.box_items} loose box{data.summary.pool.box_items !== 1 ? 'es' : ''} ·{' '}
+                {data.summary.pool.total_pairs} pairs
+              </p>
+            </Card>
           </div>
 
           {/* By marketplace */}
@@ -1177,7 +1166,9 @@ function EcommerceTab({
                 {data.summary.by_marketplace.map((mp) => (
                   <div key={mp.marketplace} className="flex items-center gap-2">
                     <Badge variant="purple" size="sm">{mp.marketplace}</Badge>
-                    <span className="text-xs text-brand-text-muted">{mp.count}</span>
+                    <span className="text-xs text-brand-text-muted">
+                      {mp.dispatch_count} dispatch{mp.dispatch_count !== 1 ? 'es' : ''} · {mp.box_count} boxes · {mp.pairs} pairs
+                    </span>
                   </div>
                 ))}
               </div>
@@ -1187,21 +1178,25 @@ function EcommerceTab({
           {/* Mobile cards */}
           <div className="space-y-3 lg:hidden">
             {data.rows.map((row) => (
-              <Card key={row.id} className="p-4">
+              <Card key={row.dispatch_id} className="p-4">
                 <div className="flex justify-between items-start mb-2">
                   <div>
-                    <p className="font-semibold text-brand-text-dark text-sm">{row.name}</p>
-                    <p className="text-xs font-mono text-brand-text-muted">{row.ecommerce_barcode}</p>
+                    <p className="font-semibold text-brand-text-dark text-sm">
+                      {row.order_reference || row.reference_name || row.marketplace || 'E-commerce'}
+                    </p>
+                    <p className="text-xs text-brand-text-muted">{formatDateTime(row.dispatch_date)}</p>
                   </div>
-                  <StatusBadge status={row.status} />
                 </div>
                 <div className="grid grid-cols-2 gap-1 text-xs">
                   {row.marketplace && <div><span className="text-brand-text-muted">Marketplace:</span> {row.marketplace}</div>}
-                  {row.order_reference && <div><span className="text-brand-text-muted">Order:</span> {row.order_reference}</div>}
                   {row.listing_sku && <div><span className="text-brand-text-muted">SKU:</span> {row.listing_sku}</div>}
-                  <div><span className="text-brand-text-muted">Boxes:</span> {row.child_count}</div>
-                  {row.mapped_date && <div><span className="text-brand-text-muted">Mapped:</span> {row.mapped_date}</div>}
-                  {row.dispatched_at && <div className="col-span-2"><span className="text-brand-text-muted">Dispatched:</span> {formatDateTime(row.dispatched_at)}</div>}
+                  {row.customer_firm_name && <div className="col-span-2"><span className="text-brand-text-muted">Customer:</span> {row.customer_firm_name}</div>}
+                  {row.destination && <div className="col-span-2"><span className="text-brand-text-muted">Destination:</span> {row.destination}</div>}
+                  {row.article_summary && <div className="col-span-2"><span className="text-brand-text-muted">Product:</span> {row.article_summary}</div>}
+                  <div><span className="text-brand-text-muted">Boxes:</span> {row.box_count}</div>
+                  <div><span className="text-brand-text-muted">Pairs:</span> {row.pairs}</div>
+                  {row.lr_number && <div><span className="text-brand-text-muted">LR:</span> {row.lr_number}</div>}
+                  {row.dispatched_by_name && <div><span className="text-brand-text-muted">By:</span> {row.dispatched_by_name}</div>}
                 </div>
               </Card>
             ))}
@@ -1215,36 +1210,49 @@ function EcommerceTab({
             <Table>
               <TableHead>
                 <TableRow>
-                  <TableHeader>Barcode</TableHeader>
-                  <TableHeader>Name</TableHeader>
+                  <TableHeader>Date</TableHeader>
+                  <TableHeader>Reference</TableHeader>
                   <TableHeader>Marketplace</TableHeader>
                   <TableHeader>Order Ref</TableHeader>
                   <TableHeader>Listing SKU</TableHeader>
-                  <TableHeader>Status</TableHeader>
+                  <TableHeader>Customer</TableHeader>
+                  <TableHeader>Destination</TableHeader>
                   <TableHeader className="text-right">Boxes</TableHeader>
-                  <TableHeader>Mapped Date</TableHeader>
-                  <TableHeader>Created</TableHeader>
-                  <TableHeader>Dispatched</TableHeader>
+                  <TableHeader className="text-right">Pairs</TableHeader>
+                  <TableHeader>Product</TableHeader>
+                  <TableHeader>LR</TableHeader>
+                  <TableHeader>Dispatched By</TableHeader>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {data.rows.map((row) => (
-                  <TableRow key={row.id}>
-                    <TableCell className="font-mono text-xs">{row.ecommerce_barcode}</TableCell>
-                    <TableCell className="font-medium">{row.name}</TableCell>
+                  <TableRow key={row.dispatch_id}>
+                    <TableCell className="text-xs">{formatDateTime(row.dispatch_date)}</TableCell>
+                    <TableCell>{row.reference_name ?? '-'}</TableCell>
                     <TableCell>{row.marketplace ?? '-'}</TableCell>
-                    <TableCell>{row.order_reference ?? '-'}</TableCell>
-                    <TableCell>{row.listing_sku ?? '-'}</TableCell>
-                    <TableCell><StatusBadge status={row.status} /></TableCell>
-                    <TableCell className="text-right">{row.child_count}</TableCell>
-                    <TableCell>{row.mapped_date ?? '-'}</TableCell>
-                    <TableCell>{formatDateTime(row.created_at)}</TableCell>
-                    <TableCell>{row.dispatched_at ? formatDateTime(row.dispatched_at) : '-'}</TableCell>
+                    <TableCell className="font-mono text-xs">{row.order_reference ?? '-'}</TableCell>
+                    <TableCell className="font-mono text-xs">{row.listing_sku ?? '-'}</TableCell>
+                    <TableCell>{row.customer_firm_name ?? '-'}</TableCell>
+                    <TableCell>{row.destination ?? '-'}</TableCell>
+                    <TableCell className="text-right">{row.box_count}</TableCell>
+                    <TableCell className="text-right">{row.pairs}</TableCell>
+                    <TableCell>
+                      {row.article_summary && (
+                        <p className="text-sm font-medium text-brand-text-dark">{row.article_summary}</p>
+                      )}
+                      {(row.colour_summary || row.size_summary) && (
+                        <p className="text-xs text-brand-text-muted">
+                          {[row.colour_summary, row.size_summary].filter(Boolean).join(' | ')}
+                        </p>
+                      )}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs">{row.lr_number ?? '-'}</TableCell>
+                    <TableCell>{row.dispatched_by_name ?? '-'}</TableCell>
                   </TableRow>
                 ))}
                 {data.rows.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={10} className="text-center text-brand-text-muted py-8">
+                    <TableCell colSpan={12} className="text-center text-brand-text-muted py-8">
                       No e-commerce data for the selected filters
                     </TableCell>
                   </TableRow>

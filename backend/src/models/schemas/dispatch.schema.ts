@@ -12,10 +12,29 @@ export const createDispatchSchema = z.object({
     .string()
     .uuid('Invalid sample record ID format')
     .optional(),
-  // E-commerce dispatch: provide a single ecommerce record ID
-  ecommerce_record_id: z
+  // E-commerce dispatch: scan loose boxes / whole cartons straight out of the
+  // E-commerce Area pool (see ecommerce.service.ts#getEcommercePool).
+  ecommerce_pool: z
+    .object({
+      items: z
+        .array(
+          z.object({
+            item_type: z.enum(['BOX', 'CARTON']),
+            barcode: z.string().min(1).transform((s) => s.trim().toUpperCase()),
+          })
+        )
+        .min(1, 'Scan at least one item')
+        .max(500),
+    })
+    .optional(),
+  reference_name: z.string().trim().max(200).optional(),
+  marketplace: z.string().trim().max(100).optional(),
+  order_reference: z.string().trim().max(200).optional(),
+  listing_sku: z.string().trim().max(100).optional(),
+  order_date: z
     .string()
-    .uuid('Invalid ecommerce record ID format')
+    .datetime()
+    .or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/))
     .optional(),
   customer_id: z
     .string()
@@ -65,13 +84,27 @@ export const createDispatchSchema = z.object({
     const sources = [
       data.master_carton_ids !== undefined && data.master_carton_ids.length > 0,
       data.sample_record_id !== undefined,
-      data.ecommerce_record_id !== undefined,
+      data.ecommerce_pool !== undefined,
     ].filter(Boolean).length;
     return sources === 1;
   },
   {
     message:
-      'Exactly one dispatch source must be provided: master_carton_ids, sample_record_id, or ecommerce_record_id',
+      'Exactly one dispatch source must be provided: master_carton_ids, sample_record_id, or ecommerce_pool',
+  }
+).refine(
+  (data) => {
+    const hasEcommerceFields =
+      data.reference_name !== undefined ||
+      data.marketplace !== undefined ||
+      data.order_reference !== undefined ||
+      data.listing_sku !== undefined ||
+      data.order_date !== undefined;
+    return !hasEcommerceFields || data.ecommerce_pool !== undefined;
+  },
+  {
+    message: 'E-commerce fields are only valid with an e-commerce dispatch',
+    path: ['marketplace'],
   }
 ).refine(
   (data) => {

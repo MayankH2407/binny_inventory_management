@@ -211,6 +211,16 @@ export default function DispatchDetailPage() {
   const returnableItems = returnableData?.items ?? [];
   const anyReturnable = returnableItems.some((i) => i.returnable);
 
+  const hasEcommerceDetails =
+    dispatch.source_type === 'ecommerce' &&
+    Boolean(
+      dispatch.reference_name ||
+        dispatch.marketplace ||
+        dispatch.order_reference ||
+        dispatch.listing_sku ||
+        dispatch.order_date
+    );
+
   return (
     <div>
       <PageHeader
@@ -235,7 +245,11 @@ export default function DispatchDetailPage() {
       )}
 
       {/* Summary cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-6">
+      <div
+        className={`grid grid-cols-1 sm:grid-cols-2 gap-6 mb-6 ${
+          hasEcommerceDetails ? 'lg:grid-cols-4' : 'lg:grid-cols-3'
+        }`}
+      >
         <Card className="p-6">
           <p className="text-sm text-brand-text-muted mb-1">Source</p>
           <div className="flex items-center gap-2">
@@ -289,6 +303,42 @@ export default function DispatchDetailPage() {
             <p className="text-sm text-brand-text-muted">No additional details.</p>
           )}
         </Card>
+
+        {hasEcommerceDetails && (
+          <Card className="p-6">
+            <p className="text-sm text-brand-text-muted mb-1">E-commerce Details</p>
+            {dispatch.reference_name && (
+              <p className="text-xs text-brand-text-muted mb-1">
+                <span className="font-medium text-brand-text-dark">Reference Name:</span>{' '}
+                {dispatch.reference_name}
+              </p>
+            )}
+            {dispatch.marketplace && (
+              <p className="text-xs text-brand-text-muted mb-1">
+                <span className="font-medium text-brand-text-dark">Marketplace:</span>{' '}
+                {dispatch.marketplace}
+              </p>
+            )}
+            {dispatch.order_reference && (
+              <p className="text-xs text-brand-text-muted mb-1">
+                <span className="font-medium text-brand-text-dark">Order Reference:</span>{' '}
+                <span className="font-mono">{dispatch.order_reference}</span>
+              </p>
+            )}
+            {dispatch.listing_sku && (
+              <p className="text-xs text-brand-text-muted mb-1">
+                <span className="font-medium text-brand-text-dark">Listing SKU:</span>{' '}
+                <span className="font-mono">{dispatch.listing_sku}</span>
+              </p>
+            )}
+            {dispatch.order_date && (
+              <p className="text-xs text-brand-text-muted">
+                <span className="font-medium text-brand-text-dark">Order Date:</span>{' '}
+                {formatDateTime(dispatch.order_date)}
+              </p>
+            )}
+          </Card>
+        )}
       </div>
 
       {/* Return section */}

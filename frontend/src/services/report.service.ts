@@ -40,7 +40,6 @@ export const reportService = {
   async getEcommerceReport(params?: {
     from?: string;
     to?: string;
-    status?: string;
     marketplace?: string;
   }): Promise<EcommerceReportResponse> {
     const response = await api.get<EcommerceReportResponse>('/reports/ecommerce', { params });
@@ -68,7 +67,6 @@ export const reportService = {
   async exportEcommerceReportCsv(params?: {
     from?: string;
     to?: string;
-    status?: string;
     marketplace?: string;
   }) {
     const response = await api.get('/reports/ecommerce/export', {

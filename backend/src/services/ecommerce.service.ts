@@ -1,196 +1,43 @@
-import { v4 as uuidv4 } from 'uuid';
 import { query, getClient } from '../config/database';
-import { ECOMMERCE_STATUS, MASTER_CARTON_STATUS, CHILD_BOX_STATUS, TRANSACTION_TYPES } from '../config/constants';
-import { generateUniqueBarcode } from '../utils/barcodeGenerator';
+import { MASTER_CARTON_STATUS, CHILD_BOX_STATUS, TRANSACTION_TYPES } from '../config/constants';
 import { NotFoundError, BadRequestError } from '../utils/errors';
 import { createAuditLog } from './auditLog.service';
 import { assertCartonAllocatable } from './sample.service';
-import { CreateEcommerceInput, AddBoxToEcommerceInput, RemoveBoxFromEcommerceInput, EcommerceListQuery } from '../models/schemas/ecommerce.schema';
+import { EcommerceListQuery, PoolItemActionInput, PoolListQuery } from '../models/schemas/ecommerce.schema';
 import { logger } from '../utils/logger';
 
+type QueryExecutor = { query: (text: string, params?: unknown[]) => Promise<{ rows: Record<string, any>[] }> };
+
 // ---------------------------------------------------------------------------
-// createEcommerce
+// resolvePoolBarcode — identifies a scanned barcode as either a master carton
+// or a child box, purely by DB lookup (master_cartons first, then
+// child_boxes). NEVER branch on barcode prefix — legacy `BINNY-CB-{uuid}`
+// child box codes exist alongside the current short-format ones, so prefix
+// sniffing would misclassify them.
 // ---------------------------------------------------------------------------
-export async function createEcommerce(
-  input: CreateEcommerceInput,
-  createdBy: string
-): Promise<Record<string, unknown> & { qr_barcode: string }> {
-  const id = uuidv4();
-  const ecommerceBarcode = await generateUniqueBarcode('EC');
-  const barcodes = input.child_box_barcodes || [];
-  const cartonBarcodes = input.carton_barcodes || [];
+async function resolvePoolBarcode(
+  exec: QueryExecutor,
+  barcode: string
+): Promise<{ item_type: 'BOX' | 'CARTON'; id: string; barcode: string }> {
+  const upper = barcode.trim().toUpperCase();
 
-  if (barcodes.length > 0 || cartonBarcodes.length > 0) {
-    const client = await getClient();
-    try {
-      await client.query('BEGIN');
-
-      await client.query(
-        `INSERT INTO ecommerce_records
-           (id, ecommerce_barcode, name, marketplace, order_reference, listing_sku, mapped_date, notes, status, child_count, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-         RETURNING *`,
-        [
-          id, ecommerceBarcode, input.name, input.marketplace ?? null, input.order_reference ?? null,
-          input.listing_sku ?? null, input.mapped_date ?? null, input.notes ?? null,
-          ECOMMERCE_STATUS.CREATED, 0, createdBy,
-        ]
-      );
-
-      let mappedCount = 0;
-      for (const barcode of barcodes) {
-        const cbResult = await client.query(
-          'SELECT * FROM child_boxes WHERE barcode = UPPER($1) FOR UPDATE',
-          [barcode]
-        );
-        if (cbResult.rows.length === 0) {
-          throw new NotFoundError(`Child box with barcode ${barcode} not found`);
-        }
-        const childBox = cbResult.rows[0];
-
-        if (
-          childBox.status !== CHILD_BOX_STATUS.FREE &&
-          childBox.status !== CHILD_BOX_STATUS.GENERATED
-        ) {
-          throw new BadRequestError(
-            `Child box ${barcode} is currently ${childBox.status} and cannot be added to an e-commerce record. Only FREE or GENERATED boxes can be added.`
-          );
-        }
-
-        // Auto-activate GENERATED boxes
-        if (childBox.status === CHILD_BOX_STATUS.GENERATED) {
-          await client.query(
-            `INSERT INTO inventory_transactions (transaction_type, child_box_id, performed_by, notes)
-             VALUES ($1, $2, $3, $4)`,
-            [
-              TRANSACTION_TYPES.CHILD_ACTIVATED, childBox.id, createdBy,
-              `Child box ${barcode} auto-activated (implicit activation during add to e-commerce record ${ecommerceBarcode})`,
-            ]
-          );
-        }
-
-        // Update child box status to ECOMMERCE
-        await client.query(
-          `UPDATE child_boxes SET status = $1, updated_at = NOW() WHERE id = $2`,
-          [CHILD_BOX_STATUS.ECOMMERCE, childBox.id]
-        );
-
-        // Create ecommerce_box_mapping
-        await client.query(
-          `INSERT INTO ecommerce_box_mapping (ecommerce_record_id, child_box_id, mapped_by)
-           VALUES ($1, $2, $3)`,
-          [id, childBox.id, createdBy]
-        );
-
-        // Log CHILD_ECOMMERCED transaction
-        await client.query(
-          `INSERT INTO inventory_transactions (transaction_type, child_box_id, performed_by, notes)
-           VALUES ($1, $2, $3, $4)`,
-          [
-            TRANSACTION_TYPES.CHILD_ECOMMERCED, childBox.id, createdBy,
-            `Added child box ${barcode} to e-commerce record ${ecommerceBarcode}`,
-          ]
-        );
-
-        mappedCount++;
-      }
-
-      // Whole-carton allocations — carton stays intact (no unpack, no box status change).
-      let cartonBoxesAdded = 0;
-      for (const cartonBarcode of cartonBarcodes) {
-        const mcResult = await client.query(
-          'SELECT * FROM master_cartons WHERE carton_barcode = UPPER($1) FOR UPDATE',
-          [cartonBarcode]
-        );
-        if (mcResult.rows.length === 0) {
-          throw new NotFoundError(`No master carton found with barcode ${cartonBarcode}`);
-        }
-        const carton = mcResult.rows[0];
-        if (carton.status === MASTER_CARTON_STATUS.DISPATCHED) {
-          throw new BadRequestError(`Master carton ${carton.carton_barcode} is DISPATCHED and cannot be added to an e-commerce record`);
-        }
-        if (carton.child_count === 0) {
-          throw new BadRequestError(`Master carton ${carton.carton_barcode} is empty and cannot be added to an e-commerce record`);
-        }
-
-        await assertCartonAllocatable(client, carton.id, carton.carton_barcode);
-
-        await client.query(
-          `INSERT INTO ecommerce_carton_mapping (ecommerce_record_id, master_carton_id, mapped_by)
-           VALUES ($1, $2, $3)`,
-          [id, carton.id, createdBy]
-        );
-
-        await client.query(
-          `INSERT INTO inventory_transactions (transaction_type, master_carton_id, performed_by, notes, metadata)
-           VALUES ($1, $2, $3, $4, $5)`,
-          [
-            TRANSACTION_TYPES.CARTON_ECOMMERCED, carton.id, createdBy,
-            `Carton ${carton.carton_barcode} (intact, ${carton.child_count} boxes) added to e-commerce record ${ecommerceBarcode} at creation`,
-            JSON.stringify({ ecommerce_record_id: id, master_carton_id: carton.id, child_count: carton.child_count }),
-          ]
-        );
-
-        cartonBoxesAdded += carton.child_count;
-      }
-
-      const totalChildCount = mappedCount + cartonBoxesAdded;
-      const newStatus = totalChildCount > 0 ? ECOMMERCE_STATUS.ACTIVE : ECOMMERCE_STATUS.CREATED;
-      const updatedResult = await client.query(
-        `UPDATE ecommerce_records SET child_count = $1, status = $2, updated_at = NOW()
-         WHERE id = $3 RETURNING *`,
-        [totalChildCount, newStatus, id]
-      );
-
-      await client.query('COMMIT');
-
-      await createAuditLog({
-        userId: createdBy,
-        action: 'CREATE_ECOMMERCE',
-        entityType: 'ecommerce_record',
-        entityId: id,
-        newValues: { ecommerce_barcode: ecommerceBarcode, child_box_barcodes: barcodes, carton_barcodes: cartonBarcodes },
-      });
-
-      logger.info(`E-commerce record created: ${ecommerceBarcode} with ${mappedCount} child boxes + ${cartonBoxesAdded} carton boxes`);
-      return { ...updatedResult.rows[0], qr_barcode: ecommerceBarcode };
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
-    }
+  const mcResult = await exec.query(
+    'SELECT id, carton_barcode FROM master_cartons WHERE carton_barcode = UPPER($1)',
+    [upper]
+  );
+  if (mcResult.rows.length > 0) {
+    return { item_type: 'CARTON', id: mcResult.rows[0].id, barcode: mcResult.rows[0].carton_barcode };
   }
 
-  // No barcodes — simple creation
-  const result = await query(
-    `INSERT INTO ecommerce_records
-       (id, ecommerce_barcode, name, marketplace, order_reference, listing_sku, mapped_date, notes, status, child_count, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-     RETURNING *`,
-    [
-      id, ecommerceBarcode, input.name, input.marketplace ?? null, input.order_reference ?? null,
-      input.listing_sku ?? null, input.mapped_date ?? null, input.notes ?? null,
-      ECOMMERCE_STATUS.CREATED, 0, createdBy,
-    ]
+  const cbResult = await exec.query(
+    `SELECT cb.id, cb.barcode FROM child_boxes cb JOIN products p ON p.id = cb.product_id WHERE cb.barcode = UPPER($1)`,
+    [upper]
   );
+  if (cbResult.rows.length > 0) {
+    return { item_type: 'BOX', id: cbResult.rows[0].id, barcode: cbResult.rows[0].barcode };
+  }
 
-  await query(
-    `INSERT INTO inventory_transactions (transaction_type, performed_by, notes)
-     VALUES ($1, $2, $3)`,
-    [TRANSACTION_TYPES.ECOMMERCE_CREATED, createdBy, `E-commerce record created with barcode ${ecommerceBarcode}`]
-  );
-
-  await createAuditLog({
-    userId: createdBy,
-    action: 'CREATE_ECOMMERCE',
-    entityType: 'ecommerce_record',
-    entityId: id,
-    newValues: { ecommerce_barcode: ecommerceBarcode, name: input.name },
-  });
-
-  logger.info(`E-commerce record created: ${ecommerceBarcode}`);
-  return { ...result.rows[0], qr_barcode: ecommerceBarcode };
+  throw new NotFoundError(`No child box or master carton found with barcode ${upper}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -392,219 +239,6 @@ export async function getEcommerceStockSummary(): Promise<Record<string, unknown
 }
 
 // ---------------------------------------------------------------------------
-// addBoxToEcommerce
-// ---------------------------------------------------------------------------
-export async function addBoxToEcommerce(
-  input: AddBoxToEcommerceInput,
-  addedBy: string
-): Promise<{ record: Record<string, unknown>; mapping: Record<string, unknown> }> {
-  const { child_box_id: childBoxId, ecommerce_record_id: ecommerceRecordId } = input;
-  const client = await getClient();
-
-  try {
-    await client.query('BEGIN');
-
-    // Lock and fetch child box
-    const cbResult = await client.query(
-      'SELECT * FROM child_boxes WHERE id = $1 FOR UPDATE',
-      [childBoxId]
-    );
-    if (cbResult.rows.length === 0) {
-      throw new NotFoundError('Child box not found');
-    }
-    const childBox = cbResult.rows[0];
-
-    if (childBox.status !== CHILD_BOX_STATUS.FREE && childBox.status !== CHILD_BOX_STATUS.GENERATED) {
-      throw new BadRequestError(
-        `Child box is currently ${childBox.status} and cannot be added to an e-commerce record. Only FREE or GENERATED boxes can be added.`
-      );
-    }
-
-    // Lock and fetch ecommerce record
-    const erResult = await client.query(
-      'SELECT * FROM ecommerce_records WHERE id = $1 FOR UPDATE',
-      [ecommerceRecordId]
-    );
-    if (erResult.rows.length === 0) {
-      throw new NotFoundError('E-commerce record not found');
-    }
-    const record = erResult.rows[0];
-
-    if (record.status === ECOMMERCE_STATUS.CLOSED || record.status === ECOMMERCE_STATUS.DISPATCHED) {
-      throw new BadRequestError(
-        `E-commerce record is ${record.status} and cannot accept new child boxes`
-      );
-    }
-
-    // Auto-activate GENERATED boxes
-    if (childBox.status === CHILD_BOX_STATUS.GENERATED) {
-      await client.query(
-        `INSERT INTO inventory_transactions (transaction_type, child_box_id, performed_by, notes)
-         VALUES ($1, $2, $3, $4)`,
-        [
-          TRANSACTION_TYPES.CHILD_ACTIVATED, childBoxId, addedBy,
-          `Child box ${childBox.barcode} auto-activated (implicit activation during add to e-commerce record ${record.ecommerce_barcode})`,
-        ]
-      );
-    }
-
-    // Update child box status to ECOMMERCE
-    await client.query(
-      `UPDATE child_boxes SET status = $1, updated_at = NOW() WHERE id = $2`,
-      [CHILD_BOX_STATUS.ECOMMERCE, childBoxId]
-    );
-
-    // Create mapping
-    const mappingResult = await client.query(
-      `INSERT INTO ecommerce_box_mapping (ecommerce_record_id, child_box_id, mapped_by)
-       VALUES ($1, $2, $3) RETURNING *`,
-      [ecommerceRecordId, childBoxId, addedBy]
-    );
-
-    // Update record child_count and status
-    const newChildCount = record.child_count + 1;
-    const newStatus = record.status === ECOMMERCE_STATUS.CREATED
-      ? ECOMMERCE_STATUS.ACTIVE
-      : record.status;
-
-    const updatedRecordResult = await client.query(
-      `UPDATE ecommerce_records SET child_count = $1, status = $2, updated_at = NOW()
-       WHERE id = $3 RETURNING *`,
-      [newChildCount, newStatus, ecommerceRecordId]
-    );
-
-    // Log CHILD_ECOMMERCED transaction
-    await client.query(
-      `INSERT INTO inventory_transactions (transaction_type, child_box_id, performed_by, notes)
-       VALUES ($1, $2, $3, $4)`,
-      [
-        TRANSACTION_TYPES.CHILD_ECOMMERCED, childBoxId, addedBy,
-        `Added child box ${childBox.barcode} to e-commerce record ${record.ecommerce_barcode}`,
-      ]
-    );
-
-    await client.query('COMMIT');
-
-    await createAuditLog({
-      userId: addedBy,
-      action: 'ADD_BOX_TO_ECOMMERCE',
-      entityType: 'ecommerce_record',
-      entityId: mappingResult.rows[0].id,
-      newValues: { child_box_id: childBoxId, ecommerce_record_id: ecommerceRecordId },
-    });
-
-    logger.info(`Added child box ${childBox.barcode} to e-commerce record ${record.ecommerce_barcode}`);
-
-    return {
-      record: updatedRecordResult.rows[0],
-      mapping: mappingResult.rows[0],
-    };
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    client.release();
-  }
-}
-
-// ---------------------------------------------------------------------------
-// scanCartonToEcommerce — add a WHOLE master carton intact to an e-commerce
-// record. The carton is NOT emptied: its child boxes stay PACKED and its
-// carton_child_mapping rows stay active. Only an ecommerce_carton_mapping row
-// is created and the record's child_count is bumped by the carton's
-// child_count. (Previously this emptied the carton into loose ECOMMERCE
-// boxes — replaced by the non-emptying model; same signature/route/return shape.)
-// ---------------------------------------------------------------------------
-export async function scanCartonToEcommerce(
-  ecommerceRecordId: string,
-  cartonBarcode: string,
-  addedBy: string
-): Promise<{ record: Record<string, unknown>; added: number; cartonBarcode: string }> {
-  const client = await getClient();
-
-  try {
-    await client.query('BEGIN');
-
-    // Lock e-commerce record
-    const erResult = await client.query(
-      'SELECT * FROM ecommerce_records WHERE id = $1 FOR UPDATE',
-      [ecommerceRecordId]
-    );
-    if (erResult.rows.length === 0) {
-      throw new NotFoundError('E-commerce record not found');
-    }
-    const record = erResult.rows[0];
-    if (record.status === ECOMMERCE_STATUS.CLOSED || record.status === ECOMMERCE_STATUS.DISPATCHED) {
-      throw new BadRequestError(`E-commerce record is ${record.status} and cannot accept new child boxes`);
-    }
-
-    // Lock master carton by barcode
-    const mcResult = await client.query(
-      'SELECT * FROM master_cartons WHERE carton_barcode = UPPER($1) FOR UPDATE',
-      [cartonBarcode]
-    );
-    if (mcResult.rows.length === 0) {
-      throw new NotFoundError(`No master carton found with barcode ${cartonBarcode}`);
-    }
-    const carton = mcResult.rows[0];
-    if (carton.status === MASTER_CARTON_STATUS.DISPATCHED) {
-      throw new BadRequestError(`Master carton ${carton.carton_barcode} is DISPATCHED and cannot be added to an e-commerce record`);
-    }
-    if (carton.child_count === 0) {
-      throw new BadRequestError(`Master carton ${carton.carton_barcode} is empty and cannot be added to an e-commerce record`);
-    }
-
-    await assertCartonAllocatable(client, carton.id, carton.carton_barcode);
-
-    // Create the carton-level mapping (carton stays intact — no unpack, no box status change)
-    await client.query(
-      `INSERT INTO ecommerce_carton_mapping (ecommerce_record_id, master_carton_id, mapped_by)
-       VALUES ($1, $2, $3)`,
-      [ecommerceRecordId, carton.id, addedBy]
-    );
-
-    // Grow the e-commerce record by the carton's full child_count
-    const newRecordCount = record.child_count + carton.child_count;
-    const newRecordStatus = record.status === ECOMMERCE_STATUS.CREATED ? ECOMMERCE_STATUS.ACTIVE : record.status;
-    const updatedRecord = await client.query(
-      `UPDATE ecommerce_records SET child_count = $1, status = $2, updated_at = NOW() WHERE id = $3 RETURNING *`,
-      [newRecordCount, newRecordStatus, ecommerceRecordId]
-    );
-
-    // Single CARTON_ECOMMERCED transaction — the boxes themselves did not move, so no
-    // per-child transactions/unpack are logged here (unlike the old emptying flow).
-    await client.query(
-      `INSERT INTO inventory_transactions (transaction_type, master_carton_id, performed_by, notes, metadata)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [
-        TRANSACTION_TYPES.CARTON_ECOMMERCED, carton.id, addedBy,
-        `Scanned carton ${carton.carton_barcode} (intact, ${carton.child_count} boxes) into e-commerce record ${record.ecommerce_barcode}`,
-        JSON.stringify({ ecommerce_record_id: ecommerceRecordId, master_carton_id: carton.id, child_count: carton.child_count }),
-      ]
-    );
-
-    await client.query('COMMIT');
-
-    await createAuditLog({
-      userId: addedBy,
-      action: 'SCAN_CARTON_TO_ECOMMERCE',
-      entityType: 'ecommerce_record',
-      entityId: ecommerceRecordId,
-      newValues: { ecommerce_record_id: ecommerceRecordId, carton_barcode: carton.carton_barcode, boxes_added: carton.child_count },
-    });
-
-    logger.info(`Scanned carton ${carton.carton_barcode} into e-commerce record ${record.ecommerce_barcode} intact: ${carton.child_count} boxes`);
-
-    return { record: updatedRecord.rows[0], added: carton.child_count, cartonBarcode: carton.carton_barcode };
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    client.release();
-  }
-}
-
-// ---------------------------------------------------------------------------
 // getEcommerceCartons — mapped (allocated) cartons for an e-commerce record,
 // with a per-carton product summary, for the detail-page "cartons" section.
 // ---------------------------------------------------------------------------
@@ -635,172 +269,6 @@ export async function getEcommerceCartons(ecommerceId: string): Promise<Record<s
 }
 
 // ---------------------------------------------------------------------------
-// removeBoxFromEcommerce
-// ---------------------------------------------------------------------------
-export async function removeBoxFromEcommerce(
-  input: RemoveBoxFromEcommerceInput,
-  removedBy: string
-): Promise<Record<string, unknown>> {
-  const { child_box_id: childBoxId, ecommerce_record_id: ecommerceRecordId } = input;
-  const client = await getClient();
-
-  try {
-    await client.query('BEGIN');
-
-    // Lock and fetch mapping
-    const mappingResult = await client.query(
-      `SELECT * FROM ecommerce_box_mapping
-       WHERE child_box_id = $1 AND ecommerce_record_id = $2 AND is_active = true
-       FOR UPDATE`,
-      [childBoxId, ecommerceRecordId]
-    );
-    if (mappingResult.rows.length === 0) {
-      throw new NotFoundError('Active mapping not found for this child box and e-commerce record');
-    }
-
-    const cbResult = await client.query(
-      'SELECT * FROM child_boxes WHERE id = $1 FOR UPDATE',
-      [childBoxId]
-    );
-    const childBox = cbResult.rows[0];
-
-    const erResult = await client.query(
-      'SELECT * FROM ecommerce_records WHERE id = $1 FOR UPDATE',
-      [ecommerceRecordId]
-    );
-    const record = erResult.rows[0];
-
-    if (record.status === ECOMMERCE_STATUS.DISPATCHED) {
-      throw new BadRequestError('Cannot remove box from a dispatched e-commerce record');
-    }
-
-    // Deactivate mapping
-    await client.query(
-      `UPDATE ecommerce_box_mapping SET is_active = false, unmapped_at = NOW(), unmapped_by = $1
-       WHERE id = $2`,
-      [removedBy, mappingResult.rows[0].id]
-    );
-
-    // Set child box back to FREE
-    await client.query(
-      `UPDATE child_boxes SET status = $1, updated_at = NOW() WHERE id = $2`,
-      [CHILD_BOX_STATUS.FREE, childBoxId]
-    );
-
-    // Update record child_count and status
-    const newChildCount = Math.max(0, record.child_count - 1);
-    let newStatus = record.status;
-    if (newChildCount === 0 && record.status === ECOMMERCE_STATUS.ACTIVE) {
-      newStatus = ECOMMERCE_STATUS.CREATED;
-      // Log ECOMMERCE_REOPENED
-      await client.query(
-        `INSERT INTO inventory_transactions (transaction_type, performed_by, notes)
-         VALUES ($1, $2, $3)`,
-        [
-          TRANSACTION_TYPES.ECOMMERCE_REOPENED, removedBy,
-          `E-commerce record ${record.ecommerce_barcode} reverted to CREATED (all boxes removed)`,
-        ]
-      );
-    }
-
-    const updatedRecordResult = await client.query(
-      `UPDATE ecommerce_records SET child_count = $1, status = $2, updated_at = NOW()
-       WHERE id = $3 RETURNING *`,
-      [newChildCount, newStatus, ecommerceRecordId]
-    );
-
-    // Log CHILD_UNECOMMERCED transaction
-    await client.query(
-      `INSERT INTO inventory_transactions (transaction_type, child_box_id, performed_by, notes)
-       VALUES ($1, $2, $3, $4)`,
-      [
-        TRANSACTION_TYPES.CHILD_UNECOMMERCED, childBoxId, removedBy,
-        `Removed child box ${childBox.barcode} from e-commerce record ${record.ecommerce_barcode}`,
-      ]
-    );
-
-    await client.query('COMMIT');
-
-    await createAuditLog({
-      userId: removedBy,
-      action: 'REMOVE_BOX_FROM_ECOMMERCE',
-      entityType: 'ecommerce_record',
-      newValues: { child_box_id: childBoxId, ecommerce_record_id: ecommerceRecordId },
-    });
-
-    logger.info(`Removed child box ${childBox.barcode} from e-commerce record ${record.ecommerce_barcode}`);
-    return updatedRecordResult.rows[0];
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    client.release();
-  }
-}
-
-// ---------------------------------------------------------------------------
-// closeEcommerce
-// ---------------------------------------------------------------------------
-export async function closeEcommerce(
-  id: string,
-  closedBy: string
-): Promise<Record<string, unknown>> {
-  const client = await getClient();
-
-  try {
-    await client.query('BEGIN');
-
-    const erResult = await client.query(
-      'SELECT * FROM ecommerce_records WHERE id = $1 FOR UPDATE',
-      [id]
-    );
-    if (erResult.rows.length === 0) {
-      throw new NotFoundError('E-commerce record not found');
-    }
-    const record = erResult.rows[0];
-
-    if (record.status === ECOMMERCE_STATUS.CLOSED) {
-      throw new BadRequestError('E-commerce record is already closed');
-    }
-    if (record.status === ECOMMERCE_STATUS.DISPATCHED) {
-      throw new BadRequestError('Cannot close a dispatched e-commerce record');
-    }
-    if (record.child_count === 0) {
-      throw new BadRequestError('Cannot close an empty e-commerce record');
-    }
-
-    const result = await client.query(
-      `UPDATE ecommerce_records SET status = $1, closed_at = NOW(), updated_at = NOW()
-       WHERE id = $2 RETURNING *`,
-      [ECOMMERCE_STATUS.CLOSED, id]
-    );
-
-    await client.query(
-      `INSERT INTO inventory_transactions (transaction_type, performed_by, notes)
-       VALUES ($1, $2, $3)`,
-      [TRANSACTION_TYPES.ECOMMERCE_CLOSED, closedBy, `E-commerce record ${record.ecommerce_barcode} closed`]
-    );
-
-    await client.query('COMMIT');
-
-    await createAuditLog({
-      userId: closedBy,
-      action: 'CLOSE_ECOMMERCE',
-      entityType: 'ecommerce_record',
-      entityId: id,
-    });
-
-    logger.info(`E-commerce record closed: ${record.ecommerce_barcode}`);
-    return result.rows[0];
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    client.release();
-  }
-}
-
-// ---------------------------------------------------------------------------
 // getEcommerceByBarcode
 // ---------------------------------------------------------------------------
 export async function getEcommerceByBarcode(
@@ -813,95 +281,6 @@ export async function getEcommerceByBarcode(
   const record = result.rows[0];
   const children = await getEcommerceChildren(record.id as string);
   return { ...record, child_boxes: children };
-}
-
-// ---------------------------------------------------------------------------
-// fullUnpackEcommerce
-// ---------------------------------------------------------------------------
-export async function fullUnpackEcommerce(
-  id: string,
-  performedBy: string
-): Promise<Record<string, unknown>> {
-  const client = await getClient();
-
-  try {
-    await client.query('BEGIN');
-
-    const erResult = await client.query(
-      'SELECT * FROM ecommerce_records WHERE id = $1 FOR UPDATE',
-      [id]
-    );
-    if (erResult.rows.length === 0) {
-      throw new NotFoundError('E-commerce record not found');
-    }
-    const record = erResult.rows[0];
-
-    if (record.status === ECOMMERCE_STATUS.DISPATCHED) {
-      throw new BadRequestError('Cannot unpack a dispatched e-commerce record');
-    }
-    if (record.status === ECOMMERCE_STATUS.CREATED) {
-      throw new BadRequestError('Cannot unpack an empty e-commerce record');
-    }
-
-    // Get all active mappings
-    const mappingsResult = await client.query(
-      `SELECT ebm.*, cb.barcode as child_barcode
-       FROM ecommerce_box_mapping ebm
-       JOIN child_boxes cb ON cb.id = ebm.child_box_id
-       WHERE ebm.ecommerce_record_id = $1 AND ebm.is_active = true`,
-      [id]
-    );
-
-    for (const mapping of mappingsResult.rows) {
-      // Deactivate mapping
-      await client.query(
-        `UPDATE ecommerce_box_mapping SET is_active = false, unmapped_at = NOW(), unmapped_by = $1
-         WHERE id = $2`,
-        [performedBy, mapping.id]
-      );
-
-      // Set child box back to FREE
-      await client.query(
-        `UPDATE child_boxes SET status = $1, updated_at = NOW() WHERE id = $2`,
-        [CHILD_BOX_STATUS.FREE, mapping.child_box_id]
-      );
-
-      // Log CHILD_UNECOMMERCED transaction
-      await client.query(
-        `INSERT INTO inventory_transactions (transaction_type, child_box_id, performed_by, notes)
-         VALUES ($1, $2, $3, $4)`,
-        [
-          TRANSACTION_TYPES.CHILD_UNECOMMERCED, mapping.child_box_id, performedBy,
-          `Full unpack: removed child box ${mapping.child_barcode} from e-commerce record ${record.ecommerce_barcode}`,
-        ]
-      );
-    }
-
-    // Reset ecommerce record
-    const updatedResult = await client.query(
-      `UPDATE ecommerce_records SET child_count = 0, status = $1, updated_at = NOW()
-       WHERE id = $2 RETURNING *`,
-      [ECOMMERCE_STATUS.CREATED, id]
-    );
-
-    await client.query('COMMIT');
-
-    await createAuditLog({
-      userId: performedBy,
-      action: 'FULL_UNPACK_ECOMMERCE',
-      entityType: 'ecommerce_record',
-      entityId: id,
-      newValues: { unpacked_count: mappingsResult.rows.length },
-    });
-
-    logger.info(`Full unpack of e-commerce record ${record.ecommerce_barcode}: ${mappingsResult.rows.length} child boxes removed`);
-    return updatedResult.rows[0];
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    client.release();
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -935,4 +314,660 @@ export async function getEcommerceAssortment(
   );
 
   return result.rows;
+}
+
+// ===========================================================================
+// E-commerce pool — the redesigned workflow. Loose boxes / whole cartons sit
+// in an unordered "E-commerce Area" pool (no parent record) until they are
+// dispatched. Canonical "is this in the pool" predicate:
+//   Loose box:      ebm.is_active = true AND ebm.dispatch_record_id IS NULL AND cb.status = 'ECOMMERCE'
+//   Whole carton:   ecm.is_active = true AND ecm.dispatch_record_id IS NULL AND mc.status <> 'DISPATCHED'
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// addToEcommercePool — scan a barcode (loose FREE/GENERATED box, or an intact
+// whole carton) into the E-commerce Area pool.
+// ---------------------------------------------------------------------------
+export async function addToEcommercePool(
+  barcode: string,
+  userId: string
+): Promise<{ item_type: 'BOX' | 'CARTON'; barcode: string; boxes_added: number; mapping_id: string }> {
+  const client = await getClient();
+
+  try {
+    await client.query('BEGIN');
+
+    const resolved = await resolvePoolBarcode(client, barcode);
+
+    if (resolved.item_type === 'CARTON') {
+      const mcResult = await client.query('SELECT * FROM master_cartons WHERE id = $1 FOR UPDATE', [resolved.id]);
+      const carton = mcResult.rows[0];
+
+      if (carton.status === MASTER_CARTON_STATUS.DISPATCHED) {
+        throw new BadRequestError(`Master carton ${carton.carton_barcode} has already been dispatched`);
+      }
+      if (carton.child_count === 0) {
+        throw new BadRequestError(`Master carton ${carton.carton_barcode} is empty and cannot be added to the E-commerce Area`);
+      }
+
+      const existingResult = await client.query(
+        `SELECT 1 FROM ecommerce_carton_mapping
+         WHERE master_carton_id = $1 AND is_active = true AND dispatch_record_id IS NULL`,
+        [carton.id]
+      );
+      if (existingResult.rows.length > 0) {
+        throw new BadRequestError(`Master carton ${carton.carton_barcode} is already in the E-commerce Area`);
+      }
+
+      // Reject cartons currently allocated to a sample (or, defensively, another
+      // active e-commerce allocation) — must be checked AFTER the pool-membership
+      // check above so the "already in the E-commerce Area" message wins for that case.
+      await assertCartonAllocatable(client, carton.id, carton.carton_barcode);
+
+      const mappingResult = await client.query(
+        `INSERT INTO ecommerce_carton_mapping (ecommerce_record_id, master_carton_id, mapped_by)
+         VALUES (NULL, $1, $2) RETURNING id`,
+        [carton.id, userId]
+      );
+
+      await client.query(
+        `INSERT INTO inventory_transactions (transaction_type, master_carton_id, performed_by, notes, metadata)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [
+          TRANSACTION_TYPES.CARTON_ECOMMERCED, carton.id, userId,
+          `Carton ${carton.carton_barcode} (intact, ${carton.child_count} boxes) added to the E-commerce Area`,
+          JSON.stringify({ pool: true, child_count: carton.child_count }),
+        ]
+      );
+
+      await client.query('COMMIT');
+
+      await createAuditLog({
+        userId,
+        action: 'ADD_TO_ECOMMERCE_POOL',
+        entityType: 'ecommerce_carton_mapping',
+        entityId: mappingResult.rows[0].id,
+        newValues: { master_carton_id: carton.id, carton_barcode: carton.carton_barcode, child_count: carton.child_count },
+      });
+
+      logger.info(`Carton ${carton.carton_barcode} added to the E-commerce Area pool (${carton.child_count} boxes)`);
+      return {
+        item_type: 'CARTON',
+        barcode: carton.carton_barcode,
+        boxes_added: carton.child_count,
+        mapping_id: mappingResult.rows[0].id,
+      };
+    }
+
+    // BOX
+    const cbResult = await client.query('SELECT * FROM child_boxes WHERE id = $1 FOR UPDATE', [resolved.id]);
+    const childBox = cbResult.rows[0];
+
+    if (childBox.status === CHILD_BOX_STATUS.PACKED) {
+      const ccmResult = await client.query(
+        `SELECT mc.carton_barcode FROM carton_child_mapping ccm
+         JOIN master_cartons mc ON mc.id = ccm.master_carton_id
+         WHERE ccm.child_box_id = $1 AND ccm.is_active = true LIMIT 1`,
+        [childBox.id]
+      );
+      const inCarton = ccmResult.rows[0]?.carton_barcode as string | undefined;
+      throw new BadRequestError(
+        inCarton
+          ? `Child box ${childBox.barcode} is packed inside master carton ${inCarton}. Scan the carton instead.`
+          : `Child box ${childBox.barcode} is marked PACKED but has no active carton mapping (data inconsistency) — unpack/repack it before adding to the E-commerce Area.`
+      );
+    }
+    if (childBox.status === CHILD_BOX_STATUS.ECOMMERCE) {
+      throw new BadRequestError(`Child box ${childBox.barcode} is already in the E-commerce Area`);
+    }
+    if (childBox.status === CHILD_BOX_STATUS.SAMPLE) {
+      throw new BadRequestError(`Child box ${childBox.barcode} is allocated to a sample`);
+    }
+    if (childBox.status === CHILD_BOX_STATUS.DISPATCHED) {
+      throw new BadRequestError(`Child box ${childBox.barcode} has already been dispatched`);
+    }
+
+    // Auto-activate GENERATED boxes, then fall through to the FREE handling below.
+    if (childBox.status === CHILD_BOX_STATUS.GENERATED) {
+      await client.query(
+        `INSERT INTO inventory_transactions (transaction_type, child_box_id, performed_by, notes)
+         VALUES ($1, $2, $3, $4)`,
+        [
+          TRANSACTION_TYPES.CHILD_ACTIVATED, childBox.id, userId,
+          `Child box ${childBox.barcode} auto-activated (implicit activation during add to the E-commerce Area)`,
+        ]
+      );
+    }
+
+    await client.query(
+      `UPDATE child_boxes SET status = $1, updated_at = NOW() WHERE id = $2`,
+      [CHILD_BOX_STATUS.ECOMMERCE, childBox.id]
+    );
+
+    const mappingResult = await client.query(
+      `INSERT INTO ecommerce_box_mapping (ecommerce_record_id, child_box_id, mapped_by)
+       VALUES (NULL, $1, $2) RETURNING id`,
+      [childBox.id, userId]
+    );
+
+    await client.query(
+      `INSERT INTO inventory_transactions (transaction_type, child_box_id, performed_by, notes, metadata)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [
+        TRANSACTION_TYPES.CHILD_ECOMMERCED, childBox.id, userId,
+        `Added child box ${childBox.barcode} to the E-commerce Area`,
+        JSON.stringify({ pool: true }),
+      ]
+    );
+
+    await client.query('COMMIT');
+
+    await createAuditLog({
+      userId,
+      action: 'ADD_TO_ECOMMERCE_POOL',
+      entityType: 'ecommerce_box_mapping',
+      entityId: mappingResult.rows[0].id,
+      newValues: { child_box_id: childBox.id, barcode: childBox.barcode },
+    });
+
+    logger.info(`Child box ${childBox.barcode} added to the E-commerce Area pool`);
+    return { item_type: 'BOX', barcode: childBox.barcode, boxes_added: 1, mapping_id: mappingResult.rows[0].id };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// getEcommercePool — paginated list of everything currently sitting in the
+// E-commerce Area (loose boxes + whole cartons), uniform row shape.
+// ---------------------------------------------------------------------------
+export async function getEcommercePool(
+  filters: PoolListQuery
+): Promise<{ data: Record<string, unknown>[]; total: number }> {
+  const { page = 1, limit = 50, search, item_type } = filters;
+
+  const baseUnion = `
+    SELECT
+      'BOX'::text AS item_type, ebm.id AS mapping_id, cb.barcode AS barcode,
+      1::int AS box_count, cb.quantity::int AS pairs,
+      p.article_name AS article_summary, p.colour AS colour_summary, p.size AS size_summary, p.mrp AS mrp,
+      smc.carton_barcode AS source_carton_barcode, er.ecommerce_barcode AS legacy_record_barcode,
+      ebm.mapped_at AS added_at, u.name AS added_by_name
+    FROM ecommerce_box_mapping ebm
+    JOIN child_boxes cb ON cb.id = ebm.child_box_id
+    JOIN products p ON p.id = cb.product_id
+    LEFT JOIN master_cartons smc ON smc.id = ebm.source_master_carton_id
+    LEFT JOIN ecommerce_records er ON er.id = ebm.ecommerce_record_id
+    LEFT JOIN users u ON u.id = ebm.mapped_by
+    WHERE ebm.is_active = true AND ebm.dispatch_record_id IS NULL AND cb.status = 'ECOMMERCE'
+
+    UNION ALL
+
+    SELECT
+      'CARTON'::text AS item_type, ecm.id AS mapping_id, mc.carton_barcode AS barcode,
+      COALESCE(ps.box_count, 0)::int AS box_count, COALESCE(ps.pairs, 0)::int AS pairs,
+      ps.article_summary, ps.colour_summary, ps.size_summary, ps.mrp,
+      NULL::varchar(100) AS source_carton_barcode, er.ecommerce_barcode AS legacy_record_barcode,
+      ecm.mapped_at AS added_at, u.name AS added_by_name
+    FROM ecommerce_carton_mapping ecm
+    JOIN master_cartons mc ON mc.id = ecm.master_carton_id
+    LEFT JOIN ecommerce_records er ON er.id = ecm.ecommerce_record_id
+    LEFT JOIN users u ON u.id = ecm.mapped_by
+    LEFT JOIN LATERAL (
+      SELECT
+        COUNT(*)::int AS box_count, COALESCE(SUM(cb.quantity), 0)::int AS pairs,
+        string_agg(DISTINCT p.article_name, ', ') AS article_summary,
+        string_agg(DISTINCT p.colour, ', ') AS colour_summary,
+        string_agg(DISTINCT p.size, ', ') AS size_summary,
+        MIN(p.mrp) AS mrp
+      FROM carton_child_mapping ccm
+      JOIN child_boxes cb ON cb.id = ccm.child_box_id
+      JOIN products p ON p.id = cb.product_id
+      WHERE ccm.master_carton_id = mc.id AND ccm.is_active = true
+    ) ps ON true
+    WHERE ecm.is_active = true AND ecm.dispatch_record_id IS NULL AND mc.status <> 'DISPATCHED'
+  `;
+
+  const conditions: string[] = [];
+  const values: unknown[] = [];
+  let paramIndex = 1;
+
+  if (item_type) {
+    conditions.push(`pool.item_type = $${paramIndex++}`);
+    values.push(item_type);
+  }
+  if (search) {
+    conditions.push(`(pool.barcode ILIKE $${paramIndex} OR pool.article_summary ILIKE $${paramIndex})`);
+    values.push(`%${search}%`);
+    paramIndex++;
+  }
+
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+  const countResult = await query(`SELECT COUNT(*) FROM (${baseUnion}) pool ${whereClause}`, values);
+  const total = parseInt(countResult.rows[0].count, 10);
+
+  const offset = (page - 1) * limit;
+  const limitParamIndex = paramIndex;
+  const offsetParamIndex = paramIndex + 1;
+  values.push(limit, offset);
+
+  const result = await query(
+    `SELECT * FROM (${baseUnion}) pool
+     ${whereClause}
+     ORDER BY pool.added_at DESC
+     LIMIT $${limitParamIndex} OFFSET $${offsetParamIndex}`,
+    values
+  );
+
+  return { data: result.rows, total };
+}
+
+// ---------------------------------------------------------------------------
+// getEcommercePoolSummary — stat-card counts for the pool.
+// ---------------------------------------------------------------------------
+export async function getEcommercePoolSummary(): Promise<{
+  carton_items: number;
+  box_items: number;
+  total_items: number;
+  total_boxes: number;
+  total_pairs: number;
+}> {
+  const result = await query(`
+    WITH pool AS (
+      SELECT 'BOX'::text AS item_type, 1::int AS box_count, cb.quantity::int AS pairs
+      FROM ecommerce_box_mapping ebm
+      JOIN child_boxes cb ON cb.id = ebm.child_box_id
+      WHERE ebm.is_active = true AND ebm.dispatch_record_id IS NULL AND cb.status = 'ECOMMERCE'
+      UNION ALL
+      SELECT 'CARTON'::text AS item_type, COALESCE(ps.box_count, 0)::int AS box_count, COALESCE(ps.pairs, 0)::int AS pairs
+      FROM ecommerce_carton_mapping ecm
+      JOIN master_cartons mc ON mc.id = ecm.master_carton_id
+      LEFT JOIN LATERAL (
+        SELECT COUNT(*)::int AS box_count, COALESCE(SUM(cb.quantity), 0)::int AS pairs
+        FROM carton_child_mapping ccm
+        JOIN child_boxes cb ON cb.id = ccm.child_box_id
+        WHERE ccm.master_carton_id = mc.id AND ccm.is_active = true
+      ) ps ON true
+      WHERE ecm.is_active = true AND ecm.dispatch_record_id IS NULL AND mc.status <> 'DISPATCHED'
+    )
+    SELECT
+      COUNT(*) FILTER (WHERE item_type = 'CARTON')::int AS carton_items,
+      COUNT(*) FILTER (WHERE item_type = 'BOX')::int AS box_items,
+      COUNT(*)::int AS total_items,
+      COALESCE(SUM(box_count), 0)::int AS total_boxes,
+      COALESCE(SUM(pairs), 0)::int AS total_pairs
+    FROM pool
+  `);
+  const row = result.rows[0];
+  return {
+    carton_items: row.carton_items,
+    box_items: row.box_items,
+    total_items: row.total_items,
+    total_boxes: row.total_boxes,
+    total_pairs: row.total_pairs,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// lookupEcommercePoolItem — read-only scan-to-check for the dispatch UI. Never
+// throws for a known-but-ineligible barcode; only a totally unknown barcode
+// 404s (via resolvePoolBarcode).
+// ---------------------------------------------------------------------------
+export async function lookupEcommercePoolItem(barcode: string): Promise<Record<string, unknown>> {
+  const resolved = await resolvePoolBarcode({ query }, barcode);
+
+  if (resolved.item_type === 'CARTON') {
+    const mcResult = await query('SELECT * FROM master_cartons WHERE id = $1', [resolved.id]);
+    const carton = mcResult.rows[0];
+
+    if (carton.status === MASTER_CARTON_STATUS.DISPATCHED) {
+      return {
+        in_pool: false,
+        reason: `Master carton ${carton.carton_barcode} has already been dispatched`,
+        item_type: 'CARTON',
+        barcode: carton.carton_barcode,
+      };
+    }
+
+    const poolResult = await query(
+      `SELECT id AS mapping_id FROM ecommerce_carton_mapping
+       WHERE master_carton_id = $1 AND is_active = true AND dispatch_record_id IS NULL`,
+      [carton.id]
+    );
+    if (poolResult.rows.length === 0) {
+      const sampleHit = await query(
+        'SELECT 1 FROM sample_carton_mapping WHERE master_carton_id = $1 AND is_active = true',
+        [carton.id]
+      );
+      if (sampleHit.rows.length > 0) {
+        return {
+          in_pool: false,
+          reason: `Master carton ${carton.carton_barcode} is allocated to a sample`,
+          item_type: 'CARTON',
+          barcode: carton.carton_barcode,
+        };
+      }
+      return {
+        in_pool: false,
+        reason: `Master carton ${carton.carton_barcode} is not in the E-commerce Area`,
+        item_type: 'CARTON',
+        barcode: carton.carton_barcode,
+      };
+    }
+
+    const summaryResult = await query(
+      `SELECT
+         COUNT(*)::int AS box_count, COALESCE(SUM(cb.quantity), 0)::int AS pairs,
+         string_agg(DISTINCT p.article_name, ', ') AS article_summary,
+         string_agg(DISTINCT p.colour, ', ') AS colour_summary,
+         string_agg(DISTINCT p.size, ', ') AS size_summary,
+         MIN(p.mrp) AS mrp
+       FROM carton_child_mapping ccm
+       JOIN child_boxes cb ON cb.id = ccm.child_box_id
+       JOIN products p ON p.id = cb.product_id
+       WHERE ccm.master_carton_id = $1 AND ccm.is_active = true`,
+      [carton.id]
+    );
+    const s = summaryResult.rows[0];
+    return {
+      in_pool: true,
+      item_type: 'CARTON',
+      mapping_id: poolResult.rows[0].mapping_id,
+      barcode: carton.carton_barcode,
+      box_count: s.box_count,
+      pairs: s.pairs,
+      article_summary: s.article_summary,
+      colour_summary: s.colour_summary,
+      size_summary: s.size_summary,
+      mrp: s.mrp !== null ? Number(s.mrp) : null,
+    };
+  }
+
+  // BOX
+  const cbResult = await query(
+    `SELECT cb.*, p.article_name, p.colour, p.size, p.mrp
+     FROM child_boxes cb JOIN products p ON p.id = cb.product_id
+     WHERE cb.id = $1`,
+    [resolved.id]
+  );
+  const box = cbResult.rows[0];
+
+  if (box.status === CHILD_BOX_STATUS.DISPATCHED) {
+    return { in_pool: false, reason: `Child box ${box.barcode} has already been dispatched`, item_type: 'BOX', barcode: box.barcode };
+  }
+  if (box.status === CHILD_BOX_STATUS.SAMPLE) {
+    return { in_pool: false, reason: `Child box ${box.barcode} is allocated to a sample`, item_type: 'BOX', barcode: box.barcode };
+  }
+  if (box.status !== CHILD_BOX_STATUS.ECOMMERCE) {
+    return { in_pool: false, reason: `Child box ${box.barcode} is not in the E-commerce Area`, item_type: 'BOX', barcode: box.barcode };
+  }
+
+  const mappingResult = await query(
+    `SELECT id FROM ecommerce_box_mapping WHERE child_box_id = $1 AND is_active = true AND dispatch_record_id IS NULL`,
+    [box.id]
+  );
+  if (mappingResult.rows.length === 0) {
+    return { in_pool: false, reason: `Child box ${box.barcode} is not in the E-commerce Area`, item_type: 'BOX', barcode: box.barcode };
+  }
+
+  return {
+    in_pool: true,
+    item_type: 'BOX',
+    mapping_id: mappingResult.rows[0].id,
+    barcode: box.barcode,
+    box_count: 1,
+    pairs: box.quantity,
+    article_summary: box.article_name,
+    colour_summary: box.colour,
+    size_summary: box.size,
+    mrp: box.mrp !== null ? Number(box.mrp) : null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// removeFromEcommercePool — take a loose box or whole carton back out of the
+// E-commerce Area to main stock. Box -> FREE. Carton -> mapping deactivated
+// only; its boxes stay PACKED (the carton was never emptied).
+// ---------------------------------------------------------------------------
+export async function removeFromEcommercePool(
+  input: PoolItemActionInput,
+  userId: string
+): Promise<{ item_type: 'BOX' | 'CARTON'; barcode: string }> {
+  const { item_type, mapping_id } = input;
+  const client = await getClient();
+
+  try {
+    await client.query('BEGIN');
+
+    if (item_type === 'BOX') {
+      const mappingResult = await client.query(
+        'SELECT * FROM ecommerce_box_mapping WHERE id = $1 FOR UPDATE',
+        [mapping_id]
+      );
+      if (mappingResult.rows.length === 0) {
+        throw new NotFoundError('E-commerce pool mapping not found');
+      }
+      const mapping = mappingResult.rows[0];
+      if (!mapping.is_active || mapping.dispatch_record_id !== null) {
+        throw new BadRequestError('This item has already left the E-commerce Area');
+      }
+
+      const cbResult = await client.query('SELECT * FROM child_boxes WHERE id = $1 FOR UPDATE', [mapping.child_box_id]);
+      const childBox = cbResult.rows[0];
+
+      await client.query(
+        `UPDATE ecommerce_box_mapping SET is_active = false, unmapped_at = NOW(), unmapped_by = $1 WHERE id = $2`,
+        [userId, mapping.id]
+      );
+      await client.query(
+        `UPDATE child_boxes SET status = $1, updated_at = NOW() WHERE id = $2`,
+        [CHILD_BOX_STATUS.FREE, childBox.id]
+      );
+      await client.query(
+        `INSERT INTO inventory_transactions (transaction_type, child_box_id, performed_by, notes, metadata)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [
+          TRANSACTION_TYPES.CHILD_UNECOMMERCED, childBox.id, userId,
+          `Removed child box ${childBox.barcode} from the E-commerce Area`,
+          JSON.stringify({ pool: true }),
+        ]
+      );
+
+      await client.query('COMMIT');
+
+      await createAuditLog({
+        userId,
+        action: 'REMOVE_FROM_ECOMMERCE_POOL',
+        entityType: 'ecommerce_box_mapping',
+        entityId: mapping.id,
+        newValues: { child_box_id: childBox.id, barcode: childBox.barcode },
+      });
+
+      logger.info(`Removed child box ${childBox.barcode} from the E-commerce Area pool`);
+      return { item_type: 'BOX', barcode: childBox.barcode };
+    }
+
+    // CARTON
+    const mappingResult = await client.query(
+      'SELECT * FROM ecommerce_carton_mapping WHERE id = $1 FOR UPDATE',
+      [mapping_id]
+    );
+    if (mappingResult.rows.length === 0) {
+      throw new NotFoundError('E-commerce pool mapping not found');
+    }
+    const mapping = mappingResult.rows[0];
+    if (!mapping.is_active || mapping.dispatch_record_id !== null) {
+      throw new BadRequestError('This item has already left the E-commerce Area');
+    }
+
+    const mcResult = await client.query('SELECT * FROM master_cartons WHERE id = $1 FOR UPDATE', [mapping.master_carton_id]);
+    const carton = mcResult.rows[0];
+
+    await client.query(
+      `UPDATE ecommerce_carton_mapping SET is_active = false, unmapped_at = NOW(), unmapped_by = $1 WHERE id = $2`,
+      [userId, mapping.id]
+    );
+    await client.query(
+      `INSERT INTO inventory_transactions (transaction_type, master_carton_id, performed_by, notes, metadata)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [
+        TRANSACTION_TYPES.CARTON_UNECOMMERCED, carton.id, userId,
+        `Removed carton ${carton.carton_barcode} from the E-commerce Area (boxes stay packed)`,
+        JSON.stringify({ pool: true }),
+      ]
+    );
+
+    await client.query('COMMIT');
+
+    await createAuditLog({
+      userId,
+      action: 'REMOVE_FROM_ECOMMERCE_POOL',
+      entityType: 'ecommerce_carton_mapping',
+      entityId: mapping.id,
+      newValues: { master_carton_id: carton.id, carton_barcode: carton.carton_barcode },
+    });
+
+    logger.info(`Removed carton ${carton.carton_barcode} from the E-commerce Area pool`);
+    return { item_type: 'CARTON', barcode: carton.carton_barcode };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// unpackCartonInEcommercePool — break a whole pooled carton into individually
+// dispatchable loose boxes. Unlike masterCarton.service.ts#fullUnpackMasterCarton,
+// the boxes land in ECOMMERCE (not FREE) — the stock stays committed to
+// e-commerce, it just stops being "one indivisible carton".
+// ---------------------------------------------------------------------------
+export async function unpackCartonInEcommercePool(
+  mappingId: string,
+  performedBy: string
+): Promise<{ master_carton_id: string; carton_barcode: string; boxes_unpacked: number }> {
+  const client = await getClient();
+
+  try {
+    await client.query('BEGIN');
+
+    const lockResult = await client.query(
+      `SELECT ecm.*, mc.id AS carton_id, mc.carton_barcode, mc.status, mc.child_count, mc.is_legacy
+       FROM ecommerce_carton_mapping ecm
+       JOIN master_cartons mc ON mc.id = ecm.master_carton_id
+       WHERE ecm.id = $1
+       FOR UPDATE OF ecm, mc`,
+      [mappingId]
+    );
+    if (lockResult.rows.length === 0) {
+      throw new NotFoundError('E-commerce pool mapping not found');
+    }
+    const row = lockResult.rows[0];
+
+    if (!row.is_active || row.dispatch_record_id !== null) {
+      throw new BadRequestError('This carton is no longer in the E-commerce Area');
+    }
+    if (row.status === MASTER_CARTON_STATUS.DISPATCHED) {
+      throw new BadRequestError(`Master carton ${row.carton_barcode} has already been dispatched`);
+    }
+    if (row.is_legacy) {
+      throw new BadRequestError(
+        `Master carton ${row.carton_barcode} is a legacy carton with no tracked boxes. Open it for repacking first.`
+      );
+    }
+
+    const contentsResult = await client.query(
+      `SELECT ccm.id AS ccm_id, ccm.child_box_id, cb.barcode, cb.status
+       FROM carton_child_mapping ccm
+       JOIN child_boxes cb ON cb.id = ccm.child_box_id
+       WHERE ccm.master_carton_id = $1 AND ccm.is_active = true
+       FOR UPDATE OF ccm, cb`,
+      [row.carton_id]
+    );
+    if (contentsResult.rows.length === 0) {
+      throw new BadRequestError(`Master carton ${row.carton_barcode} has no boxes to unpack`);
+    }
+    const inconsistentBox = (contentsResult.rows as { barcode: string; status: string }[]).find(
+      (r) => r.status !== CHILD_BOX_STATUS.PACKED
+    );
+    if (inconsistentBox) {
+      throw new BadRequestError(
+        `Child box ${inconsistentBox.barcode} in carton ${row.carton_barcode} is ${inconsistentBox.status}, not PACKED (data inconsistency) — cannot unpack`
+      );
+    }
+
+    for (const box of contentsResult.rows as { ccm_id: string; child_box_id: string; barcode: string }[]) {
+      await client.query(
+        `UPDATE carton_child_mapping SET is_active = false, unpacked_at = NOW(), unpacked_by = $1 WHERE id = $2`,
+        [performedBy, box.ccm_id]
+      );
+      await client.query(
+        `UPDATE child_boxes SET status = $1, updated_at = NOW() WHERE id = $2`,
+        [CHILD_BOX_STATUS.ECOMMERCE, box.child_box_id]
+      );
+      await client.query(
+        `INSERT INTO ecommerce_box_mapping (ecommerce_record_id, child_box_id, mapped_by, source_master_carton_id)
+         VALUES (NULL, $1, $2, $3)`,
+        [box.child_box_id, performedBy, row.carton_id]
+      );
+      await client.query(
+        `INSERT INTO inventory_transactions (transaction_type, child_box_id, master_carton_id, performed_by, notes, metadata)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [
+          TRANSACTION_TYPES.CHILD_UNPACKED, box.child_box_id, row.carton_id, performedBy,
+          `Unpacked box ${box.barcode} out of carton ${row.carton_barcode} into the E-commerce Area (stays in e-commerce)`,
+          JSON.stringify({ ecommerce_pool: true }),
+        ]
+      );
+    }
+
+    await client.query(
+      `UPDATE ecommerce_carton_mapping SET is_active = false, unmapped_at = NOW(), unmapped_by = $1 WHERE id = $2`,
+      [performedBy, mappingId]
+    );
+
+    await client.query(
+      `UPDATE master_cartons
+       SET child_count = 0, status = $1, unpacked_at = NOW(), unpacked_by = $2, updated_at = NOW()
+       WHERE id = $3`,
+      [MASTER_CARTON_STATUS.CREATED, performedBy, row.carton_id]
+    );
+
+    await client.query(
+      `INSERT INTO inventory_transactions (transaction_type, master_carton_id, performed_by, notes, metadata)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [
+        TRANSACTION_TYPES.CARTON_UNPACKED_TO_ECOM_POOL, row.carton_id, performedBy,
+        `Carton ${row.carton_barcode} unpacked into ${contentsResult.rows.length} loose boxes in the E-commerce Area`,
+        JSON.stringify({ box_count: contentsResult.rows.length, ecommerce_carton_mapping_id: mappingId }),
+      ]
+    );
+
+    await client.query('COMMIT');
+
+    await createAuditLog({
+      userId: performedBy,
+      action: 'UNPACK_CARTON_IN_ECOMMERCE_POOL',
+      entityType: 'master_carton',
+      entityId: row.carton_id,
+      newValues: { box_count: contentsResult.rows.length },
+    });
+
+    logger.info(`Unpacked carton ${row.carton_barcode} into the E-commerce Area pool: ${contentsResult.rows.length} boxes`);
+    return {
+      master_carton_id: row.carton_id,
+      carton_barcode: row.carton_barcode,
+      boxes_unpacked: contentsResult.rows.length,
+    };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 }

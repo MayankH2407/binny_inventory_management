@@ -1,5 +1,6 @@
 import { query } from '../config/database';
-import { CHILD_BOX_STATUS, TRANSACTION_TYPES, SAMPLE_STATUS, ECOMMERCE_STATUS, SampleStatus, EcommerceStatus } from '../config/constants';
+import { CHILD_BOX_STATUS, TRANSACTION_TYPES, SAMPLE_STATUS, SampleStatus } from '../config/constants';
+import { getEcommercePoolSummary } from './ecommerce.service';
 
 export interface InventorySummaryReport {
   totalProducts: number;
@@ -451,29 +452,44 @@ export async function getSampleReport(filters: {
 }
 
 // ─── Ecommerce Report ───────────────────────────────────────────────────────
+// Rewritten for the pool redesign: e-commerce activity is now dispatch-based
+// (dispatch_records WHERE source_type = 'ECOMMERCE'), not ecommerce_records-based
+// — there is no more per-record status/marketplace to report on. The report
+// combines (1) dispatched-out activity in the date range with (2) a live,
+// date-unfiltered snapshot of what's currently sitting in the pool.
 
 export interface EcommerceReportRow {
-  ecommerce_barcode: string;
-  name: string;
+  dispatch_id: string;
+  dispatch_date: string;
+  reference_name: string | null;
   marketplace: string | null;
   order_reference: string | null;
   listing_sku: string | null;
-  status: string;
-  child_count: number;
-  mapped_date: string | null;
-  created_at: string;
-  dispatched_at: string | null;
-  creator_name: string | null;
+  order_date: string | null;
+  customer_firm_name: string | null;
+  destination: string | null;
+  box_count: number;
+  pairs: number;
+  article_summary: string | null;
+  colour_summary: string | null;
+  size_summary: string | null;
+  lr_number: string | null;
+  vehicle_number: string | null;
+  dispatched_by_name: string | null;
+  notes: string | null;
 }
 
 export interface EcommerceReportSummary {
-  total: number;
-  created: number;
-  active: number;
-  closed: number;
-  dispatched: number;
+  dispatch_count: number;
+  box_count: number;
   pairs_total: number;
-  by_marketplace: Array<{ marketplace: string; count: number }>;
+  pool: {
+    carton_items: number;
+    box_items: number;
+    total_boxes: number;
+    total_pairs: number;
+  };
+  by_marketplace: Array<{ marketplace: string; dispatch_count: number; box_count: number; pairs: number }>;
 }
 
 export interface EcommerceReport {
@@ -481,90 +497,114 @@ export interface EcommerceReport {
   rows: EcommerceReportRow[];
 }
 
+// Shared LATERAL: rolls up an e-commerce dispatch's shipped boxes (loose +
+// whole-carton) into box_count / pairs / product-summary strings. Mirrors the
+// dispatch_record_id-keyed union used in dispatch.service.ts#getDispatches.
+const ECOMMERCE_DISPATCH_ROLLUP_LATERAL = `
+  LEFT JOIN LATERAL (
+    SELECT
+      COUNT(DISTINCT src.child_box_id)::int AS box_count,
+      COALESCE(SUM(cb.quantity), 0)::int AS pairs,
+      string_agg(DISTINCT p.article_name, ', ') AS article_summary,
+      string_agg(DISTINCT p.colour, ', ') AS colour_summary,
+      string_agg(DISTINCT p.size, ', ') AS size_summary
+    FROM (
+      SELECT ebm.child_box_id FROM ecommerce_box_mapping ebm WHERE ebm.dispatch_record_id = dr.id
+      UNION ALL
+      SELECT ccm.child_box_id FROM ecommerce_carton_mapping ecm
+      JOIN carton_child_mapping ccm ON ccm.master_carton_id = ecm.master_carton_id AND ccm.is_active = true
+      WHERE ecm.dispatch_record_id = dr.id
+    ) src
+    JOIN child_boxes cb ON cb.id = src.child_box_id
+    JOIN products p ON p.id = cb.product_id
+  ) ps ON true
+`;
+
 export async function getEcommerceReport(filters: {
   from?: Date;
   to?: Date;
-  status?: EcommerceStatus;
   marketplace?: string;
 }): Promise<EcommerceReport> {
-  const conditions: string[] = [];
+  const conditions: string[] = [`dr.source_type = 'ECOMMERCE'`];
   const values: unknown[] = [];
   let paramIndex = 1;
 
   if (filters.from) {
-    conditions.push(`er.created_at >= $${paramIndex++}`);
+    conditions.push(`dr.dispatch_date >= $${paramIndex++}`);
     values.push(filters.from);
   }
   if (filters.to) {
-    conditions.push(`er.created_at <= $${paramIndex++}`);
+    conditions.push(`dr.dispatch_date <= $${paramIndex++}`);
     values.push(filters.to);
   }
-  if (filters.status) {
-    conditions.push(`er.status = $${paramIndex++}`);
-    values.push(filters.status);
-  }
   if (filters.marketplace) {
-    conditions.push(`er.marketplace ILIKE $${paramIndex++}`);
+    conditions.push(`dr.marketplace ILIKE $${paramIndex++}`);
     values.push(`%${filters.marketplace}%`);
   }
 
-  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-  const statusParams = [...values, ECOMMERCE_STATUS.CREATED, ECOMMERCE_STATUS.ACTIVE, ECOMMERCE_STATUS.CLOSED, ECOMMERCE_STATUS.DISPATCHED];
-  const pi = paramIndex;
+  const whereClause = `WHERE ${conditions.join(' AND ')}`;
 
-  const [summaryResult, marketplaceResult, rowsResult] = await Promise.all([
+  const [summaryResult, marketplaceResult, rowsResult, poolSummary] = await Promise.all([
     query(`
       SELECT
-        COUNT(*) as total,
-        COUNT(*) FILTER (WHERE er.status = $${pi}) as created,
-        COUNT(*) FILTER (WHERE er.status = $${pi + 1}) as active,
-        COUNT(*) FILTER (WHERE er.status = $${pi + 2}) as closed,
-        COUNT(*) FILTER (WHERE er.status = $${pi + 3}) as dispatched,
-        COALESCE(SUM(
-          (SELECT COALESCE(SUM(cb.quantity), 0)
-           FROM ecommerce_box_mapping ebm
-           JOIN child_boxes cb ON cb.id = ebm.child_box_id
-           WHERE ebm.ecommerce_record_id = er.id AND ebm.is_active = true)
-        ), 0) as pairs_total
-      FROM ecommerce_records er
+        COUNT(*)::int AS dispatch_count,
+        COALESCE(SUM(ps.box_count), 0)::int AS box_count,
+        COALESCE(SUM(ps.pairs), 0)::int AS pairs_total
+      FROM dispatch_records dr
+      ${ECOMMERCE_DISPATCH_ROLLUP_LATERAL}
       ${whereClause}
-    `, statusParams),
-
-    query(`
-      SELECT
-        COALESCE(er.marketplace, 'Unknown') as marketplace,
-        COUNT(*) as count
-      FROM ecommerce_records er
-      ${whereClause}
-      GROUP BY er.marketplace
-      ORDER BY count DESC
     `, values),
 
     query(`
       SELECT
-        er.ecommerce_barcode, er.name, er.marketplace,
-        er.order_reference, er.listing_sku, er.status, er.child_count,
-        er.mapped_date, er.created_at, er.dispatched_at,
-        u.name as creator_name
-      FROM ecommerce_records er
-      LEFT JOIN users u ON u.id = er.created_by
+        COALESCE(dr.marketplace, 'Unknown') AS marketplace,
+        COUNT(*)::int AS dispatch_count,
+        COALESCE(SUM(ps.box_count), 0)::int AS box_count,
+        COALESCE(SUM(ps.pairs), 0)::int AS pairs
+      FROM dispatch_records dr
+      ${ECOMMERCE_DISPATCH_ROLLUP_LATERAL}
       ${whereClause}
-      ORDER BY er.created_at DESC
+      GROUP BY dr.marketplace
+      ORDER BY box_count DESC
     `, values),
+
+    query(`
+      SELECT
+        dr.id AS dispatch_id, dr.dispatch_date,
+        dr.reference_name, dr.marketplace, dr.order_reference, dr.listing_sku, dr.order_date,
+        c.firm_name AS customer_firm_name, dr.destination,
+        COALESCE(ps.box_count, 0)::int AS box_count, COALESCE(ps.pairs, 0)::int AS pairs,
+        ps.article_summary, ps.colour_summary, ps.size_summary,
+        dr.lr_number, dr.vehicle_number,
+        u.name AS dispatched_by_name, dr.notes
+      FROM dispatch_records dr
+      LEFT JOIN customers c ON c.id = dr.customer_id
+      LEFT JOIN users u ON u.id = dr.dispatched_by
+      ${ECOMMERCE_DISPATCH_ROLLUP_LATERAL}
+      ${whereClause}
+      ORDER BY dr.dispatch_date DESC, dr.created_at DESC
+    `, values),
+
+    getEcommercePoolSummary(),
   ]);
 
   const s = summaryResult.rows[0];
   return {
     summary: {
-      total: parseInt(s.total, 10),
-      created: parseInt(s.created, 10),
-      active: parseInt(s.active, 10),
-      closed: parseInt(s.closed, 10),
-      dispatched: parseInt(s.dispatched, 10),
-      pairs_total: parseInt(s.pairs_total, 10),
+      dispatch_count: s.dispatch_count,
+      box_count: s.box_count,
+      pairs_total: s.pairs_total,
+      pool: {
+        carton_items: poolSummary.carton_items,
+        box_items: poolSummary.box_items,
+        total_boxes: poolSummary.total_boxes,
+        total_pairs: poolSummary.total_pairs,
+      },
       by_marketplace: marketplaceResult.rows.map((r) => ({
         marketplace: r.marketplace,
-        count: parseInt(r.count, 10),
+        dispatch_count: r.dispatch_count,
+        box_count: r.box_count,
+        pairs: r.pairs,
       })),
     },
     rows: rowsResult.rows,

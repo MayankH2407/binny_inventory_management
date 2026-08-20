@@ -4,24 +4,57 @@ import { authenticate } from '../middleware/auth.middleware';
 import { authorizePermission } from '../middleware/rbac.middleware';
 import { validate } from '../middleware/validate.middleware';
 import {
-  createEcommerceSchema,
-  addBoxToEcommerceSchema,
-  removeBoxFromEcommerceSchema,
-  scanCartonToEcommerceSchema,
   ecommerceIdParamSchema,
   ecommerceListQuerySchema,
   ecommerceBarcodeParamSchema,
+  poolScanSchema,
+  poolItemActionSchema,
+  poolUnpackSchema,
+  poolListQuerySchema,
+  poolBarcodeParamSchema,
 } from '../models/schemas/ecommerce.schema';
 
 const router = Router();
 
 router.use(authenticate);
 
+// Literal paths before /:id (and before /qr/:barcode-shaped routes) to avoid shadowing.
+router.get(
+  '/pool',
+  validate({ query: poolListQuerySchema }),
+  ecommerceController.getEcommercePool
+);
+
+router.get(
+  '/pool/summary',
+  ecommerceController.getEcommercePoolSummary
+);
+
+router.get(
+  '/pool/lookup/:barcode',
+  validate({ params: poolBarcodeParamSchema }),
+  ecommerceController.lookupEcommercePoolItem
+);
+
 router.post(
-  '/',
-  authorizePermission('ecommerce:create'),
-  validate({ body: createEcommerceSchema }),
-  ecommerceController.createEcommerce
+  '/pool/scan',
+  authorizePermission('ecommerce:update'),
+  validate({ body: poolScanSchema }),
+  ecommerceController.addToEcommercePool
+);
+
+router.post(
+  '/pool/unpack-carton',
+  authorizePermission('ecommerce:update'),
+  validate({ body: poolUnpackSchema }),
+  ecommerceController.unpackCartonInEcommercePool
+);
+
+router.post(
+  '/pool/remove',
+  authorizePermission('ecommerce:delete'),
+  validate({ body: poolItemActionSchema }),
+  ecommerceController.removeFromEcommercePool
 );
 
 router.get(
@@ -69,41 +102,6 @@ router.get(
   '/:id/cartons',
   validate({ params: ecommerceIdParamSchema }),
   ecommerceController.getEcommerceCartons
-);
-
-router.post(
-  '/:id/full-unpack',
-  authorizePermission('ecommerce:update'),
-  validate({ params: ecommerceIdParamSchema }),
-  ecommerceController.fullUnpackEcommerce
-);
-
-router.post(
-  '/add-box',
-  authorizePermission('ecommerce:update'),
-  validate({ body: addBoxToEcommerceSchema }),
-  ecommerceController.addBoxToEcommerce
-);
-
-router.post(
-  '/scan-carton',
-  authorizePermission('ecommerce:update'),
-  validate({ body: scanCartonToEcommerceSchema }),
-  ecommerceController.scanCartonToEcommerce
-);
-
-router.post(
-  '/remove-box',
-  authorizePermission('ecommerce:update'),
-  validate({ body: removeBoxFromEcommerceSchema }),
-  ecommerceController.removeBoxFromEcommerce
-);
-
-router.post(
-  '/:id/close',
-  authorizePermission('ecommerce:update'),
-  validate({ params: ecommerceIdParamSchema }),
-  ecommerceController.closeEcommerce
 );
 
 export default router;

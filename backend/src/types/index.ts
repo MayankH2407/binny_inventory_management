@@ -126,8 +126,18 @@ export interface DispatchRecord {
   dispatch_date: Date;
   notes: string | null;
   metadata: Record<string, unknown> | null;
+  // Explicit source discriminator (see chk_dispatch_source) + e-commerce
+  // pool-dispatch fields (see ecommerce-pool-redesign migration). Raw INSERT
+  // ... RETURNING * rows carry the uppercase DB value ('MASTER_CARTON' etc);
+  // getDispatchById/getDispatches lower() it for the API response — so this
+  // is deliberately a plain string rather than a literal union.
+  source_type: string;
+  reference_name: string | null;
+  marketplace: string | null;
+  order_reference: string | null;
+  listing_sku: string | null;
+  order_date: Date | null;
   customer_firm_name?: string;
-  source_type?: 'master_carton' | 'sample' | 'ecommerce';
   source_label?: string;
   returned_box_count?: number;
   total_box_count?: number;

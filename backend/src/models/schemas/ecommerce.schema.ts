@@ -1,32 +1,5 @@
 import { z } from 'zod';
 
-export const createEcommerceSchema = z.object({
-  name: z.string().trim().min(1, 'Name is required').max(200),
-  marketplace: z.string().trim().max(100).optional().nullable(),
-  order_reference: z.string().trim().max(200).optional().nullable(),
-  listing_sku: z.string().trim().max(100).optional().nullable(),
-  mapped_date: z.string().datetime().or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).optional().nullable(),
-  notes: z.string().trim().max(2000).optional().nullable(),
-  child_box_barcodes: z.array(z.string().transform((s) => s.trim().toUpperCase())).optional(),
-  // Whole master cartons scanned in intact (carton stays PACKED; see scanCartonToEcommerce).
-  carton_barcodes: z.array(z.string().transform((s) => s.trim().toUpperCase())).optional(),
-});
-
-export const addBoxToEcommerceSchema = z.object({
-  child_box_id: z.string().uuid(),
-  ecommerce_record_id: z.string().uuid(),
-});
-
-export const removeBoxFromEcommerceSchema = z.object({
-  child_box_id: z.string().uuid(),
-  ecommerce_record_id: z.string().uuid(),
-});
-
-export const scanCartonToEcommerceSchema = z.object({
-  ecommerce_record_id: z.string().uuid(),
-  carton_barcode: z.string().min(1, 'Carton barcode is required').transform((s) => s.trim().toUpperCase()),
-});
-
 export const ecommerceIdParamSchema = z.object({ id: z.string().uuid() });
 export const ecommerceBarcodeParamSchema = z.object({ barcode: z.string().min(1).transform((s) => s.trim().toUpperCase()) });
 
@@ -38,8 +11,38 @@ export const ecommerceListQuerySchema = z.object({
   marketplace: z.string().trim().optional(),
 });
 
-export type CreateEcommerceInput = z.infer<typeof createEcommerceSchema>;
-export type AddBoxToEcommerceInput = z.infer<typeof addBoxToEcommerceSchema>;
-export type RemoveBoxFromEcommerceInput = z.infer<typeof removeBoxFromEcommerceSchema>;
-export type ScanCartonToEcommerceInput = z.infer<typeof scanCartonToEcommerceSchema>;
+// ---------------------------------------------------------------------------
+// E-commerce pool schemas — the pool redesign replaces record-scoped
+// add/remove/close/full-unpack flows with a single unordered pool of loose
+// boxes / whole cartons sitting in the E-commerce Area (see
+// ecommerce.service.ts#getEcommercePool and friends).
+// ---------------------------------------------------------------------------
+export const poolScanSchema = z.object({
+  barcode: z.string().min(1, 'Barcode is required').transform((s) => s.trim().toUpperCase()),
+});
+
+export const poolItemActionSchema = z.object({
+  item_type: z.enum(['BOX', 'CARTON']),
+  mapping_id: z.string().uuid(),
+});
+
+export const poolUnpackSchema = z.object({
+  mapping_id: z.string().uuid(),
+});
+
+export const poolListQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+  search: z.string().trim().optional(),
+  item_type: z.enum(['BOX', 'CARTON']).optional(),
+});
+
+export const poolBarcodeParamSchema = z.object({
+  barcode: z.string().min(1).transform((s) => s.trim().toUpperCase()),
+});
+
 export type EcommerceListQuery = z.infer<typeof ecommerceListQuerySchema>;
+export type PoolScanInput = z.infer<typeof poolScanSchema>;
+export type PoolItemActionInput = z.infer<typeof poolItemActionSchema>;
+export type PoolUnpackInput = z.infer<typeof poolUnpackSchema>;
+export type PoolListQuery = z.infer<typeof poolListQuerySchema>;

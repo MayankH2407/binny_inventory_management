@@ -1,8 +1,24 @@
 import api from './api';
-import type { EcommerceRecord, ChildBoxWithProduct, AssortmentItem, CartonMembership } from '@/types';
+import type {
+  EcommerceRecord,
+  ChildBoxWithProduct,
+  AssortmentItem,
+  CartonMembership,
+  EcommercePoolItem,
+  EcommercePoolSummary,
+  EcommercePoolLookup,
+} from '@/types';
 
 export interface EcommerceListResponse {
   data: EcommerceRecord[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
+export interface EcommercePoolListResponse {
+  data: EcommercePoolItem[];
   total: number;
   page: number;
   limit: number;
@@ -53,47 +69,6 @@ export const ecommerceService = {
     return response.data;
   },
 
-  async create(data: {
-    name: string;
-    marketplace?: string | null;
-    order_reference?: string | null;
-    listing_sku?: string | null;
-    mapped_date?: string | null;
-    notes?: string | null;
-    child_box_barcodes?: string[];
-    carton_barcodes?: string[];
-  }): Promise<EcommerceRecord> {
-    const response = await api.post<EcommerceRecord>('/ecommerce', data);
-    return response.data;
-  },
-
-  async addBox(data: { child_box_id: string; ecommerce_record_id: string }): Promise<any> {
-    const response = await api.post('/ecommerce/add-box', data);
-    return response.data;
-  },
-
-  // Scan a whole master carton → adds ALL its packed boxes into this record at once.
-  // The carton itself stays intact (PACKED boxes, mapping-based) — it is not unpacked/emptied.
-  async scanCarton(data: { ecommerce_record_id: string; carton_barcode: string }): Promise<{ added: number; cartonBarcode: string }> {
-    const response = await api.post('/ecommerce/scan-carton', data);
-    return response.data;
-  },
-
-  async removeBox(data: { child_box_id: string; ecommerce_record_id: string }): Promise<any> {
-    const response = await api.post('/ecommerce/remove-box', data);
-    return response.data;
-  },
-
-  async close(id: string): Promise<EcommerceRecord> {
-    const response = await api.post<EcommerceRecord>(`/ecommerce/${id}/close`);
-    return response.data;
-  },
-
-  async fullUnpack(id: string): Promise<EcommerceRecord> {
-    const response = await api.post<EcommerceRecord>(`/ecommerce/${id}/full-unpack`);
-    return response.data;
-  },
-
   async getAssortment(id: string): Promise<AssortmentItem[]> {
     const response = await api.get<AssortmentItem[]>(`/ecommerce/${id}/assortment`);
     return response.data;
@@ -116,6 +91,55 @@ export const ecommerceService = {
 
   async getCartons(id: string): Promise<CartonMembership[]> {
     const response = await api.get<CartonMembership[]>(`/ecommerce/${id}/cartons`);
+    return response.data;
+  },
+
+  // ── E-commerce Area pool ──────────────────────────────────────────────
+  // Replaces the old record-scoped create/addBox/scanCarton/removeBox/close/
+  // fullUnpack flows with a single unordered pool of loose boxes / whole
+  // cartons sitting in the E-commerce Area.
+
+  async getPool(params?: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    item_type?: 'BOX' | 'CARTON';
+  }): Promise<EcommercePoolListResponse> {
+    const response = await api.get<EcommercePoolListResponse>('/ecommerce/pool', { params });
+    return response.data;
+  },
+
+  async getPoolSummary(): Promise<EcommercePoolSummary> {
+    const response = await api.get<EcommercePoolSummary>('/ecommerce/pool/summary');
+    return response.data;
+  },
+
+  async lookupPoolItem(barcode: string): Promise<EcommercePoolLookup> {
+    const response = await api.get<EcommercePoolLookup>(
+      `/ecommerce/pool/lookup/${encodeURIComponent(barcode)}`
+    );
+    return response.data;
+  },
+
+  async addToPool(
+    barcode: string
+  ): Promise<{ item_type: 'BOX' | 'CARTON'; barcode: string; boxes_added: number; mapping_id: string }> {
+    const response = await api.post('/ecommerce/pool/scan', { barcode });
+    return response.data;
+  },
+
+  async removeFromPool(data: {
+    item_type: 'BOX' | 'CARTON';
+    mapping_id: string;
+  }): Promise<{ item_type: 'BOX' | 'CARTON'; barcode: string }> {
+    const response = await api.post('/ecommerce/pool/remove', data);
+    return response.data;
+  },
+
+  async unpackPoolCarton(
+    mapping_id: string
+  ): Promise<{ master_carton_id: string; carton_barcode: string; boxes_unpacked: number }> {
+    const response = await api.post('/ecommerce/pool/unpack-carton', { mapping_id });
     return response.data;
   },
 };

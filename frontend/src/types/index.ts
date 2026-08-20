@@ -230,6 +230,65 @@ export interface EcommerceRecord {
   mrp_summary?: number | null;
 }
 
+// ---------- E-commerce Area pool (redesign) ----------
+// The pool replaces record-scoped add/remove/close/full-unpack flows with a
+// single unordered set of loose boxes / whole cartons sitting in the
+// E-commerce Area (see backend ecommerce.service.ts#getEcommercePool).
+export interface EcommercePoolItem {
+  item_type: 'BOX' | 'CARTON';
+  mapping_id: string;
+  barcode: string;
+  box_count: number;
+  pairs: number;
+  article_summary: string | null;
+  colour_summary: string | null;
+  size_summary: string | null;
+  mrp: number | null;
+  // Set when this box came out of a whole carton that was later unpacked in
+  // the pool (see unpackCartonInEcommercePool).
+  source_carton_barcode?: string | null;
+  // Set when this item traces back to an old ecommerce_records-based entry.
+  legacy_record_barcode?: string | null;
+  added_at: string;
+  added_by_name: string | null;
+}
+
+export interface EcommercePoolSummary {
+  carton_items: number;
+  box_items: number;
+  total_items: number;
+  total_boxes: number;
+  total_pairs: number;
+}
+
+// GET /ecommerce/pool/lookup/:barcode — a scan-to-check for the dispatch UI.
+// in_pool: false covers a known-but-ineligible barcode (packed in a carton,
+// already dispatched, allocated to a sample, etc); a totally unknown barcode
+// 404s instead of returning this shape.
+export type EcommercePoolLookup =
+  | {
+      in_pool: true;
+      item_type: 'BOX' | 'CARTON';
+      mapping_id: string;
+      barcode: string;
+      box_count: number;
+      pairs: number;
+      article_summary: string | null;
+      colour_summary: string | null;
+      size_summary: string | null;
+      mrp: number | null;
+    }
+  | {
+      in_pool: false;
+      reason: string;
+      item_type: 'BOX' | 'CARTON';
+      barcode: string;
+    };
+
+// The subset of EcommercePoolLookup actually usable once accepted into a
+// dispatch's scanned-items list (i.e. the in_pool: true branch).
+export type EcommercePoolLookupHit = Extract<EcommercePoolLookup, { in_pool: true }>;
+
 // ---------- Dispatch ----------
 export type DispatchStatus = 'CREATED' | 'IN_TRANSIT' | 'DELIVERED';
 
@@ -271,6 +330,12 @@ export interface DispatchRecord {
   // Virtual columns from backend
   source_type?: DispatchSourceType;
   source_label?: string | null;
+  // E-commerce dispatch details (only meaningful when source_type === 'ecommerce')
+  reference_name?: string | null;
+  marketplace?: string | null;
+  order_reference?: string | null;
+  listing_sku?: string | null;
+  order_date?: string | null;
   // Legacy / joined columns
   carton_barcode?: string;
   child_count?: number;
@@ -387,25 +452,49 @@ export interface SampleReportResponse {
   rows: SampleReportRow[];
 }
 
+// E-commerce report row — one per e-commerce-sourced dispatch (see backend
+// report.service.ts#getEcommerceReport). Replaces the old record-based shape;
+// there is no more `status` — an e-commerce dispatch either happened or it
+// didn't, there's nothing left to filter by lifecycle stage.
 export interface EcommerceReportRow {
-  id: string;
-  ecommerce_barcode: string;
-  name: string;
+  dispatch_id: string;
+  dispatch_date: string;
+  reference_name: string | null;
   marketplace: string | null;
   order_reference: string | null;
   listing_sku: string | null;
-  status: string;
-  child_count: number;
-  mapped_date: string | null;
-  created_at: string;
-  dispatched_at: string | null;
+  order_date: string | null;
+  customer_firm_name: string | null;
+  destination: string | null;
+  box_count: number;
+  pairs: number;
+  article_summary: string | null;
+  colour_summary: string | null;
+  size_summary: string | null;
+  lr_number: string | null;
+  vehicle_number: string | null;
+  dispatched_by_name: string | null;
+  notes: string | null;
 }
 
 export interface EcommerceReportSummary {
-  total: number;
-  by_status: Record<string, number>;
-  total_pairs: number;
-  by_marketplace: Array<{ marketplace: string; count: number }>;
+  dispatch_count: number;
+  box_count: number;
+  pairs_total: number;
+  // Live snapshot of what's currently sitting in the E-commerce Area (not
+  // scoped to the report's date range — it's a "right now" figure).
+  pool: {
+    carton_items: number;
+    box_items: number;
+    total_boxes: number;
+    total_pairs: number;
+  };
+  by_marketplace: Array<{
+    marketplace: string;
+    dispatch_count: number;
+    box_count: number;
+    pairs: number;
+  }>;
 }
 
 export interface EcommerceReportResponse {
@@ -543,7 +632,11 @@ export interface CreateDispatchRequest {
   // Exactly one of these must be provided
   master_carton_ids?: string[];
   sample_record_id?: string;
-  ecommerce_record_id?: string;
+  // E-commerce dispatch: scan loose boxes / whole cartons straight out of the
+  // E-commerce Area pool (see ecommerceService.getPool).
+  ecommerce_pool?: {
+    items: Array<{ item_type: 'BOX' | 'CARTON'; barcode: string }>;
+  };
   customer_id?: string;
   destination?: string;
   transport_details?: string;
@@ -551,6 +644,12 @@ export interface CreateDispatchRequest {
   vehicle_number?: string;
   dispatch_date?: string;
   notes?: string;
+  // E-commerce dispatch details — only valid alongside ecommerce_pool.
+  reference_name?: string;
+  marketplace?: string;
+  order_reference?: string;
+  listing_sku?: string;
+  order_date?: string;
   // Ship only some of a sample's contents — everything else in the sample is
   // released back to available stock. Only valid with sample_record_id.
   sample_scope?: {

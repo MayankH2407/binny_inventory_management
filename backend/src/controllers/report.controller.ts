@@ -4,7 +4,7 @@ import * as reportService from '../services/report.service';
 import * as csvExportService from '../services/csvExport.service';
 import { sendSuccess } from '../utils/response';
 import { BadRequestError } from '../utils/errors';
-import { SampleStatus, EcommerceStatus } from '../config/constants';
+import { SampleStatus } from '../config/constants';
 
 export async function getInventorySummary(
   _req: AuthenticatedRequest,
@@ -196,13 +196,12 @@ export async function getEcommerceReport(
   next: NextFunction
 ): Promise<void> {
   try {
-    const { from, to, status, marketplace } = req.query as {
-      from?: string; to?: string; status?: string; marketplace?: string;
+    const { from, to, marketplace } = req.query as {
+      from?: string; to?: string; marketplace?: string;
     };
     const report = await reportService.getEcommerceReport({
       from: from ? new Date(from) : undefined,
       to: to ? new Date(to) : undefined,
-      status: status as EcommerceStatus | undefined,
       marketplace,
     });
     sendSuccess(res, report, 'E-commerce report retrieved successfully');
@@ -217,13 +216,12 @@ export async function exportEcommerceReportCSV(
   next: NextFunction
 ): Promise<void> {
   try {
-    const { from, to, status, marketplace } = req.query as {
-      from?: string; to?: string; status?: string; marketplace?: string;
+    const { from, to, marketplace } = req.query as {
+      from?: string; to?: string; marketplace?: string;
     };
     const csv = await csvExportService.exportEcommerceReportCSV({
       from: from ? new Date(from) : undefined,
       to: to ? new Date(to) : undefined,
-      status: status as EcommerceStatus | undefined,
       marketplace,
     });
     res.setHeader('Content-Type', 'text/csv');

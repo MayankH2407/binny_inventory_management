@@ -105,11 +105,24 @@ async function resolveOriginDispatchId(
   };
 
   if (itemType === 'CARTON') {
-    return latestForCarton(entityId);
+    const viaDispatch = await latestForCarton(entityId);
+    if (viaDispatch) return viaDispatch;
+    // Fallback: cartons dispatched via the e-commerce pool never got a
+    // dispatch_records.master_carton_id row — the link lives on the pool
+    // mapping instead (pre-existing gap, not just a redesign artifact: this
+    // also fixes cartons shipped via a sample/e-commerce whole-carton allocation).
+    const ecomCartonDispatch = await client.query(
+      `SELECT dispatch_record_id FROM ecommerce_carton_mapping
+       WHERE master_carton_id = $1 AND dispatch_record_id IS NOT NULL
+       ORDER BY mapped_at DESC LIMIT 1`,
+      [entityId]
+    );
+    return ecomCartonDispatch.rows[0]?.dispatch_record_id ?? null;
   }
 
-  // BOX: prefer the active carton mapping's carton dispatch, else the active
-  // e-commerce mapping's dispatch.
+  // BOX: prefer the active carton mapping's carton dispatch, else the
+  // e-commerce pool mapping's dispatch (no is_active filter here — this must
+  // still resolve even after a return deactivates the box's mapping).
   const cartonMap = await client.query(
     `SELECT master_carton_id FROM carton_child_mapping WHERE child_box_id = $1 AND is_active = true LIMIT 1`,
     [entityId]
@@ -118,18 +131,13 @@ async function resolveOriginDispatchId(
     const id = await latestForCarton(cartonMap.rows[0].master_carton_id);
     if (id) return id;
   }
-  const ecomMap = await client.query(
-    `SELECT ecommerce_record_id FROM ecommerce_box_mapping WHERE child_box_id = $1 AND is_active = true LIMIT 1`,
+  const ecomBoxDispatch = await client.query(
+    `SELECT dispatch_record_id FROM ecommerce_box_mapping
+     WHERE child_box_id = $1 AND dispatch_record_id IS NOT NULL
+     ORDER BY mapped_at DESC LIMIT 1`,
     [entityId]
   );
-  if (ecomMap.rows[0]) {
-    const r = await client.query(
-      `SELECT id FROM dispatch_records WHERE ecommerce_record_id = $1
-       ORDER BY dispatch_date DESC, created_at DESC LIMIT 1`,
-      [ecomMap.rows[0].ecommerce_record_id]
-    );
-    if (r.rows[0]) return r.rows[0].id;
-  }
+  if (ecomBoxDispatch.rows[0]) return ecomBoxDispatch.rows[0].dispatch_record_id;
   return null;
 }
 
@@ -160,7 +168,21 @@ export async function lookupReturnable(barcode: string): Promise<LookupResult> {
        LIMIT 1`,
       [carton.id]
     );
-    const originRow = originResult.rows[0];
+    let originRow = originResult.rows[0];
+    if (!originRow) {
+      // Fallback: this carton was dispatched intact via the e-commerce pool
+      // (or a sample), which never gets a dispatch_records.master_carton_id row.
+      const ecomCartonOrigin = await query(
+        `SELECT dr.id, dr.dispatch_date, c.firm_name AS customer_firm_name
+         FROM ecommerce_carton_mapping ecm
+         JOIN dispatch_records dr ON dr.id = ecm.dispatch_record_id
+         LEFT JOIN customers c ON c.id = dr.customer_id
+         WHERE ecm.master_carton_id = $1 AND ecm.dispatch_record_id IS NOT NULL
+         ORDER BY ecm.mapped_at DESC LIMIT 1`,
+        [carton.id]
+      );
+      originRow = ecomCartonOrigin.rows[0];
+    }
     const originDispatch: OriginDispatchInfo | null = originRow
       ? {
           id: originRow.id,
@@ -229,33 +251,36 @@ export async function lookupReturnable(barcode: string): Promise<LookupResult> {
         : null;
     } else {
       const ecomMapResult = await query(
-        `SELECT ebm.ecommerce_record_id, er.ecommerce_barcode FROM ecommerce_box_mapping ebm
-         JOIN ecommerce_records er ON er.id = ebm.ecommerce_record_id
+        `SELECT ebm.dispatch_record_id FROM ecommerce_box_mapping ebm
          WHERE ebm.child_box_id = $1 AND ebm.is_active = true`,
         [box.id]
       );
 
       if (ecomMapResult.rows.length > 0) {
         channel = 'ecommerce';
-        const { ecommerce_record_id: ecomId, ecommerce_barcode: ecomBarcode } = ecomMapResult.rows[0];
-        const originResult = await query(
-          `SELECT dr.id, dr.dispatch_date, c.firm_name AS customer_firm_name
-           FROM dispatch_records dr
-           LEFT JOIN customers c ON c.id = dr.customer_id
-           WHERE dr.ecommerce_record_id = $1
-           ORDER BY dr.dispatch_date DESC, dr.created_at DESC
-           LIMIT 1`,
-          [ecomId]
-        );
-        const originRow = originResult.rows[0];
-        originDispatch = originRow
-          ? {
-              id: originRow.id,
-              dispatch_date: originRow.dispatch_date,
-              customer_firm_name: originRow.customer_firm_name,
-              source_label: ecomBarcode,
-            }
-          : null;
+        const dispatchRecordId = ecomMapResult.rows[0].dispatch_record_id;
+        if (dispatchRecordId) {
+          const originResult = await query(
+            `SELECT dr.id, dr.dispatch_date, c.firm_name AS customer_firm_name,
+               COALESCE(mc.carton_barcode, sr.sample_barcode, er.ecommerce_barcode, NULLIF(dr.order_reference, ''), NULLIF(dr.reference_name, ''), NULLIF(dr.marketplace, ''), CASE WHEN dr.source_type = 'ECOMMERCE' THEN 'E-commerce' END) AS source_label
+             FROM dispatch_records dr
+             LEFT JOIN customers c ON c.id = dr.customer_id
+             LEFT JOIN master_cartons mc ON mc.id = dr.master_carton_id
+             LEFT JOIN sample_records sr ON sr.id = dr.sample_record_id
+             LEFT JOIN ecommerce_records er ON er.id = dr.ecommerce_record_id
+             WHERE dr.id = $1`,
+            [dispatchRecordId]
+          );
+          const originRow = originResult.rows[0];
+          originDispatch = originRow
+            ? {
+                id: originRow.id,
+                dispatch_date: originRow.dispatch_date,
+                customer_firm_name: originRow.customer_firm_name,
+                source_label: originRow.source_label,
+              }
+            : null;
+        }
       } else {
         const sampleMapResult = await query(
           `SELECT 1 FROM sample_box_mapping WHERE child_box_id = $1 AND is_active = true`,
@@ -308,12 +333,8 @@ export async function getDispatchReturnableItems(dispatchRecordId: string): Prom
   const drResult = await query(
     `SELECT dr.*,
        mc.carton_barcode, sr.sample_barcode, er.ecommerce_barcode,
-       CASE
-         WHEN dr.master_carton_id IS NOT NULL THEN 'master_carton'
-         WHEN dr.sample_record_id IS NOT NULL THEN 'sample'
-         WHEN dr.ecommerce_record_id IS NOT NULL THEN 'ecommerce'
-       END as source_type,
-       COALESCE(mc.carton_barcode, sr.sample_barcode, er.ecommerce_barcode) as source_label,
+       lower(dr.source_type) AS source_type,
+       COALESCE(mc.carton_barcode, sr.sample_barcode, er.ecommerce_barcode, NULLIF(dr.order_reference, ''), NULLIF(dr.reference_name, ''), NULLIF(dr.marketplace, ''), CASE WHEN dr.source_type = 'ECOMMERCE' THEN 'E-commerce' END) as source_label,
        c.firm_name AS customer_firm_name
      FROM dispatch_records dr
      LEFT JOIN master_cartons mc ON mc.id = dr.master_carton_id
@@ -371,14 +392,17 @@ export async function getDispatchReturnableItems(dispatchRecordId: string): Prom
     });
   }
 
-  if (dr.ecommerce_record_id) {
+  if (dr.source_type === 'ecommerce') {
+    // No is_active filter on these two — a dispatched-then-returned item must
+    // still show up here (its mapping gets deactivated by the return, but it's
+    // still keyed to this dispatch via dispatch_record_id).
     const boxesResult = await query(
       `SELECT cb.*, p.article_name, p.colour, p.size, p.mrp
        FROM ecommerce_box_mapping ebm
        JOIN child_boxes cb ON cb.id = ebm.child_box_id
        JOIN products p ON p.id = cb.product_id
-       WHERE ebm.ecommerce_record_id = $1 AND ebm.is_active = true`,
-      [dr.ecommerce_record_id]
+       WHERE ebm.dispatch_record_id = $1`,
+      [dr.id]
     );
     for (const box of boxesResult.rows) {
       const returnable = box.status === CHILD_BOX_STATUS.DISPATCHED;
@@ -401,8 +425,8 @@ export async function getDispatchReturnableItems(dispatchRecordId: string): Prom
     const cartonsResult = await query(
       `SELECT mc.* FROM ecommerce_carton_mapping ecm
        JOIN master_cartons mc ON mc.id = ecm.master_carton_id
-       WHERE ecm.ecommerce_record_id = $1 AND ecm.is_active = true`,
-      [dr.ecommerce_record_id]
+       WHERE ecm.dispatch_record_id = $1`,
+      [dr.id]
     );
     for (const carton of cartonsResult.rows) {
       const returnable = carton.status === MASTER_CARTON_STATUS.DISPATCHED;
@@ -650,12 +674,13 @@ export async function createReturn(
 export async function getReturnById(id: string): Promise<ReturnRecord & { items: unknown[] }> {
   const result = await query(
     `SELECT rr.*,
-       COALESCE(mc.carton_barcode, er.ecommerce_barcode) AS source_label,
+       COALESCE(mc.carton_barcode, sr.sample_barcode, er.ecommerce_barcode, NULLIF(dr.order_reference, ''), NULLIF(dr.reference_name, ''), NULLIF(dr.marketplace, ''), CASE WHEN dr.source_type = 'ECOMMERCE' THEN 'E-commerce' END) AS source_label,
        c.firm_name AS customer_firm_name,
        u.name AS returned_by_name
      FROM return_records rr
      LEFT JOIN dispatch_records dr ON dr.id = rr.dispatch_record_id
      LEFT JOIN master_cartons mc ON mc.id = dr.master_carton_id
+     LEFT JOIN sample_records sr ON sr.id = dr.sample_record_id
      LEFT JOIN ecommerce_records er ON er.id = dr.ecommerce_record_id
      LEFT JOIN customers c ON c.id = rr.customer_id
      JOIN users u ON u.id = rr.returned_by
@@ -671,13 +696,14 @@ export async function getReturnById(id: string): Promise<ReturnRecord & { items:
     `SELECT ri.id, ri.item_type, ri.child_box_id, ri.master_carton_id, ri.dispatch_record_id,
        cb.barcode, p.article_name, p.colour, p.size, p.mrp,
        mc.carton_barcode,
-       COALESCE(odmc.carton_barcode, oder.ecommerce_barcode) AS origin_dispatch_label
+       COALESCE(odmc.carton_barcode, odsr.sample_barcode, oder.ecommerce_barcode, NULLIF(dr.order_reference, ''), NULLIF(dr.reference_name, ''), NULLIF(dr.marketplace, ''), CASE WHEN dr.source_type = 'ECOMMERCE' THEN 'E-commerce' END) AS origin_dispatch_label
      FROM return_items ri
      LEFT JOIN child_boxes cb ON cb.id = ri.child_box_id
      LEFT JOIN products p ON p.id = cb.product_id
      LEFT JOIN master_cartons mc ON mc.id = ri.master_carton_id
      LEFT JOIN dispatch_records dr ON dr.id = ri.dispatch_record_id
      LEFT JOIN master_cartons odmc ON odmc.id = dr.master_carton_id
+     LEFT JOIN sample_records odsr ON odsr.id = dr.sample_record_id
      LEFT JOIN ecommerce_records oder ON oder.id = dr.ecommerce_record_id
      WHERE ri.return_record_id = $1
      ORDER BY ri.created_at`,
@@ -706,7 +732,7 @@ export async function getReturns(
   }
   if (filters.search) {
     conditions.push(
-      `(c.firm_name ILIKE $${paramIndex} OR rr.notes ILIKE $${paramIndex} OR mc.carton_barcode ILIKE $${paramIndex} OR er.ecommerce_barcode ILIKE $${paramIndex})`
+      `(c.firm_name ILIKE $${paramIndex} OR rr.notes ILIKE $${paramIndex} OR mc.carton_barcode ILIKE $${paramIndex} OR er.ecommerce_barcode ILIKE $${paramIndex} OR dr.order_reference ILIKE $${paramIndex} OR dr.reference_name ILIKE $${paramIndex} OR dr.marketplace ILIKE $${paramIndex})`
     );
     values.push(`%${filters.search}%`);
     paramIndex++;
@@ -730,7 +756,7 @@ export async function getReturns(
 
   const result = await query(
     `SELECT rr.*,
-       COALESCE(mc.carton_barcode, er.ecommerce_barcode) AS source_label,
+       COALESCE(mc.carton_barcode, sr.sample_barcode, er.ecommerce_barcode, NULLIF(dr.order_reference, ''), NULLIF(dr.reference_name, ''), NULLIF(dr.marketplace, ''), CASE WHEN dr.source_type = 'ECOMMERCE' THEN 'E-commerce' END) AS source_label,
        c.firm_name AS customer_firm_name,
        u.name AS returned_by_name,
        ps.article_summary, ps.colour_summary, ps.size_summary,
@@ -738,6 +764,7 @@ export async function getReturns(
      FROM return_records rr
      LEFT JOIN dispatch_records dr ON dr.id = rr.dispatch_record_id
      LEFT JOIN master_cartons mc ON mc.id = dr.master_carton_id
+     LEFT JOIN sample_records sr ON sr.id = dr.sample_record_id
      LEFT JOIN ecommerce_records er ON er.id = dr.ecommerce_record_id
      LEFT JOIN customers c ON c.id = rr.customer_id
      JOIN users u ON u.id = rr.returned_by

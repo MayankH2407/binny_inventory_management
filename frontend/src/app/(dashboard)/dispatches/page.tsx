@@ -419,6 +419,14 @@ export default function DispatchesPage() {
                                       {record.mrp_summary != null ? ` | ${formatCurrency(record.mrp_summary)}` : ''}
                                     </p>
                                   )}
+                                  {record.source_type === 'ecommerce' &&
+                                    (record.marketplace || record.order_reference) && (
+                                      <p className="text-xs text-brand-text-muted">
+                                        {[record.marketplace, record.order_reference]
+                                          .filter(Boolean)
+                                          .join(' · ')}
+                                      </p>
+                                    )}
 
                                   {/* Dispatch details */}
                                   <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs text-brand-text-muted">
