@@ -32,6 +32,8 @@ export const masterCartonService = {
     status?: string;
     search?: string;
     includeLegacy?: boolean;
+    from_date?: string;
+    to_date?: string;
   }): Promise<MasterCartonListResponse> {
     const response = await api.get<MasterCartonListResponse>('/master-cartons', { params });
     return response.data;

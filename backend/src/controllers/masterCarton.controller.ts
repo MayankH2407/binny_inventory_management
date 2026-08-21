@@ -23,12 +23,13 @@ export async function getMasterCartons(
   next: NextFunction
 ): Promise<void> {
   try {
-    const { page, limit, status, search, includeLegacy } = req.query as {
+    const { page, limit, status, search, includeLegacy, from_date, to_date } = req.query as {
       page?: number; limit?: number; status?: string; search?: string; includeLegacy?: boolean;
+      from_date?: string; to_date?: string;
     };
     const is_legacy = includeLegacy === true ? true : includeLegacy === false ? false : undefined;
     const result = await masterCartonService.getMasterCartons(
-      { status, search, is_legacy },
+      { status, search, is_legacy, from_date, to_date },
       page || 1,
       limit || 25
     );

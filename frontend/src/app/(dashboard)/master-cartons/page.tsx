@@ -26,9 +26,11 @@ export default function MasterCartonsPage() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [showLegacy, setShowLegacy] = useState(false);
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
 
   const { data, isLoading } = useApiQuery(
-    ['master-cartons', String(page), search, statusFilter, String(showLegacy)],
+    ['master-cartons', String(page), search, statusFilter, String(showLegacy), fromDate, toDate],
     () =>
       masterCartonService.getAll({
         page,
@@ -36,6 +38,8 @@ export default function MasterCartonsPage() {
         search: search || undefined,
         status: statusFilter || undefined,
         includeLegacy: showLegacy || undefined,
+        from_date: fromDate || undefined,
+        to_date: toDate || undefined,
       }),
     { placeholderData: keepPreviousData }
   );
@@ -56,10 +60,10 @@ export default function MasterCartonsPage() {
 
       <Card padding={false}>
         <div className="p-4 border-b border-brand-border bg-binny-navy-50/50">
-          <div className="flex flex-col sm:flex-row gap-3">
-            <div className="flex-1">
+          <div className="flex flex-col lg:flex-row gap-3">
+            <div className="flex-1 min-w-[160px]">
               <Input
-                placeholder="Search by carton barcode..."
+                placeholder="Search by carton barcode or article name..."
                 value={search}
                 onChange={(e) => {
                   setSearch(e.target.value);
@@ -68,33 +72,63 @@ export default function MasterCartonsPage() {
                 leftIcon={<Search className="h-4 w-4" />}
               />
             </div>
-            <Select
-              options={[
-                { value: '', label: 'All Statuses' },
-                { value: 'CREATED', label: 'Created' },
-                { value: 'ACTIVE', label: 'Active' },
-                { value: 'CLOSED', label: 'Closed' },
-                { value: 'DISPATCHED', label: 'Dispatched' },
-              ]}
-              value={statusFilter}
-              onChange={(e) => {
-                setStatusFilter(e.target.value);
-                setPage(1);
-              }}
-              className="w-full sm:w-44"
-            />
-            <label className="flex items-center gap-2 cursor-pointer self-center whitespace-nowrap select-none">
-              <input
-                type="checkbox"
-                checked={showLegacy}
-                onChange={(e) => {
-                  setShowLegacy(e.target.checked);
-                  setPage(1);
-                }}
-                className="h-4 w-4 rounded border-brand-border text-binny-navy accent-binny-navy cursor-pointer"
-              />
-              <span className="text-sm text-brand-text-muted">Show legacy</span>
-            </label>
+            {/* Wrapped in sized divs (not className on Input/Select) because their
+                outer wrapper is hardcoded w-full and ignores a width className
+                passed to it — without this wrapper each field claims the full row
+                width and forces every filter onto its own line. See the same note
+                on dispatches/page.tsx. */}
+            <div className="flex gap-2 flex-wrap lg:flex-nowrap">
+              <div className="w-36">
+                <Input
+                  type="date"
+                  placeholder="Created from"
+                  value={fromDate}
+                  onChange={(e) => {
+                    setFromDate(e.target.value);
+                    setPage(1);
+                  }}
+                />
+              </div>
+              <div className="w-36">
+                <Input
+                  type="date"
+                  placeholder="Created to"
+                  value={toDate}
+                  onChange={(e) => {
+                    setToDate(e.target.value);
+                    setPage(1);
+                  }}
+                />
+              </div>
+              <div className="w-44">
+                <Select
+                  options={[
+                    { value: '', label: 'All Statuses' },
+                    { value: 'CREATED', label: 'Created' },
+                    { value: 'ACTIVE', label: 'Active' },
+                    { value: 'CLOSED', label: 'Closed' },
+                    { value: 'DISPATCHED', label: 'Dispatched' },
+                  ]}
+                  value={statusFilter}
+                  onChange={(e) => {
+                    setStatusFilter(e.target.value);
+                    setPage(1);
+                  }}
+                />
+              </div>
+              <label className="flex items-center gap-2 cursor-pointer self-center whitespace-nowrap select-none">
+                <input
+                  type="checkbox"
+                  checked={showLegacy}
+                  onChange={(e) => {
+                    setShowLegacy(e.target.checked);
+                    setPage(1);
+                  }}
+                  className="h-4 w-4 rounded border-brand-border text-binny-navy accent-binny-navy cursor-pointer"
+                />
+                <span className="text-sm text-brand-text-muted">Show legacy</span>
+              </label>
+            </div>
           </div>
         </div>
 

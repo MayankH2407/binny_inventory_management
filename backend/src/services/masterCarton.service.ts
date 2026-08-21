@@ -9,6 +9,7 @@ import { createAuditLog } from './auditLog.service';
 import { assertCartonAllocatable } from './sample.service';
 import { CreateMasterCartonInput } from '../models/schemas/masterCarton.schema';
 import { logger } from '../utils/logger';
+import { dateFromCondition, dateToCondition } from '../utils/dateRange';
 
 export async function createMasterCarton(
   input: CreateMasterCartonInput,
@@ -180,7 +181,7 @@ export async function getMasterCartonById(id: string): Promise<MasterCarton & { 
 }
 
 export async function getMasterCartons(
-  filters: { status?: string; search?: string; is_legacy?: boolean },
+  filters: { status?: string; search?: string; is_legacy?: boolean; from_date?: string; to_date?: string },
   page: number = 1,
   limit: number = 25
 ): Promise<{ data: MasterCarton[]; total: number }> {
@@ -203,9 +204,36 @@ export async function getMasterCartons(
     values.push(filters.status);
   }
   if (filters.search) {
-    conditions.push(`mc.carton_barcode ILIKE $${paramIndex}`);
+    // Client asked to find cartons by ARTICLE NAME as well as barcode. A carton can
+    // hold boxes of several different products (assortment cartons — see
+    // getAssortment / the article_summary string_agg below), so this is a semi-join
+    // on "contains at least one box of a matching article", not an equality test.
+    // Uses an uncorrelated IN-subquery (evaluated once) rather than a correlated
+    // EXISTS, so the planner doesn't re-probe child_boxes per carton; the article
+    // side is backed by idx_products_article_name_trgm.
+    // mc.article_group is where LEGACY cartons keep their article name — they have
+    // no child_boxes rows at all (see 20260531100001 / 20260616120001).
+    conditions.push(`(
+      mc.carton_barcode ILIKE $${paramIndex}
+      OR mc.article_group ILIKE $${paramIndex}
+      OR mc.id IN (
+        SELECT ccm.master_carton_id
+        FROM carton_child_mapping ccm
+        JOIN child_boxes cb ON cb.id = ccm.child_box_id
+        JOIN products p ON p.id = cb.product_id
+        WHERE ccm.is_active = true AND p.article_name ILIKE $${paramIndex}
+      )
+    )`);
     values.push(`%${filters.search}%`);
     paramIndex++;
+  }
+  if (filters.from_date) {
+    conditions.push(dateFromCondition('mc.created_at', paramIndex++));
+    values.push(filters.from_date);
+  }
+  if (filters.to_date) {
+    conditions.push(dateToCondition('mc.created_at', paramIndex++));
+    values.push(filters.to_date);
   }
 
   const whereClause = `WHERE ${conditions.join(' AND ')}`;

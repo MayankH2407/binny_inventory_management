@@ -38,6 +38,8 @@ export const masterCartonListQuerySchema = z.object({
   limit: z.string().optional().transform((val) => val ? parseInt(val, 10) : 25),
   status: z.enum(statusValues).optional(),
   search: z.string().optional(),
+  from_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'from_date must be YYYY-MM-DD').optional(),
+  to_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'to_date must be YYYY-MM-DD').optional(),
   // Pass includeLegacy=true to include legacy cartons (default: excluded)
   includeLegacy: z.string().optional().transform((val) => val === 'true' ? true : val === 'false' ? false : undefined),
 });
