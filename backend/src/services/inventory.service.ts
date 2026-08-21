@@ -3,6 +3,7 @@ import { InventoryTransaction } from '../types';
 import { CHILD_BOX_STATUS, MASTER_CARTON_STATUS } from '../config/constants';
 import { NotFoundError } from '../utils/errors';
 import { BreakdownLevel, BreakdownPath, BreakdownChannel } from '../models/schemas/inventory.schema';
+import { dateFromCondition, dateToCondition } from '../utils/dateRange';
 
 export interface InventoryDashboard {
   totalChildBoxes: number;
@@ -152,11 +153,11 @@ export async function getTransactions(
     values.push(filters.performed_by);
   }
   if (filters.from_date) {
-    conditions.push(`created_at >= $${paramIndex++}`);
+    conditions.push(dateFromCondition('created_at', paramIndex++));
     values.push(filters.from_date);
   }
   if (filters.to_date) {
-    conditions.push(`created_at <= $${paramIndex++}`);
+    conditions.push(dateToCondition('created_at', paramIndex++));
     values.push(filters.to_date);
   }
 
@@ -209,7 +210,11 @@ export async function traceByBarcode(barcode: string): Promise<Record<string, un
     let dispatch = null;
     if (masterCarton) {
       const dispatchResult = await query(
-        `SELECT * FROM dispatch_records WHERE master_carton_id = $1 ORDER BY dispatch_date DESC LIMIT 1`,
+        `SELECT dr.*, c.firm_name AS customer_firm_name
+         FROM dispatch_records dr
+         LEFT JOIN customers c ON c.id = dr.customer_id
+         WHERE dr.master_carton_id = $1
+         ORDER BY dr.dispatch_date DESC, dr.created_at DESC LIMIT 1`,
         [masterCarton.id]
       );
       dispatch = dispatchResult.rows.length > 0 ? dispatchResult.rows[0] : null;
@@ -242,7 +247,11 @@ export async function traceByBarcode(barcode: string): Promise<Record<string, un
 
     // Get dispatch record
     const dispatchResult = await query(
-      `SELECT * FROM dispatch_records WHERE master_carton_id = $1 ORDER BY dispatch_date DESC LIMIT 1`,
+      `SELECT dr.*, c.firm_name AS customer_firm_name
+       FROM dispatch_records dr
+       LEFT JOIN customers c ON c.id = dr.customer_id
+       WHERE dr.master_carton_id = $1
+       ORDER BY dr.dispatch_date DESC, dr.created_at DESC LIMIT 1`,
       [masterCarton.id]
     );
     const dispatch = dispatchResult.rows.length > 0 ? dispatchResult.rows[0] : null;

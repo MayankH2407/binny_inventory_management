@@ -6,6 +6,7 @@ import { createAuditLog } from './auditLog.service';
 import { CreateDispatchInput } from '../models/schemas/dispatch.schema';
 import { deactivateLooseMapping, releaseCartonFromSample, takeBoxOutOfCartonAllocation, recomputeSampleChildCount } from './sample.service';
 import { logger } from '../utils/logger';
+import { dateFromCondition, dateToCondition } from '../utils/dateRange';
 
 export async function createDispatch(
   input: CreateDispatchInput,
@@ -732,6 +733,7 @@ export async function getDispatchById(id: string): Promise<DispatchRecord> {
        mc.carton_barcode, mc.child_count,
        sr.sample_barcode,
        er.ecommerce_barcode,
+       c.firm_name AS customer_firm_name,
        lower(dr.source_type) AS source_type,
        COALESCE(mc.carton_barcode, sr.sample_barcode, er.ecommerce_barcode, NULLIF(dr.order_reference, ''), NULLIF(dr.reference_name, ''), NULLIF(dr.marketplace, ''), CASE WHEN dr.source_type = 'ECOMMERCE' THEN 'E-commerce' END) as source_label,
        ps.article_summary, ps.colour_summary, ps.size_summary, ps.mrp_summary,
@@ -747,6 +749,7 @@ export async function getDispatchById(id: string): Promise<DispatchRecord> {
      LEFT JOIN master_cartons mc ON mc.id = dr.master_carton_id
      LEFT JOIN sample_records sr ON sr.id = dr.sample_record_id
      LEFT JOIN ecommerce_records er ON er.id = dr.ecommerce_record_id
+     LEFT JOIN customers c ON c.id = dr.customer_id
      LEFT JOIN LATERAL (
        SELECT
          string_agg(DISTINCT p.article_name, ', ') as article_summary,
@@ -806,11 +809,11 @@ export async function getDispatches(
     values.push(`%${filters.destination}%`);
   }
   if (filters.from_date) {
-    conditions.push(`dr.dispatch_date >= $${paramIndex++}`);
+    conditions.push(dateFromCondition('dr.dispatch_date', paramIndex++));
     values.push(filters.from_date);
   }
   if (filters.to_date) {
-    conditions.push(`dr.dispatch_date <= $${paramIndex++}`);
+    conditions.push(dateToCondition('dr.dispatch_date', paramIndex++));
     values.push(filters.to_date);
   }
   if (filters.search) {

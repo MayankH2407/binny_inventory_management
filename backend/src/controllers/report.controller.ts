@@ -5,6 +5,7 @@ import * as csvExportService from '../services/csvExport.service';
 import { sendSuccess } from '../utils/response';
 import { BadRequestError } from '../utils/errors';
 import { SampleStatus } from '../config/constants';
+import { isIsoDate } from '../utils/dateRange';
 
 export async function getInventorySummary(
   _req: AuthenticatedRequest,
@@ -156,8 +157,8 @@ export async function getSampleReport(
       from?: string; to?: string; status?: string; customer_id?: string;
     };
     const report = await reportService.getSampleReport({
-      from: from ? new Date(from) : undefined,
-      to: to ? new Date(to) : undefined,
+      from: isIsoDate(from) ? from : undefined,
+      to: isIsoDate(to) ? to : undefined,
       status: status as SampleStatus | undefined,
       customer_id,
     });
@@ -177,8 +178,8 @@ export async function exportSampleReportCSV(
       from?: string; to?: string; status?: string; customer_id?: string;
     };
     const csv = await csvExportService.exportSampleReportCSV({
-      from: from ? new Date(from) : undefined,
-      to: to ? new Date(to) : undefined,
+      from: isIsoDate(from) ? from : undefined,
+      to: isIsoDate(to) ? to : undefined,
       status: status as SampleStatus | undefined,
       customer_id,
     });
@@ -200,8 +201,8 @@ export async function getEcommerceReport(
       from?: string; to?: string; marketplace?: string;
     };
     const report = await reportService.getEcommerceReport({
-      from: from ? new Date(from) : undefined,
-      to: to ? new Date(to) : undefined,
+      from: isIsoDate(from) ? from : undefined,
+      to: isIsoDate(to) ? to : undefined,
       marketplace,
     });
     sendSuccess(res, report, 'E-commerce report retrieved successfully');
@@ -220,8 +221,8 @@ export async function exportEcommerceReportCSV(
       from?: string; to?: string; marketplace?: string;
     };
     const csv = await csvExportService.exportEcommerceReportCSV({
-      from: from ? new Date(from) : undefined,
-      to: to ? new Date(to) : undefined,
+      from: isIsoDate(from) ? from : undefined,
+      to: isIsoDate(to) ? to : undefined,
       marketplace,
     });
     res.setHeader('Content-Type', 'text/csv');

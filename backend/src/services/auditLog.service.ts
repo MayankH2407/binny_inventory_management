@@ -1,6 +1,7 @@
 import { query } from '../config/database';
 import { logger } from '../utils/logger';
 import { AuditLog } from '../types';
+import { dateFromCondition, dateToCondition } from '../utils/dateRange';
 
 interface AuditLogParams {
   userId: string;
@@ -68,11 +69,11 @@ export async function getAuditLogs(
     values.push(filters.action);
   }
   if (filters.fromDate) {
-    conditions.push(`created_at >= $${paramIndex++}`);
+    conditions.push(dateFromCondition('created_at', paramIndex++));
     values.push(filters.fromDate);
   }
   if (filters.toDate) {
-    conditions.push(`created_at <= $${paramIndex++}`);
+    conditions.push(dateToCondition('created_at', paramIndex++));
     values.push(filters.toDate);
   }
 

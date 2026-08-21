@@ -49,6 +49,7 @@ interface TraceResult {
     destination?: string;
     vehicle_number?: string;
     dispatch_date?: string;
+    customer_firm_name?: string | null;
     [key: string]: unknown;
   };
   timeline: {
@@ -363,6 +364,12 @@ export default function ScanTracePage() {
                     <h3 className="font-semibold text-brand-text-dark">Dispatch</h3>
                   </div>
                   <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-brand-text-muted">Customer</span>
+                      <span className="font-medium">
+                        {traceResult.dispatch.customer_firm_name || 'Walk-in / No Customer'}
+                      </span>
+                    </div>
                     {traceResult.dispatch.destination && (
                       <div className="flex justify-between">
                         <span className="text-brand-text-muted">Destination</span>

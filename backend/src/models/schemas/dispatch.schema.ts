@@ -134,8 +134,8 @@ export const dispatchListQuerySchema = z.object({
   page: z.string().optional().transform((val) => val ? parseInt(val, 10) : 1),
   limit: z.string().optional().transform((val) => val ? parseInt(val, 10) : 25),
   destination: z.string().optional(),
-  from_date: z.string().optional(),
-  to_date: z.string().optional(),
+  from_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'from_date must be YYYY-MM-DD').optional(),
+  to_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'to_date must be YYYY-MM-DD').optional(),
   search: z.string().optional(),
   return_status: z.enum(['none', 'partial', 'full']).optional(),
 });

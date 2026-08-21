@@ -2,6 +2,7 @@ import { query } from '../config/database';
 import { getProductWiseReport, getDailyActivity, getSampleReport, getEcommerceReport, getCartonInventoryReport } from './report.service';
 import { SampleStatus } from '../config/constants';
 import { getCartonHierarchy } from './inventory.service';
+import { dateFromCondition, dateToCondition } from '../utils/dateRange';
 
 function toCSV(headers: string[], rows: string[][]): string {
   const escape = (val: string) => `"${String(val ?? '').replace(/"/g, '""')}"`;
@@ -42,11 +43,11 @@ export async function exportDispatchCSV(fromDate?: string, toDate?: string): Pro
   let paramIndex = 1;
 
   if (fromDate) {
-    conditions.push(`dr.dispatch_date >= $${paramIndex++}`);
+    conditions.push(dateFromCondition('dr.dispatch_date', paramIndex++));
     values.push(fromDate);
   }
   if (toDate) {
-    conditions.push(`dr.dispatch_date <= $${paramIndex++}`);
+    conditions.push(dateToCondition('dr.dispatch_date', paramIndex++));
     values.push(toDate);
   }
 
@@ -189,8 +190,8 @@ export async function exportDailyActivityCSV(fromDate: string, toDate: string): 
 }
 
 export async function exportSampleReportCSV(filters: {
-  from?: Date;
-  to?: Date;
+  from?: string;
+  to?: string;
   status?: SampleStatus;
   customer_id?: string;
 }): Promise<string> {
@@ -409,8 +410,8 @@ export async function exportReturnCSV(fromDate?: string, toDate?: string): Promi
 }
 
 export async function exportEcommerceReportCSV(filters: {
-  from?: Date;
-  to?: Date;
+  from?: string;
+  to?: string;
   marketplace?: string;
 }): Promise<string> {
   const report = await getEcommerceReport(filters);

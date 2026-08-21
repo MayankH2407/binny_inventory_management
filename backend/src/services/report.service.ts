@@ -1,6 +1,7 @@
 import { query } from '../config/database';
 import { CHILD_BOX_STATUS, TRANSACTION_TYPES, SAMPLE_STATUS, SampleStatus } from '../config/constants';
 import { getEcommercePoolSummary } from './ecommerce.service';
+import { dateFromCondition, dateToCondition } from '../utils/dateRange';
 
 export interface InventorySummaryReport {
   totalProducts: number;
@@ -160,11 +161,11 @@ export async function getDispatchSummary(
   let paramIndex = 1;
 
   if (fromDate) {
-    conditions.push(`dr.dispatch_date >= $${paramIndex++}`);
+    conditions.push(dateFromCondition('dr.dispatch_date', paramIndex++));
     values.push(fromDate);
   }
   if (toDate) {
-    conditions.push(`dr.dispatch_date <= $${paramIndex++}`);
+    conditions.push(dateToCondition('dr.dispatch_date', paramIndex++));
     values.push(toDate);
   }
 
@@ -375,8 +376,8 @@ export interface SampleReport {
 }
 
 export async function getSampleReport(filters: {
-  from?: Date;
-  to?: Date;
+  from?: string;
+  to?: string;
   status?: SampleStatus;
   customer_id?: string;
 }): Promise<SampleReport> {
@@ -385,11 +386,11 @@ export async function getSampleReport(filters: {
   let paramIndex = 1;
 
   if (filters.from) {
-    conditions.push(`sr.created_at >= $${paramIndex++}`);
+    conditions.push(dateFromCondition('sr.created_at', paramIndex++));
     values.push(filters.from);
   }
   if (filters.to) {
-    conditions.push(`sr.created_at <= $${paramIndex++}`);
+    conditions.push(dateToCondition('sr.created_at', paramIndex++));
     values.push(filters.to);
   }
   if (filters.status) {
@@ -521,8 +522,8 @@ const ECOMMERCE_DISPATCH_ROLLUP_LATERAL = `
 `;
 
 export async function getEcommerceReport(filters: {
-  from?: Date;
-  to?: Date;
+  from?: string;
+  to?: string;
   marketplace?: string;
 }): Promise<EcommerceReport> {
   const conditions: string[] = [`dr.source_type = 'ECOMMERCE'`];
@@ -530,11 +531,11 @@ export async function getEcommerceReport(filters: {
   let paramIndex = 1;
 
   if (filters.from) {
-    conditions.push(`dr.dispatch_date >= $${paramIndex++}`);
+    conditions.push(dateFromCondition('dr.dispatch_date', paramIndex++));
     values.push(filters.from);
   }
   if (filters.to) {
-    conditions.push(`dr.dispatch_date <= $${paramIndex++}`);
+    conditions.push(dateToCondition('dr.dispatch_date', paramIndex++));
     values.push(filters.to);
   }
   if (filters.marketplace) {
