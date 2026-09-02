@@ -2,43 +2,9 @@ import { query, getClient } from '../config/database';
 import { MASTER_CARTON_STATUS, CHILD_BOX_STATUS, TRANSACTION_TYPES } from '../config/constants';
 import { NotFoundError, BadRequestError } from '../utils/errors';
 import { createAuditLog } from './auditLog.service';
-import { assertCartonAllocatable } from './sample.service';
+import { assertCartonAllocatable, resolveChannelBarcode } from './channelAllocation.service';
 import { EcommerceListQuery, PoolItemActionInput, PoolListQuery } from '../models/schemas/ecommerce.schema';
 import { logger } from '../utils/logger';
-
-type QueryExecutor = { query: (text: string, params?: unknown[]) => Promise<{ rows: Record<string, any>[] }> };
-
-// ---------------------------------------------------------------------------
-// resolvePoolBarcode — identifies a scanned barcode as either a master carton
-// or a child box, purely by DB lookup (master_cartons first, then
-// child_boxes). NEVER branch on barcode prefix — legacy `BINNY-CB-{uuid}`
-// child box codes exist alongside the current short-format ones, so prefix
-// sniffing would misclassify them.
-// ---------------------------------------------------------------------------
-async function resolvePoolBarcode(
-  exec: QueryExecutor,
-  barcode: string
-): Promise<{ item_type: 'BOX' | 'CARTON'; id: string; barcode: string }> {
-  const upper = barcode.trim().toUpperCase();
-
-  const mcResult = await exec.query(
-    'SELECT id, carton_barcode FROM master_cartons WHERE carton_barcode = UPPER($1)',
-    [upper]
-  );
-  if (mcResult.rows.length > 0) {
-    return { item_type: 'CARTON', id: mcResult.rows[0].id, barcode: mcResult.rows[0].carton_barcode };
-  }
-
-  const cbResult = await exec.query(
-    `SELECT cb.id, cb.barcode FROM child_boxes cb JOIN products p ON p.id = cb.product_id WHERE cb.barcode = UPPER($1)`,
-    [upper]
-  );
-  if (cbResult.rows.length > 0) {
-    return { item_type: 'BOX', id: cbResult.rows[0].id, barcode: cbResult.rows[0].barcode };
-  }
-
-  throw new NotFoundError(`No child box or master carton found with barcode ${upper}`);
-}
 
 // ---------------------------------------------------------------------------
 // getEcommerceById
@@ -337,7 +303,7 @@ export async function addToEcommercePool(
   try {
     await client.query('BEGIN');
 
-    const resolved = await resolvePoolBarcode(client, barcode);
+    const resolved = await resolveChannelBarcode(client, barcode);
 
     if (resolved.item_type === 'CARTON') {
       const mcResult = await client.query('SELECT * FROM master_cartons WHERE id = $1 FOR UPDATE', [resolved.id]);
@@ -425,6 +391,11 @@ export async function addToEcommercePool(
     }
     if (childBox.status === CHILD_BOX_STATUS.DISPATCHED) {
       throw new BadRequestError(`Child box ${childBox.barcode} has already been dispatched`);
+    }
+    if (childBox.status === CHILD_BOX_STATUS.PARTIAL) {
+      throw new BadRequestError(
+        `Child box ${childBox.barcode} has one shoe already dispatched (partial pair) and cannot be pooled to the E-commerce Area — only sample allocation of the remaining shoe is permitted`
+      );
     }
 
     // Auto-activate GENERATED boxes, then fall through to the FREE handling below.
@@ -615,10 +586,10 @@ export async function getEcommercePoolSummary(): Promise<{
 // ---------------------------------------------------------------------------
 // lookupEcommercePoolItem — read-only scan-to-check for the dispatch UI. Never
 // throws for a known-but-ineligible barcode; only a totally unknown barcode
-// 404s (via resolvePoolBarcode).
+// 404s (via resolveChannelBarcode).
 // ---------------------------------------------------------------------------
 export async function lookupEcommercePoolItem(barcode: string): Promise<Record<string, unknown>> {
-  const resolved = await resolvePoolBarcode({ query }, barcode);
+  const resolved = await resolveChannelBarcode({ query }, barcode);
 
   if (resolved.item_type === 'CARTON') {
     const mcResult = await query('SELECT * FROM master_cartons WHERE id = $1', [resolved.id]);
@@ -640,7 +611,7 @@ export async function lookupEcommercePoolItem(barcode: string): Promise<Record<s
     );
     if (poolResult.rows.length === 0) {
       const sampleHit = await query(
-        'SELECT 1 FROM sample_carton_mapping WHERE master_carton_id = $1 AND is_active = true',
+        'SELECT 1 FROM sample_carton_mapping WHERE master_carton_id = $1 AND is_active = true AND dispatch_record_id IS NULL',
         [carton.id]
       );
       if (sampleHit.rows.length > 0) {

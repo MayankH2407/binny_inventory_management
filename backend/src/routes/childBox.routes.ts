@@ -68,6 +68,11 @@ router.get(
 );
 
 router.get(
+  '/partial',
+  childBoxController.getPartialChildBoxes
+);
+
+router.get(
   '/qr/:qrCode',
   childBoxController.getChildBoxByQR
 );

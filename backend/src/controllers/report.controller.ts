@@ -4,7 +4,6 @@ import * as reportService from '../services/report.service';
 import * as csvExportService from '../services/csvExport.service';
 import { sendSuccess } from '../utils/response';
 import { BadRequestError } from '../utils/errors';
-import { SampleStatus } from '../config/constants';
 import { isIsoDate } from '../utils/dateRange';
 
 export async function getInventorySummary(
@@ -153,13 +152,12 @@ export async function getSampleReport(
   next: NextFunction
 ): Promise<void> {
   try {
-    const { from, to, status, customer_id } = req.query as {
-      from?: string; to?: string; status?: string; customer_id?: string;
+    const { from, to, customer_id } = req.query as {
+      from?: string; to?: string; customer_id?: string;
     };
     const report = await reportService.getSampleReport({
       from: isIsoDate(from) ? from : undefined,
       to: isIsoDate(to) ? to : undefined,
-      status: status as SampleStatus | undefined,
       customer_id,
     });
     sendSuccess(res, report, 'Sample report retrieved successfully');
@@ -174,13 +172,12 @@ export async function exportSampleReportCSV(
   next: NextFunction
 ): Promise<void> {
   try {
-    const { from, to, status, customer_id } = req.query as {
-      from?: string; to?: string; status?: string; customer_id?: string;
+    const { from, to, customer_id } = req.query as {
+      from?: string; to?: string; customer_id?: string;
     };
     const csv = await csvExportService.exportSampleReportCSV({
       from: isIsoDate(from) ? from : undefined,
       to: isIsoDate(to) ? to : undefined,
-      status: status as SampleStatus | undefined,
       customer_id,
     });
     res.setHeader('Content-Type', 'text/csv');

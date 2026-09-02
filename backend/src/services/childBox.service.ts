@@ -276,7 +276,7 @@ export async function getChildBoxByQR(barcode: string): Promise<ChildBox & { pro
     `SELECT cb.*, p.article_name, p.article_code, p.sku, p.size, p.colour, p.mrp,
             COALESCE(ARRAY(
               SELECT sbm.foot FROM sample_box_mapping sbm
-              WHERE sbm.child_box_id = cb.id AND sbm.is_active = true
+              WHERE sbm.child_box_id = cb.id AND sbm.is_active = true AND sbm.dispatch_record_id IS NULL
             ), '{}') AS active_sample_feet
      FROM child_boxes cb
      JOIN products p ON p.id = cb.product_id
@@ -547,7 +547,11 @@ export async function activateChildBox(
     return box;
   }
 
-  if (box.status === CHILD_BOX_STATUS.PACKED || box.status === CHILD_BOX_STATUS.DISPATCHED) {
+  if (box.status !== CHILD_BOX_STATUS.GENERATED) {
+    // Explicit allow-list, not a reject-list: PACKED/DISPATCHED/SAMPLE/
+    // ECOMMERCE/PARTIAL must all be refused here, not silently laundered
+    // back to FREE by falling through (the same fall-through hole closed
+    // in addToEcommercePool).
     throw new ConflictError(`Cannot activate child box in ${box.status} status`);
   }
 
@@ -586,6 +590,57 @@ export async function activateChildBox(
 
   logger.info(`Child box activated: ${box.barcode}`);
   return getChildBoxById(id);
+}
+
+// getPartialChildBoxes — the "loose shoes on hand" list: boxes where one foot
+// has shipped (via a sample dispatch) and the other was never allocated, so
+// it sits on the shelf waiting for further sample allocation only. Surfaces
+// which foot remains so staff don't have to cross-reference sample history.
+export async function getPartialChildBoxes(
+  productId?: string,
+  page: number = 1,
+  limit: number = 25
+): Promise<{
+  data: Array<
+    ChildBox & {
+      product_name: string; product_sku: string; size: string; colour: string;
+      remaining_foot: 'LEFT' | 'RIGHT';
+    }
+  >;
+  total: number;
+}> {
+  const conditions: string[] = [`cb.status = $1`];
+  const values: unknown[] = [CHILD_BOX_STATUS.PARTIAL];
+  let paramIndex = 2;
+
+  if (productId) {
+    conditions.push(`cb.product_id = $${paramIndex++}`);
+    values.push(productId);
+  }
+
+  const whereClause = `WHERE ${conditions.join(' AND ')}`;
+
+  const countResult = await query(
+    `SELECT COUNT(*) FROM child_boxes cb JOIN products p ON p.id = cb.product_id ${whereClause}`,
+    values
+  );
+  const total = parseInt(countResult.rows[0].count, 10);
+
+  const offset = (page - 1) * limit;
+  values.push(limit, offset);
+
+  const result = await query(
+    `SELECT cb.*, p.article_name, p.article_code, p.sku, p.size, p.colour, p.mrp,
+            CASE WHEN cb.left_dispatched_at IS NULL THEN 'LEFT' ELSE 'RIGHT' END AS remaining_foot
+     FROM child_boxes cb
+     JOIN products p ON p.id = cb.product_id
+     ${whereClause}
+     ORDER BY cb.updated_at DESC, cb.id
+     LIMIT $${paramIndex++} OFFSET $${paramIndex}`,
+    values
+  );
+
+  return { data: result.rows, total };
 }
 
 export async function getFreeChildBoxes(

@@ -6,7 +6,7 @@ import { MASTER_CARTON_STATUS, CHILD_BOX_STATUS, TRANSACTION_TYPES } from '../co
 import { NotFoundError, BadRequestError } from '../utils/errors';
 import { generateMasterCartonQR } from '../utils/qrGenerator';
 import { createAuditLog } from './auditLog.service';
-import { assertCartonAllocatable } from './sample.service';
+import { assertCartonAllocatable } from './channelAllocation.service';
 import { CreateMasterCartonInput } from '../models/schemas/masterCarton.schema';
 import { logger } from '../utils/logger';
 import { dateFromCondition, dateToCondition } from '../utils/dateRange';

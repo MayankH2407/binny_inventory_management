@@ -70,6 +70,10 @@ export interface ChildBox {
   product_id: string;
   status: ChildBoxStatus;
   quantity: number;
+  // Set the first time each foot ships via a sample dispatch; independent of
+  // any mapping row's is_active flag. Both NULL means "never foot-split".
+  left_dispatched_at: Date | null;
+  right_dispatched_at: Date | null;
   created_by: string | null;
   created_at: Date;
   updated_at: Date;

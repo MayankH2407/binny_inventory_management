@@ -1,6 +1,7 @@
 import { query } from '../config/database';
-import { CHILD_BOX_STATUS, TRANSACTION_TYPES, SAMPLE_STATUS, SampleStatus } from '../config/constants';
+import { CHILD_BOX_STATUS, TRANSACTION_TYPES } from '../config/constants';
 import { getEcommercePoolSummary } from './ecommerce.service';
+import { getSampleSummary } from './sample.service';
 import { dateFromCondition, dateToCondition } from '../utils/dateRange';
 
 export interface InventorySummaryReport {
@@ -347,27 +348,43 @@ export async function getDailyActivity(
 }
 
 // ─── Sample Report ─────────────────────────────────────────────────────────
+// Rewritten for the samples pool redesign (20260901): a sample record no
+// longer carries recipient/purpose/date/status/child_count — those are
+// dispatch-time facts now. This report is therefore dispatch-based (source_
+// type = 'SAMPLE'), mirroring the E-commerce report below, plus a live,
+// date-unfiltered snapshot of what's currently sitting in samples (the
+// samples analogue of the e-commerce pool snapshot).
 
 export interface SampleReportRow {
+  dispatch_id: string;
+  dispatch_date: string;
   sample_barcode: string;
-  name: string;
-  customer_name: string | null;
+  sample_name: string | null;
   recipient_name: string | null;
-  status: string;
-  child_count: number;
-  sample_date: string | null;
-  created_at: string;
-  dispatched_at: string | null;
-  creator_name: string | null;
+  purpose: string | null;
+  reference_date: string | null;
+  customer_name: string | null;
+  destination: string | null;
+  box_count: number;
+  pairs: number;
+  article_summary: string | null;
+  colour_summary: string | null;
+  size_summary: string | null;
+  dispatched_by_name: string | null;
+  notes: string | null;
 }
 
 export interface SampleReportSummary {
-  total: number;
-  created: number;
-  active: number;
-  closed: number;
-  dispatched: number;
+  dispatch_count: number;
+  box_count: number;
   pairs_total: number;
+  pool: {
+    total_records: number;
+    empty_records: number;
+    open_records: number;
+    dispatched_records: number;
+    open_boxes: number;
+  };
 }
 
 export interface SampleReport {
@@ -375,80 +392,101 @@ export interface SampleReport {
   rows: SampleReportRow[];
 }
 
+// Foot-aware: a box shipped as a single shoe (foot LEFT/RIGHT) rolls up as
+// half a pair, not a full pair — same convention as the dispatch CSV.
+const SAMPLE_DISPATCH_ROLLUP_LATERAL = `
+  LEFT JOIN LATERAL (
+    SELECT
+      COUNT(DISTINCT src.child_box_id)::int AS box_count,
+      COALESCE(SUM(CASE WHEN src.foot IN ('LEFT', 'RIGHT') THEN 0.5 ELSE cb.quantity END), 0)::numeric AS pairs,
+      string_agg(DISTINCT p.article_name, ', ') AS article_summary,
+      string_agg(DISTINCT p.colour, ', ') AS colour_summary,
+      string_agg(DISTINCT p.size, ', ') AS size_summary
+    FROM (
+      SELECT sbm.child_box_id, sbm.foot FROM sample_box_mapping sbm WHERE sbm.dispatch_record_id = dr.id
+      UNION ALL
+      -- Whole cartons scanned intact into a sample — no foot concept.
+      SELECT ccm.child_box_id, NULL::varchar(10) AS foot FROM sample_carton_mapping scm
+      JOIN carton_child_mapping ccm ON ccm.master_carton_id = scm.master_carton_id AND ccm.is_active = true
+      WHERE scm.dispatch_record_id = dr.id
+    ) src
+    JOIN child_boxes cb ON cb.id = src.child_box_id
+    JOIN products p ON p.id = cb.product_id
+  ) ps ON true
+`;
+
 export async function getSampleReport(filters: {
   from?: string;
   to?: string;
-  status?: SampleStatus;
   customer_id?: string;
 }): Promise<SampleReport> {
-  const conditions: string[] = [];
+  const conditions: string[] = [`dr.source_type = 'SAMPLE'`];
   const values: unknown[] = [];
   let paramIndex = 1;
 
   if (filters.from) {
-    conditions.push(dateFromCondition('sr.created_at', paramIndex++));
+    conditions.push(dateFromCondition('dr.dispatch_date', paramIndex++));
     values.push(filters.from);
   }
   if (filters.to) {
-    conditions.push(dateToCondition('sr.created_at', paramIndex++));
+    conditions.push(dateToCondition('dr.dispatch_date', paramIndex++));
     values.push(filters.to);
   }
-  if (filters.status) {
-    conditions.push(`sr.status = $${paramIndex++}`);
-    values.push(filters.status);
-  }
   if (filters.customer_id) {
-    conditions.push(`sr.customer_id = $${paramIndex++}`);
+    conditions.push(`dr.customer_id = $${paramIndex++}`);
     values.push(filters.customer_id);
   }
 
-  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-  const statusParams = [...values, SAMPLE_STATUS.CREATED, SAMPLE_STATUS.ACTIVE, SAMPLE_STATUS.CLOSED, SAMPLE_STATUS.DISPATCHED];
-  const pi = paramIndex;
+  const whereClause = `WHERE ${conditions.join(' AND ')}`;
 
-  const [summaryResult, rowsResult] = await Promise.all([
+  const [summaryResult, rowsResult, poolSummary] = await Promise.all([
     query(`
       SELECT
-        COUNT(*) as total,
-        COUNT(*) FILTER (WHERE sr.status = $${pi}) as created,
-        COUNT(*) FILTER (WHERE sr.status = $${pi + 1}) as active,
-        COUNT(*) FILTER (WHERE sr.status = $${pi + 2}) as closed,
-        COUNT(*) FILTER (WHERE sr.status = $${pi + 3}) as dispatched,
-        COALESCE(SUM(
-          (SELECT COALESCE(SUM(cb.quantity), 0)
-           FROM sample_box_mapping sbm
-           JOIN child_boxes cb ON cb.id = sbm.child_box_id
-           WHERE sbm.sample_record_id = sr.id AND sbm.is_active = true)
-        ), 0) as pairs_total
-      FROM sample_records sr
+        COUNT(*)::int AS dispatch_count,
+        COALESCE(SUM(ps.box_count), 0)::int AS box_count,
+        COALESCE(SUM(ps.pairs), 0)::numeric AS pairs_total
+      FROM dispatch_records dr
+      ${SAMPLE_DISPATCH_ROLLUP_LATERAL}
       ${whereClause}
-    `, statusParams),
-
-    query(`
-      SELECT
-        sr.sample_barcode, sr.name, c.firm_name as customer_name,
-        sr.recipient_name, sr.status, sr.child_count,
-        sr.sample_date, sr.created_at, sr.dispatched_at,
-        u.name as creator_name
-      FROM sample_records sr
-      LEFT JOIN customers c ON c.id = sr.customer_id
-      LEFT JOIN users u ON u.id = sr.created_by
-      ${whereClause}
-      ORDER BY sr.created_at DESC
     `, values),
+
+    query(`
+      SELECT
+        dr.id AS dispatch_id, dr.dispatch_date,
+        sr.sample_barcode, sr.name AS sample_name,
+        dr.sample_recipient_name AS recipient_name, dr.sample_purpose AS purpose,
+        dr.sample_reference_date AS reference_date,
+        c.firm_name AS customer_name, dr.destination,
+        COALESCE(ps.box_count, 0)::int AS box_count, COALESCE(ps.pairs, 0)::numeric AS pairs,
+        ps.article_summary, ps.colour_summary, ps.size_summary,
+        u.name AS dispatched_by_name, dr.notes
+      FROM dispatch_records dr
+      JOIN sample_records sr ON sr.id = dr.sample_record_id
+      LEFT JOIN customers c ON c.id = dr.customer_id
+      LEFT JOIN users u ON u.id = dr.dispatched_by
+      ${SAMPLE_DISPATCH_ROLLUP_LATERAL}
+      ${whereClause}
+      ORDER BY dr.dispatch_date DESC, dr.created_at DESC
+    `, values),
+
+    getSampleSummary(),
   ]);
 
   const s = summaryResult.rows[0];
   return {
     summary: {
-      total: parseInt(s.total, 10),
-      created: parseInt(s.created, 10),
-      active: parseInt(s.active, 10),
-      closed: parseInt(s.closed, 10),
-      dispatched: parseInt(s.dispatched, 10),
-      pairs_total: parseInt(s.pairs_total, 10),
+      dispatch_count: s.dispatch_count,
+      box_count: s.box_count,
+      pairs_total: Number(s.pairs_total),
+      pool: {
+        total_records: poolSummary.total_records,
+        empty_records: poolSummary.empty_records,
+        open_records: poolSummary.open_records,
+        dispatched_records: poolSummary.dispatched_records,
+        open_boxes: poolSummary.open_boxes,
+      },
     },
-    rows: rowsResult.rows,
+    rows: rowsResult.rows.map((r) => ({ ...r, pairs: Number(r.pairs) })),
   };
 }
 

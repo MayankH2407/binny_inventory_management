@@ -12,6 +12,7 @@ export interface InventoryDashboard {
   packedChildBoxes: number;
   sampleBoxes: number;
   ecommerceBoxes: number;
+  partialBoxes: number;
   dispatchedChildBoxes: number;
   totalMasterCartons: number;
   createdCartons: number;
@@ -46,9 +47,10 @@ export async function getDashboard(): Promise<InventoryDashboard> {
         COUNT(*) FILTER (WHERE status = $3) as packed,
         COUNT(*) FILTER (WHERE status = $4) as sample,
         COUNT(*) FILTER (WHERE status = $5) as ecommerce,
-        COUNT(*) FILTER (WHERE status = $6) as dispatched
+        COUNT(*) FILTER (WHERE status = $6) as dispatched,
+        COUNT(*) FILTER (WHERE status = $7) as partial
       FROM child_boxes
-    `, [CHILD_BOX_STATUS.GENERATED, CHILD_BOX_STATUS.FREE, CHILD_BOX_STATUS.PACKED, CHILD_BOX_STATUS.SAMPLE, CHILD_BOX_STATUS.ECOMMERCE, CHILD_BOX_STATUS.DISPATCHED]),
+    `, [CHILD_BOX_STATUS.GENERATED, CHILD_BOX_STATUS.FREE, CHILD_BOX_STATUS.PACKED, CHILD_BOX_STATUS.SAMPLE, CHILD_BOX_STATUS.ECOMMERCE, CHILD_BOX_STATUS.DISPATCHED, CHILD_BOX_STATUS.PARTIAL]),
 
     query(`
       SELECT
@@ -103,6 +105,7 @@ export async function getDashboard(): Promise<InventoryDashboard> {
     packedChildBoxes: parseInt(cb.packed, 10),
     sampleBoxes: parseInt(cb.sample, 10),
     ecommerceBoxes: parseInt(cb.ecommerce, 10),
+    partialBoxes: parseInt(cb.partial, 10),
     dispatchedChildBoxes: parseInt(cb.dispatched, 10),
     totalMasterCartons: parseInt(mc.total, 10),
     createdCartons: parseInt(mc.created, 10),
@@ -458,8 +461,8 @@ export async function getCartonHierarchy(
   // warehouse carton view — they're only visible via the sample/ecommerce channel
   // drill-down (getInventoryBreakdown) from here on.
   const NOT_ALLOCATED_CLAUSE = `
-    NOT EXISTS (SELECT 1 FROM sample_carton_mapping scm WHERE scm.master_carton_id = mc.id AND scm.is_active = true)
-    AND NOT EXISTS (SELECT 1 FROM ecommerce_carton_mapping ecm WHERE ecm.master_carton_id = mc.id AND ecm.is_active = true)
+    NOT EXISTS (SELECT 1 FROM sample_carton_mapping scm WHERE scm.master_carton_id = mc.id AND scm.is_active = true AND scm.dispatch_record_id IS NULL)
+    AND NOT EXISTS (SELECT 1 FROM ecommerce_carton_mapping ecm WHERE ecm.master_carton_id = mc.id AND ecm.is_active = true AND ecm.dispatch_record_id IS NULL)
   `;
 
   if (level === 'status') {
@@ -776,8 +779,8 @@ export async function getStockSummary(): Promise<{
             SELECT 1 FROM carton_child_mapping ccm
             WHERE ccm.child_box_id = cb.id AND ccm.is_active = true
               AND (
-                EXISTS (SELECT 1 FROM sample_carton_mapping scm WHERE scm.master_carton_id = ccm.master_carton_id AND scm.is_active = true)
-                OR EXISTS (SELECT 1 FROM ecommerce_carton_mapping ecm WHERE ecm.master_carton_id = ccm.master_carton_id AND ecm.is_active = true)
+                EXISTS (SELECT 1 FROM sample_carton_mapping scm WHERE scm.master_carton_id = ccm.master_carton_id AND scm.is_active = true AND scm.dispatch_record_id IS NULL)
+                OR EXISTS (SELECT 1 FROM ecommerce_carton_mapping ecm WHERE ecm.master_carton_id = ccm.master_carton_id AND ecm.is_active = true AND ecm.dispatch_record_id IS NULL)
               )
           )
       ), 0) as pairs_in_stock,
@@ -796,8 +799,8 @@ export async function getStockSummary(): Promise<{
     SELECT
       COUNT(*) FILTER (
         WHERE status IN ($1, $2)
-          AND NOT EXISTS (SELECT 1 FROM sample_carton_mapping scm WHERE scm.master_carton_id = master_cartons.id AND scm.is_active = true)
-          AND NOT EXISTS (SELECT 1 FROM ecommerce_carton_mapping ecm WHERE ecm.master_carton_id = master_cartons.id AND ecm.is_active = true)
+          AND NOT EXISTS (SELECT 1 FROM sample_carton_mapping scm WHERE scm.master_carton_id = master_cartons.id AND scm.is_active = true AND scm.dispatch_record_id IS NULL)
+          AND NOT EXISTS (SELECT 1 FROM ecommerce_carton_mapping ecm WHERE ecm.master_carton_id = master_cartons.id AND ecm.is_active = true AND ecm.dispatch_record_id IS NULL)
       ) as total,
       COUNT(*) FILTER (WHERE status = $3) as dispatched
     FROM master_cartons
@@ -980,7 +983,7 @@ export async function getInventoryBreakdown(input: {
               bs.size
           )                                      AS size_breakdown
         FROM master_cartons mc
-        JOIN ${cartonMappingTable} cm ON cm.master_carton_id = mc.id AND cm.is_active = true
+        JOIN ${cartonMappingTable} cm ON cm.master_carton_id = mc.id AND cm.is_active = true AND cm.dispatch_record_id IS NULL
         JOIN (
           SELECT
             ccm.master_carton_id,
@@ -1042,7 +1045,7 @@ export async function getInventoryBreakdown(input: {
         SELECT ccm.child_box_id, ccm.master_carton_id
         FROM ${cartonMappingTable} cm
         JOIN carton_child_mapping ccm ON ccm.master_carton_id = cm.master_carton_id AND ccm.is_active = true
-        WHERE cm.is_active = true
+        WHERE cm.is_active = true AND cm.dispatch_record_id IS NULL
       ) cbx
       JOIN child_boxes cb ON cb.id = cbx.child_box_id
       JOIN products p ON p.id = cb.product_id
@@ -1106,8 +1109,8 @@ export async function getInventoryBreakdown(input: {
       WHERE mc.status != 'DISPATCHED'
         -- Cartons allocated intact to a sample/e-commerce record are out of the
         -- warehouse view — they surface only in that channel's drill-down instead.
-        AND NOT EXISTS (SELECT 1 FROM sample_carton_mapping scm WHERE scm.master_carton_id = mc.id AND scm.is_active = true)
-        AND NOT EXISTS (SELECT 1 FROM ecommerce_carton_mapping ecm WHERE ecm.master_carton_id = mc.id AND ecm.is_active = true)
+        AND NOT EXISTS (SELECT 1 FROM sample_carton_mapping scm WHERE scm.master_carton_id = mc.id AND scm.is_active = true AND scm.dispatch_record_id IS NULL)
+        AND NOT EXISTS (SELECT 1 FROM ecommerce_carton_mapping ecm WHERE ecm.master_carton_id = mc.id AND ecm.is_active = true AND ecm.dispatch_record_id IS NULL)
       GROUP BY mc.id, mc.carton_barcode, mc.status, mc.created_at
       ORDER BY mc.created_at DESC
     `, values);
@@ -1181,8 +1184,8 @@ export async function getInventoryBreakdown(input: {
                AND mc2.status != 'DISPATCHED'
                -- Exclude boxes reached through a carton allocated intact to a
                -- sample/e-commerce record — out of warehouse scope while allocated.
-               AND NOT EXISTS (SELECT 1 FROM sample_carton_mapping scm2 WHERE scm2.master_carton_id = mc2.id AND scm2.is_active = true)
-               AND NOT EXISTS (SELECT 1 FROM ecommerce_carton_mapping ecm2 WHERE ecm2.master_carton_id = mc2.id AND ecm2.is_active = true)
+               AND NOT EXISTS (SELECT 1 FROM sample_carton_mapping scm2 WHERE scm2.master_carton_id = mc2.id AND scm2.is_active = true AND scm2.dispatch_record_id IS NULL)
+               AND NOT EXISTS (SELECT 1 FROM ecommerce_carton_mapping ecm2 WHERE ecm2.master_carton_id = mc2.id AND ecm2.is_active = true AND ecm2.dispatch_record_id IS NULL)
            )
           )
           OR
@@ -1208,8 +1211,8 @@ export async function getInventoryBreakdown(input: {
                AND mc2.status != 'DISPATCHED'
                -- Exclude boxes reached through a carton allocated intact to a
                -- sample/e-commerce record — out of warehouse scope while allocated.
-               AND NOT EXISTS (SELECT 1 FROM sample_carton_mapping scm2 WHERE scm2.master_carton_id = mc2.id AND scm2.is_active = true)
-               AND NOT EXISTS (SELECT 1 FROM ecommerce_carton_mapping ecm2 WHERE ecm2.master_carton_id = mc2.id AND ecm2.is_active = true)
+               AND NOT EXISTS (SELECT 1 FROM sample_carton_mapping scm2 WHERE scm2.master_carton_id = mc2.id AND scm2.is_active = true AND scm2.dispatch_record_id IS NULL)
+               AND NOT EXISTS (SELECT 1 FROM ecommerce_carton_mapping ecm2 WHERE ecm2.master_carton_id = mc2.id AND ecm2.is_active = true AND ecm2.dispatch_record_id IS NULL)
            )
           )
           OR
@@ -1241,8 +1244,8 @@ export async function getInventoryBreakdown(input: {
     LEFT JOIN child_boxes cb ON cb.product_id = p.id
     LEFT JOIN carton_child_mapping ccm ON ccm.child_box_id = cb.id AND ccm.is_active = true
     LEFT JOIN master_cartons mc ON mc.id = ccm.master_carton_id AND mc.status != 'DISPATCHED'
-      AND NOT EXISTS (SELECT 1 FROM sample_carton_mapping scm WHERE scm.master_carton_id = mc.id AND scm.is_active = true)
-      AND NOT EXISTS (SELECT 1 FROM ecommerce_carton_mapping ecm WHERE ecm.master_carton_id = mc.id AND ecm.is_active = true)
+      AND NOT EXISTS (SELECT 1 FROM sample_carton_mapping scm WHERE scm.master_carton_id = mc.id AND scm.is_active = true AND scm.dispatch_record_id IS NULL)
+      AND NOT EXISTS (SELECT 1 FROM ecommerce_carton_mapping ecm WHERE ecm.master_carton_id = mc.id AND ecm.is_active = true AND ecm.dispatch_record_id IS NULL)
     WHERE ${whereClause}
     GROUP BY ${groupCol}
     ORDER BY pieces DESC NULLS LAST

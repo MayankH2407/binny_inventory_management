@@ -7,10 +7,34 @@ export const createDispatchSchema = z.object({
     .min(1, 'At least one master carton must be selected for dispatch')
     .max(200, 'Cannot dispatch more than 200 cartons at once')
     .optional(),
-  // Sample dispatch: provide a single sample record ID
-  sample_record_id: z
+  // Sample dispatch: scan the sample's own barcode, then ship specific items
+  // out of it (mapping_id, not barcode — a box's two feet can sit in two
+  // different samples, so barcode alone is ambiguous). A dispatch always
+  // ships from exactly ONE sample record (recipient/purpose are per-record
+  // semantics, unlike e-commerce's recordless flat pool).
+  sample_dispatch: z
+    .object({
+      sample_record_id: z.string().uuid('Invalid sample record ID format'),
+      items: z
+        .array(
+          z.object({
+            item_type: z.enum(['BOX', 'CARTON']),
+            mapping_id: z.string().uuid('Invalid mapping ID format'),
+            // Optional last-second foot change, applied before shipping.
+            // Ignored for CARTON items.
+            foot: z.enum(['LEFT', 'RIGHT', 'PAIR']).optional(),
+          })
+        )
+        .min(1, 'Select at least one item')
+        .max(500),
+    })
+    .optional(),
+  sample_recipient_name: z.string().trim().max(200).optional(),
+  sample_purpose: z.string().trim().max(2000).optional(),
+  sample_reference_date: z
     .string()
-    .uuid('Invalid sample record ID format')
+    .datetime()
+    .or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/))
     .optional(),
   // E-commerce dispatch: scan loose boxes / whole cartons straight out of the
   // E-commerce Area pool (see ecommerce.service.ts#getEcommercePool).
@@ -68,29 +92,18 @@ export const createDispatchSchema = z.object({
     .string()
     .max(1000, 'Notes must not exceed 1000 characters')
     .optional(),
-  // Ship only SOME of a sample's contents — everything else currently in the
-  // sample is released back to available stock (not committed to ship later;
-  // see sample.service.ts recomputeSampleChildCount / releaseCartonFromSample).
-  // release_remainder is a literal `true`, not a default, so this can never
-  // happen without the caller (the UI) explicitly acknowledging it in words.
-  sample_scope: z
-    .object({
-      child_box_ids: z.array(z.string().uuid('Invalid child box ID format')).min(1).max(500),
-      release_remainder: z.literal(true),
-    })
-    .optional(),
 }).refine(
   (data) => {
     const sources = [
       data.master_carton_ids !== undefined && data.master_carton_ids.length > 0,
-      data.sample_record_id !== undefined,
+      data.sample_dispatch !== undefined,
       data.ecommerce_pool !== undefined,
     ].filter(Boolean).length;
     return sources === 1;
   },
   {
     message:
-      'Exactly one dispatch source must be provided: master_carton_ids, sample_record_id, or ecommerce_pool',
+      'Exactly one dispatch source must be provided: master_carton_ids, sample_dispatch, or ecommerce_pool',
   }
 ).refine(
   (data) => {
@@ -108,6 +121,18 @@ export const createDispatchSchema = z.object({
   }
 ).refine(
   (data) => {
+    const hasSampleFields =
+      data.sample_recipient_name !== undefined ||
+      data.sample_purpose !== undefined ||
+      data.sample_reference_date !== undefined;
+    return !hasSampleFields || data.sample_dispatch !== undefined;
+  },
+  {
+    message: 'Sample fields are only valid with a sample dispatch',
+    path: ['sample_recipient_name'],
+  }
+).refine(
+  (data) => {
     // Only enforce for master-carton dispatch; sample + ecommerce remain optional
     if (data.master_carton_ids !== undefined && data.master_carton_ids.length > 0) {
       return !!data.customer_id;
@@ -117,12 +142,6 @@ export const createDispatchSchema = z.object({
   {
     message: 'Customer is required for master carton dispatch',
     path: ['customer_id'],
-  }
-).refine(
-  (data) => data.sample_scope === undefined || data.sample_record_id !== undefined,
-  {
-    message: 'sample_scope can only be used with sample_record_id',
-    path: ['sample_scope'],
   }
 );
 

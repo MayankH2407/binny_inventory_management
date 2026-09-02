@@ -107,22 +107,29 @@ async function resolveOriginDispatchId(
   if (itemType === 'CARTON') {
     const viaDispatch = await latestForCarton(entityId);
     if (viaDispatch) return viaDispatch;
-    // Fallback: cartons dispatched via the e-commerce pool never got a
-    // dispatch_records.master_carton_id row — the link lives on the pool
-    // mapping instead (pre-existing gap, not just a redesign artifact: this
-    // also fixes cartons shipped via a sample/e-commerce whole-carton allocation).
+    // Fallback: cartons dispatched via the e-commerce pool or a sample's
+    // whole-carton allocation never got a dispatch_records.master_carton_id
+    // row — the link lives on the pool/sample mapping instead.
     const ecomCartonDispatch = await client.query(
       `SELECT dispatch_record_id FROM ecommerce_carton_mapping
        WHERE master_carton_id = $1 AND dispatch_record_id IS NOT NULL
        ORDER BY mapped_at DESC LIMIT 1`,
       [entityId]
     );
-    return ecomCartonDispatch.rows[0]?.dispatch_record_id ?? null;
+    if (ecomCartonDispatch.rows[0]) return ecomCartonDispatch.rows[0].dispatch_record_id;
+    const sampleCartonDispatch = await client.query(
+      `SELECT dispatch_record_id FROM sample_carton_mapping
+       WHERE master_carton_id = $1 AND dispatch_record_id IS NOT NULL
+       ORDER BY mapped_at DESC LIMIT 1`,
+      [entityId]
+    );
+    return sampleCartonDispatch.rows[0]?.dispatch_record_id ?? null;
   }
 
   // BOX: prefer the active carton mapping's carton dispatch, else the
-  // e-commerce pool mapping's dispatch (no is_active filter here — this must
-  // still resolve even after a return deactivates the box's mapping).
+  // e-commerce pool mapping's dispatch, else the sample mapping's dispatch
+  // (no is_active filter here — this must still resolve even after a return
+  // deactivates the box's mapping).
   const cartonMap = await client.query(
     `SELECT master_carton_id FROM carton_child_mapping WHERE child_box_id = $1 AND is_active = true LIMIT 1`,
     [entityId]
@@ -138,6 +145,16 @@ async function resolveOriginDispatchId(
     [entityId]
   );
   if (ecomBoxDispatch.rows[0]) return ecomBoxDispatch.rows[0].dispatch_record_id;
+  // Unreachable today — sample-dispatched boxes are blocked from being
+  // returned at all (see the `dr.sample_record_id` guard below) — but keeps
+  // this resolver honest/symmetric with the carton branch.
+  const sampleBoxDispatch = await client.query(
+    `SELECT dispatch_record_id FROM sample_box_mapping
+     WHERE child_box_id = $1 AND dispatch_record_id IS NOT NULL
+     ORDER BY mapped_at DESC LIMIT 1`,
+    [entityId]
+  );
+  if (sampleBoxDispatch.rows[0]) return sampleBoxDispatch.rows[0].dispatch_record_id;
   return null;
 }
 
@@ -282,6 +299,12 @@ export async function lookupReturnable(barcode: string): Promise<LookupResult> {
             : null;
         }
       } else {
+        // Deliberately NOT filtered by dispatch_record_id IS NULL: a box that
+        // shipped as a sample keeps its mapping row is_active=true (kept for
+        // history), and that row is exactly what must still match here for
+        // "sample returns are not supported" to correctly block it too — not
+        // just currently-open sample allocations. Adding that filter would
+        // silently make every sample-dispatched box returnable.
         const sampleMapResult = await query(
           `SELECT 1 FROM sample_box_mapping WHERE child_box_id = $1 AND is_active = true`,
           [box.id]
@@ -562,15 +585,19 @@ export async function createReturn(
           boxCount += 1;
         }
 
-        // Carton left the channel — deactivate any active channel allocation
+        // Carton left the channel — deactivate any active, NOT-YET-DISPATCHED
+        // channel allocation (a mapping row that already shipped stays
+        // is_active=true for history — deactivating it here would orphan a
+        // real shipment from its dispatch, the same bug class fixed by the
+        // e-commerce/samples pool redesigns).
         await client.query(
           `UPDATE ecommerce_carton_mapping SET is_active = false, unmapped_at = NOW(), unmapped_by = $1
-           WHERE master_carton_id = $2 AND is_active = true`,
+           WHERE master_carton_id = $2 AND is_active = true AND dispatch_record_id IS NULL`,
           [returnedBy, carton.id]
         );
         await client.query(
           `UPDATE sample_carton_mapping SET is_active = false, unmapped_at = NOW(), unmapped_by = $1
-           WHERE master_carton_id = $2 AND is_active = true`,
+           WHERE master_carton_id = $2 AND is_active = true AND dispatch_record_id IS NULL`,
           [returnedBy, carton.id]
         );
 
@@ -598,6 +625,9 @@ export async function createReturn(
           );
         }
 
+        // Deliberately NOT filtered by dispatch_record_id IS NULL — see the
+        // identical comment in lookupReturnable above; this must keep
+        // matching shipped sample rows too.
         const sampleMapResult = await client.query(
           'SELECT 1 FROM sample_box_mapping WHERE child_box_id = $1 AND is_active = true',
           [box.id]
@@ -620,9 +650,15 @@ export async function createReturn(
            WHERE child_box_id = $2 AND is_active = true`,
           [returnedBy, box.id]
         );
+        // Box left the channel — deactivate any active, NOT-YET-DISPATCHED
+        // channel allocation only (a mapping row that already shipped stays
+        // is_active=true for history — deactivating it here would orphan a
+        // real shipment from its dispatch, the same bug fixed on the carton
+        // path above). Sample-mapped boxes never reach this line at all —
+        // they're rejected outright by the check above.
         await client.query(
           `UPDATE ecommerce_box_mapping SET is_active = false, unmapped_at = NOW(), unmapped_by = $1
-           WHERE child_box_id = $2 AND is_active = true`,
+           WHERE child_box_id = $2 AND is_active = true AND dispatch_record_id IS NULL`,
           [returnedBy, box.id]
         );
 

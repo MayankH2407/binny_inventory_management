@@ -97,6 +97,26 @@ export async function getFreeChildBoxes(
   }
 }
 
+export async function getPartialChildBoxes(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const { page, limit, product_id } = req.query as {
+      page?: number; limit?: number; product_id?: string;
+    };
+    const result = await childBoxService.getPartialChildBoxes(
+      product_id,
+      page || 1,
+      limit || 25
+    );
+    sendPaginated(res, result.data, result.total, page || 1, limit || 25, 'Partial (one-foot-shipped) child boxes retrieved successfully');
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function createBulkMultiSizeChildBoxes(
   req: AuthenticatedRequest,
   res: Response,

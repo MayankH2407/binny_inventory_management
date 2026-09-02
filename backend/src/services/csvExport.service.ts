@@ -1,6 +1,5 @@
 import { query } from '../config/database';
 import { getProductWiseReport, getDailyActivity, getSampleReport, getEcommerceReport, getCartonInventoryReport } from './report.service';
-import { SampleStatus } from '../config/constants';
 import { getCartonHierarchy } from './inventory.service';
 import { dateFromCondition, dateToCondition } from '../utils/dateRange';
 
@@ -82,9 +81,13 @@ export async function exportDispatchCSV(fromDate?: string, toDate?: string): Pro
       p.size,
       p.hsn_code,
       COUNT(DISTINCT src.child_box_id) AS box_count,
-      COALESCE(SUM(cb.quantity), 0) AS pairs,
+      -- Foot-aware: a box shipped as a single shoe (sample dispatch, foot
+      -- LEFT/RIGHT) bills as half a pair, not a full pair at full MRP. Every
+      -- other source ships whole pairs (src.foot is NULL there), so this
+      -- collapses to the original cb.quantity sum for them.
+      COALESCE(SUM(CASE WHEN src.foot IN ('LEFT', 'RIGHT') THEN 0.5 ELSE cb.quantity END), 0) AS pairs,
       p.mrp,
-      COALESCE(SUM(cb.quantity), 0) * p.mrp AS total_value,
+      COALESCE(SUM(CASE WHEN src.foot IN ('LEFT', 'RIGHT') THEN 0.5 ELSE cb.quantity END), 0) * p.mrp AS total_value,
       dr.vehicle_number,
       dr.lr_number,
       dr.transport_details,
@@ -97,25 +100,27 @@ export async function exportDispatchCSV(fromDate?: string, toDate?: string): Pro
     LEFT JOIN customers c ON c.id = dr.customer_id
     JOIN users u ON u.id = dr.dispatched_by
     JOIN LATERAL (
-      SELECT ccm.child_box_id FROM carton_child_mapping ccm WHERE ccm.master_carton_id = dr.master_carton_id AND ccm.is_active = true
+      SELECT ccm.child_box_id, NULL::varchar(10) AS foot FROM carton_child_mapping ccm WHERE ccm.master_carton_id = dr.master_carton_id AND ccm.is_active = true
       UNION ALL
-      SELECT sbm.child_box_id FROM sample_box_mapping sbm WHERE sbm.sample_record_id = dr.sample_record_id AND sbm.is_active = true
+      -- Samples pool redesign: mapping rows stay is_active=true forever for
+      -- history (shipped or not) — dispatch_record_id = dr.id is what "shipped
+      -- on THIS dispatch" actually means. foot carries through so the SELECT
+      -- above can bill a single shipped shoe as half a pair.
+      SELECT sbm.child_box_id, sbm.foot FROM sample_box_mapping sbm WHERE sbm.dispatch_record_id = dr.id
       UNION ALL
-      -- Whole cartons scanned intact into a sample (carton stays PACKED; see scanCartonToSample).
-      -- Both is_active filters matter: scm so a released/emptied allocation doesn't
-      -- still count, ccm so a box taken out individually (takeBoxOutOfCartonAllocation)
-      -- isn't double-counted here AND via the sample_box_mapping branch above.
-      SELECT ccm.child_box_id FROM sample_carton_mapping scm
+      -- Whole cartons scanned intact into a sample (carton stays PACKED; see
+      -- unpackCartonInSample) — no foot concept for a whole-carton shipment.
+      SELECT ccm.child_box_id, NULL::varchar(10) AS foot FROM sample_carton_mapping scm
       JOIN carton_child_mapping ccm ON ccm.master_carton_id = scm.master_carton_id AND ccm.is_active = true
-      WHERE scm.sample_record_id = dr.sample_record_id AND scm.is_active = true
+      WHERE scm.dispatch_record_id = dr.id
       UNION ALL
       -- E-commerce pool: loose boxes shipped on this dispatch. No is_active filter —
       -- a returned item must still show on its original shipment's CSV row.
-      SELECT ebm.child_box_id FROM ecommerce_box_mapping ebm WHERE ebm.dispatch_record_id = dr.id
+      SELECT ebm.child_box_id, NULL::varchar(10) AS foot FROM ecommerce_box_mapping ebm WHERE ebm.dispatch_record_id = dr.id
       UNION ALL
       -- E-commerce pool: whole cartons shipped on this dispatch (carton stays intact
       -- until unpacked; see ecommerce.service.ts#unpackCartonInEcommercePool).
-      SELECT ccm.child_box_id FROM ecommerce_carton_mapping ecm
+      SELECT ccm.child_box_id, NULL::varchar(10) AS foot FROM ecommerce_carton_mapping ecm
       JOIN carton_child_mapping ccm ON ccm.master_carton_id = ecm.master_carton_id AND ccm.is_active = true
       WHERE ecm.dispatch_record_id = dr.id
     ) src ON true
@@ -192,27 +197,32 @@ export async function exportDailyActivityCSV(fromDate: string, toDate: string): 
 export async function exportSampleReportCSV(filters: {
   from?: string;
   to?: string;
-  status?: SampleStatus;
   customer_id?: string;
 }): Promise<string> {
   const report = await getSampleReport(filters);
 
   const headers = [
-    'Sample Barcode', 'Name', 'Customer', 'Recipient', 'Status',
-    'Box Count', 'Sample Date', 'Created At', 'Dispatched At', 'Created By',
+    'Dispatch Date', 'Sample Barcode', 'Name', 'Recipient', 'Purpose', 'Reference Date',
+    'Customer', 'Destination', 'Box Count', 'Pairs', 'Article', 'Colour', 'Size',
+    'Dispatched By', 'Notes',
   ];
 
   const rows = report.rows.map((r) => [
+    r.dispatch_date ? new Date(r.dispatch_date as string).toISOString().slice(0, 10) : '',
     String(r.sample_barcode ?? ''),
-    String(r.name ?? ''),
-    String(r.customer_name ?? ''),
+    String(r.sample_name ?? ''),
     String(r.recipient_name ?? ''),
-    String(r.status ?? ''),
-    String(r.child_count ?? ''),
-    String(r.sample_date ?? ''),
-    String(r.created_at ?? ''),
-    String(r.dispatched_at ?? ''),
-    String(r.creator_name ?? ''),
+    String(r.purpose ?? ''),
+    String(r.reference_date ?? ''),
+    String(r.customer_name ?? ''),
+    String(r.destination ?? ''),
+    String(r.box_count ?? ''),
+    String(r.pairs ?? ''),
+    String(r.article_summary ?? ''),
+    String(r.colour_summary ?? ''),
+    String(r.size_summary ?? ''),
+    String(r.dispatched_by_name ?? ''),
+    String(r.notes ?? ''),
   ]);
 
   return toCSV(headers, rows);
