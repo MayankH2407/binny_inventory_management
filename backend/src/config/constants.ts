@@ -4,6 +4,12 @@ export const CHILD_BOX_STATUS = {
   PACKED: 'PACKED',
   SAMPLE: 'SAMPLE',
   ECOMMERCE: 'ECOMMERCE',
+  // One shoe of this box has shipped as a sample; the other shoe is
+  // physically on hand and available for further sample allocation only
+  // (not packing, not e-commerce, not counted as a pair anywhere). See
+  // migration 20260901100003/20260901100004 and left_dispatched_at /
+  // right_dispatched_at on child_boxes.
+  PARTIAL: 'PARTIAL',
   DISPATCHED: 'DISPATCHED',
 } as const;
 
@@ -14,12 +20,12 @@ export const MASTER_CARTON_STATUS = {
   DISPATCHED: 'DISPATCHED',
 } as const;
 
-export const SAMPLE_STATUS = {
-  CREATED: 'CREATED',
-  ACTIVE: 'ACTIVE',
-  CLOSED: 'CLOSED',
-  DISPATCHED: 'DISPATCHED',
-} as const;
+// NOTE: sample_records no longer has a stored `status` column (Samples pool
+// redesign, migration 20260901100002) — a record's state is derived at read
+// time from its live/shipped mapping rows (EMPTY/OPEN/DISPATCHED), since a
+// stored status can't be honestly maintained once a record can be partially
+// dispatched. SAMPLE_STATUS is intentionally removed; see SampleState in
+// sample.service.ts for the derived equivalent.
 
 export const ECOMMERCE_STATUS = {
   CREATED: 'CREATED',
@@ -60,6 +66,7 @@ export const TRANSACTION_TYPES = {
   CARTON_UNSAMPLED: 'CARTON_UNSAMPLED',
   CARTON_UNECOMMERCED: 'CARTON_UNECOMMERCED',
   CARTON_UNPACKED_TO_ECOM_POOL: 'CARTON_UNPACKED_TO_ECOM_POOL',
+  CARTON_UNPACKED_TO_SAMPLE: 'CARTON_UNPACKED_TO_SAMPLE',
 } as const;
 
 export const RETURN_ITEM_TYPE = {
@@ -117,7 +124,6 @@ export const CUSTOMER_TYPES = {
 
 export type ChildBoxStatus = typeof CHILD_BOX_STATUS[keyof typeof CHILD_BOX_STATUS];
 export type MasterCartonStatus = typeof MASTER_CARTON_STATUS[keyof typeof MASTER_CARTON_STATUS];
-export type SampleStatus = typeof SAMPLE_STATUS[keyof typeof SAMPLE_STATUS];
 export type EcommerceStatus = typeof ECOMMERCE_STATUS[keyof typeof ECOMMERCE_STATUS];
 export type TransactionType = typeof TRANSACTION_TYPES[keyof typeof TRANSACTION_TYPES];
 export type UserRole = typeof USER_ROLES[keyof typeof USER_ROLES];

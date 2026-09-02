@@ -5,15 +5,14 @@ import { authorizePermission } from '../middleware/rbac.middleware';
 import { validate } from '../middleware/validate.middleware';
 import {
   createSampleSchema,
-  addBoxToSampleSchema,
-  removeBoxFromSampleSchema,
-  scanCartonToSampleSchema,
-  takeOutCartonBoxesSchema,
-  removeCartonFromSampleSchema,
-  setBoxFootSchema,
+  sampleScanSchema,
+  sampleUnpackSchema,
+  sampleItemActionSchema,
+  sampleSetFootSchema,
   sampleIdParamSchema,
   sampleListQuerySchema,
   sampleBarcodeParamSchema,
+  sampleLookupBarcodeParamSchema,
 } from '../models/schemas/sample.schema';
 
 const router = Router();
@@ -33,14 +32,20 @@ router.get(
   sampleController.getSamples
 );
 
+// Literal paths declared before /:id to avoid shadowing.
+router.get('/summary', sampleController.getSampleSummary);
+
 router.get(
   '/qr/:barcode',
   validate({ params: sampleBarcodeParamSchema }),
   sampleController.getSampleByBarcode
 );
 
-// Literal path before /:id to avoid shadowing
-router.get('/summary', sampleController.getSampleSummary);
+router.get(
+  '/lookup/:barcode',
+  validate({ params: sampleLookupBarcodeParamSchema }),
+  sampleController.lookupSampleItem
+);
 
 router.get(
   '/:id',
@@ -49,9 +54,9 @@ router.get(
 );
 
 router.get(
-  '/:id/children',
+  '/:id/contents',
   validate({ params: sampleIdParamSchema }),
-  sampleController.getSampleChildren
+  sampleController.getSampleContents
 );
 
 router.get(
@@ -60,66 +65,46 @@ router.get(
   sampleController.getSampleAssortment
 );
 
-router.get(
-  '/:id/cartons',
-  validate({ params: sampleIdParamSchema }),
-  sampleController.getSampleCartons
+router.post(
+  '/:id/scan',
+  authorizePermission('samples:update'),
+  validate({ params: sampleIdParamSchema, body: sampleScanSchema }),
+  sampleController.addToSample
 );
 
 router.post(
-  '/:id/full-unpack',
+  '/:id/unpack-carton',
   authorizePermission('samples:update'),
-  validate({ params: sampleIdParamSchema }),
-  sampleController.fullUnpackSample
+  validate({ params: sampleIdParamSchema, body: sampleUnpackSchema }),
+  sampleController.unpackCartonInSample
 );
 
 router.post(
-  '/add-box',
+  '/:id/set-foot',
   authorizePermission('samples:update'),
-  validate({ body: addBoxToSampleSchema }),
-  sampleController.addBoxToSample
-);
-
-router.post(
-  '/scan-carton',
-  authorizePermission('samples:update'),
-  validate({ body: scanCartonToSampleSchema }),
-  sampleController.scanCartonToSample
-);
-
-router.post(
-  '/remove-box',
-  authorizePermission('samples:update'),
-  validate({ body: removeBoxFromSampleSchema }),
-  sampleController.removeBoxFromSample
-);
-
-router.post(
-  '/take-out-carton-boxes',
-  authorizePermission('samples:update'),
-  validate({ body: takeOutCartonBoxesSchema }),
-  sampleController.takeOutCartonBoxes
-);
-
-router.post(
-  '/remove-carton',
-  authorizePermission('samples:update'),
-  validate({ body: removeCartonFromSampleSchema }),
-  sampleController.removeCartonFromSample
-);
-
-router.post(
-  '/set-box-foot',
-  authorizePermission('samples:update'),
-  validate({ body: setBoxFootSchema }),
+  validate({ params: sampleIdParamSchema, body: sampleSetFootSchema }),
   sampleController.setBoxFoot
 );
 
 router.post(
-  '/:id/close',
-  authorizePermission('samples:update'),
+  '/:id/remove',
+  authorizePermission('samples:delete'),
+  validate({ params: sampleIdParamSchema, body: sampleItemActionSchema }),
+  sampleController.removeFromSample
+);
+
+router.post(
+  '/:id/clear',
+  authorizePermission('samples:delete'),
   validate({ params: sampleIdParamSchema }),
-  sampleController.closeSample
+  sampleController.clearSample
+);
+
+router.delete(
+  '/:id',
+  authorizePermission('samples:delete'),
+  validate({ params: sampleIdParamSchema }),
+  sampleController.deleteSampleRecord
 );
 
 export default router;

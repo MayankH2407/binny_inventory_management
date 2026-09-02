@@ -9,7 +9,7 @@ export async function createSample(
   next: NextFunction
 ): Promise<void> {
   try {
-    const sample = await sampleService.createSample(req.body, req.user!.userId);
+    const sample = await sampleService.createSampleRecord(req.body, req.user!.userId);
     sendSuccess(res, sample, 'Sample record created successfully', 201);
   } catch (error) {
     next(error);
@@ -35,26 +35,14 @@ export async function getSamples(
   next: NextFunction
 ): Promise<void> {
   try {
-    const { page, limit, status, search, customer_id } = req.query as {
+    const { page, limit, state, search } = req.query as {
       page?: number;
       limit?: number;
-      status?: string;
+      state?: 'EMPTY' | 'OPEN' | 'DISPATCHED';
       search?: string;
-      customer_id?: string;
     };
-    const result = await sampleService.getSamples(
-      { status, search, customer_id },
-      page || 1,
-      limit || 25
-    );
-    sendPaginated(
-      res,
-      result.data,
-      result.total,
-      page || 1,
-      limit || 25,
-      'Sample records retrieved successfully'
-    );
+    const result = await sampleService.getSamples({ search, state }, page || 1, limit || 25);
+    sendPaginated(res, result.data, result.total, page || 1, limit || 25, 'Sample records retrieved successfully');
   } catch (error) {
     next(error);
   }
@@ -73,132 +61,6 @@ export async function getSampleById(
   }
 }
 
-export async function getSampleChildren(
-  req: AuthenticatedRequest,
-  res: Response,
-  next: NextFunction
-): Promise<void> {
-  try {
-    const children = await sampleService.getSampleChildren(req.params.id);
-    sendSuccess(res, children, 'Sample children retrieved successfully');
-  } catch (error) {
-    next(error);
-  }
-}
-
-export async function addBoxToSample(
-  req: AuthenticatedRequest,
-  res: Response,
-  next: NextFunction
-): Promise<void> {
-  try {
-    const { child_box_id, sample_record_id, foot } = req.body;
-    const result = await sampleService.addBoxToSample(
-      { child_box_id, sample_record_id, foot: foot ?? 'PAIR' },
-      req.user!.userId
-    );
-    sendSuccess(res, result, 'Child box added to sample record successfully');
-  } catch (error) {
-    next(error);
-  }
-}
-
-export async function removeBoxFromSample(
-  req: AuthenticatedRequest,
-  res: Response,
-  next: NextFunction
-): Promise<void> {
-  try {
-    const { mapping_id, child_box_id, sample_record_id } = req.body;
-    const sample = await sampleService.removeBoxFromSample(
-      { mapping_id, child_box_id, sample_record_id },
-      req.user!.userId
-    );
-    sendSuccess(res, sample, 'Child box removed from sample record successfully');
-  } catch (error) {
-    next(error);
-  }
-}
-
-export async function takeOutCartonBoxes(
-  req: AuthenticatedRequest,
-  res: Response,
-  next: NextFunction
-): Promise<void> {
-  try {
-    const sample = await sampleService.takeOutCartonBoxes(req.body, req.user!.userId);
-    sendSuccess(res, sample, 'Boxes taken out of carton successfully');
-  } catch (error) {
-    next(error);
-  }
-}
-
-export async function removeCartonFromSample(
-  req: AuthenticatedRequest,
-  res: Response,
-  next: NextFunction
-): Promise<void> {
-  try {
-    const sample = await sampleService.removeCartonFromSample(req.body, req.user!.userId);
-    sendSuccess(res, sample, 'Carton released from sample successfully');
-  } catch (error) {
-    next(error);
-  }
-}
-
-export async function setBoxFoot(
-  req: AuthenticatedRequest,
-  res: Response,
-  next: NextFunction
-): Promise<void> {
-  try {
-    const sample = await sampleService.setBoxFoot(req.body, req.user!.userId);
-    sendSuccess(res, sample, 'Box foot updated successfully');
-  } catch (error) {
-    next(error);
-  }
-}
-
-export async function scanCartonToSample(
-  req: AuthenticatedRequest,
-  res: Response,
-  next: NextFunction
-): Promise<void> {
-  try {
-    const { sample_record_id, carton_barcode } = req.body;
-    const result = await sampleService.scanCartonToSample(sample_record_id, carton_barcode, req.user!.userId);
-    sendSuccess(res, result, `Carton ${result.cartonBarcode} (${result.added} boxes) added intact to sample record`);
-  } catch (error) {
-    next(error);
-  }
-}
-
-export async function getSampleCartons(
-  req: AuthenticatedRequest,
-  res: Response,
-  next: NextFunction
-): Promise<void> {
-  try {
-    const cartons = await sampleService.getSampleCartons(req.params.id);
-    sendSuccess(res, cartons, 'Sample cartons retrieved successfully');
-  } catch (error) {
-    next(error);
-  }
-}
-
-export async function closeSample(
-  req: AuthenticatedRequest,
-  res: Response,
-  next: NextFunction
-): Promise<void> {
-  try {
-    const sample = await sampleService.closeSample(req.params.id, req.user!.userId);
-    sendSuccess(res, sample, 'Sample record closed successfully');
-  } catch (error) {
-    next(error);
-  }
-}
-
 export async function getSampleByBarcode(
   req: AuthenticatedRequest,
   res: Response,
@@ -212,14 +74,27 @@ export async function getSampleByBarcode(
   }
 }
 
-export async function fullUnpackSample(
+export async function lookupSampleItem(
   req: AuthenticatedRequest,
   res: Response,
   next: NextFunction
 ): Promise<void> {
   try {
-    const sample = await sampleService.fullUnpackSample(req.params.id, req.user!.userId);
-    sendSuccess(res, sample, 'Sample record fully unpacked successfully');
+    const result = await sampleService.lookupSampleItem(req.params.barcode);
+    sendSuccess(res, result, 'Lookup complete');
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getSampleContents(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const items = await sampleService.getSampleContents(req.params.id);
+    sendSuccess(res, items, 'Sample contents retrieved successfully');
   } catch (error) {
     next(error);
   }
@@ -233,6 +108,88 @@ export async function getSampleAssortment(
   try {
     const summary = await sampleService.getSampleAssortment(req.params.id);
     sendSuccess(res, summary, 'Sample assortment retrieved successfully');
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function addToSample(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const { barcode, foot } = req.body;
+    const result = await sampleService.addToSample({ sampleRecordId: req.params.id, barcode, foot }, req.user!.userId);
+    sendSuccess(res, result, `${result.item_type === 'CARTON' ? 'Carton' : 'Box'} added to sample record successfully`);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function unpackCartonInSample(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const { mapping_id } = req.body;
+    const result = await sampleService.unpackCartonInSample({ sampleRecordId: req.params.id, mappingId: mapping_id }, req.user!.userId);
+    sendSuccess(res, result, `Carton ${result.carton_barcode} unpacked (${result.boxes_unpacked} boxes)`);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function removeFromSample(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const { item_type, mapping_id } = req.body;
+    const result = await sampleService.removeFromSample({ sampleRecordId: req.params.id, itemType: item_type, mappingId: mapping_id }, req.user!.userId);
+    sendSuccess(res, result, `${result.item_type === 'CARTON' ? 'Carton' : 'Box'} removed from sample record successfully`);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function setBoxFoot(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const { mapping_id, foot } = req.body;
+    const result = await sampleService.setBoxFoot({ sampleRecordId: req.params.id, mappingId: mapping_id, foot }, req.user!.userId);
+    sendSuccess(res, result, 'Box foot updated successfully');
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function clearSample(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const result = await sampleService.clearSample(req.params.id, req.user!.userId);
+    sendSuccess(res, result, 'Sample record cleared successfully');
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function deleteSampleRecord(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    await sampleService.deleteSampleRecord(req.params.id, req.user!.userId);
+    sendSuccess(res, null, 'Sample record deleted successfully');
   } catch (error) {
     next(error);
   }
