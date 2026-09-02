@@ -1,36 +1,26 @@
 'use client';
 
-import { useState, useCallback, useMemo } from 'react';
-import { useParams } from 'next/navigation';
+import { useState } from 'react';
+import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   ArrowLeft,
-  Lock,
   PackageOpen,
   ScanLine,
   Copy,
-  Plus,
-  X,
+  Trash2,
   BarChart3,
   Boxes,
   Printer,
   MoreVertical,
-  ChevronDown,
-  ChevronRight,
   Undo2,
-  ArrowUpFromLine,
+  X,
 } from 'lucide-react';
 import Button from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
-import {
-  Table,
-  TableHead,
-  TableBody,
-  TableRow,
-  TableHeader,
-  TableCell,
-} from '@/components/ui/Table';
+import { Table, TableHead, TableBody, TableRow, TableHeader, TableCell } from '@/components/ui/Table';
 import StatusBadge from '@/components/ui/StatusBadge';
+import Badge from '@/components/ui/Badge';
 import { PageSpinner } from '@/components/ui/Spinner';
 import Modal from '@/components/ui/Modal';
 import PageHeader from '@/components/layout/PageHeader';
@@ -38,159 +28,115 @@ import QRScanner from '@/components/scanning/QRScanner';
 import HIDScannerInput from '@/components/scanning/HIDScannerInput';
 import { ROUTES } from '@/constants';
 import { sampleService } from '@/services/sample.service';
-import { childBoxService } from '@/services/childBox.service';
 import { useApiQuery, useApiMutation } from '@/hooks/useApi';
-import { useAuth } from '@/hooks/useAuth';
-import { useQueryClient } from '@tanstack/react-query';
+import { useCan } from '@/hooks/useCan';
 import { formatDateTime, formatCurrency } from '@/lib/utils';
-import { checkFootAvailability } from '@/lib/sampleFoot';
 import { printSampleLabel } from '@/lib/sampleLabel';
 import { sampleStatusLabel, sampleStatusVariant } from '@/lib/sampleStatus';
-import type { SampleChildBoxRow, CartonMembership } from '@/types';
+import type { SampleItem, Foot } from '@/types';
 import toast from 'react-hot-toast';
 
-function apiErrorMessage(err: unknown, fallback: string): string {
-  const e = err as { response?: { data?: { message?: string } }; message?: string };
-  return e?.response?.data?.message || e?.message || fallback;
-}
+const INVALIDATE_KEYS = (id: string) => [
+  ['sample', id],
+  ['sample-assortment', id],
+  ['samples'],
+  ['samples-summary'],
+  ['child-boxes'],
+  ['master-cartons'],
+  ['inventory-breakdown'],
+  ['inventory-leaf'],
+  ['inventory-stock-summary'],
+  ['dashboard-stats'],
+];
 
 export default function SampleDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const { isManager } = useAuth();
-  const queryClient = useQueryClient();
+  const router = useRouter();
+  const canUpdate = useCan('samples:update');
+  const canDelete = useCan('samples:delete');
 
-  const [showUnpackConfirm, setShowUnpackConfirm] = useState(false);
-  const [showAddBox, setShowAddBox] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
-  const [showCartonScanner, setShowCartonScanner] = useState(false);
-  const [isAdding, setIsAdding] = useState(false);
-  const [isScanningCarton, setIsScanningCarton] = useState(false);
-  const [removingId, setRemovingId] = useState<string | null>(null);
+  const [fullScreenScan, setFullScreenScan] = useState(false);
+  const [scanFoot, setScanFoot] = useState<Foot>('PAIR');
   const [overflowOpen, setOverflowOpen] = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [unpackTarget, setUnpackTarget] = useState<SampleItem | null>(null);
+  const [removeTarget, setRemoveTarget] = useState<SampleItem | null>(null);
   const [splittingMappingId, setSplittingMappingId] = useState<string | null>(null);
-  const [expandedCartons, setExpandedCartons] = useState<Set<string>>(new Set());
-  const [takeOutCartonId, setTakeOutCartonId] = useState<string | null>(null);
-  const [removeCartonId, setRemoveCartonId] = useState<string | null>(null);
 
   const { data: sample, isLoading } = useApiQuery(['sample', id], () => sampleService.getById(id));
-  const { data: assortment } = useApiQuery(['sample-assortment', id], () => sampleService.getAssortment(id), { enabled: !!sample });
-  const { data: cartons } = useApiQuery(['sample-cartons', id], () => sampleService.getCartons(id), { enabled: !!sample });
-
-  const invalidateSample = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ['sample', id] });
-    queryClient.invalidateQueries({ queryKey: ['sample-assortment', id] });
-    queryClient.invalidateQueries({ queryKey: ['sample-cartons', id] });
-    queryClient.invalidateQueries({ queryKey: ['samples'] });
-    queryClient.invalidateQueries({ queryKey: ['child-boxes'] });
-    queryClient.invalidateQueries({ queryKey: ['master-cartons'] });
-    queryClient.invalidateQueries({ queryKey: ['dashboard-stats'] });
-  }, [id, queryClient]);
-
-  const { mutate: closeSample, isPending: isClosing } = useApiMutation(() => sampleService.close(id), {
-    successMessage: 'Sample closed successfully',
-    invalidateKeys: [['sample', id], ['samples'], ['dashboard-stats']],
-    onSuccess: () => setOverflowOpen(false),
-  });
-
-  const { mutate: fullUnpack, isPending: isUnpacking } = useApiMutation(() => sampleService.fullUnpack(id), {
-    successMessage: 'Sample emptied',
-    invalidateKeys: [['sample', id], ['sample-assortment', id], ['sample-cartons', id], ['samples'], ['child-boxes'], ['master-cartons'], ['dashboard-stats']],
-    onSuccess: () => {
-      setShowUnpackConfirm(false);
-      setOverflowOpen(false);
-    },
-  });
-
-  const addBoxByBarcode = useCallback(
-    async (barcode: string) => {
-      if (!barcode.trim()) {
-        toast.error('Enter a barcode');
-        return;
-      }
-      setIsAdding(true);
-      try {
-        const childBox = await childBoxService.getByBarcode(barcode.trim());
-        const avail = checkFootAvailability(childBox, 'PAIR');
-        if (!avail.ok) {
-          toast.error(avail.reason);
-          return;
-        }
-        await sampleService.addBox({ child_box_id: childBox.id, sample_record_id: id });
-        toast.success(`Added: ${barcode}`);
-        invalidateSample();
-      } catch (err) {
-        toast.error(apiErrorMessage(err, 'Failed to add box'));
-      } finally {
-        setIsAdding(false);
-      }
-    },
-    [id, invalidateSample]
+  const { data: assortment } = useApiQuery(
+    ['sample-assortment', id],
+    () => sampleService.getAssortment(id),
+    { enabled: !!sample }
   );
 
-  const handleScanCarton = useCallback(
-    async (barcode: string) => {
-      const code = barcode.trim().toUpperCase();
-      if (!code) {
-        toast.error('Enter a carton barcode');
-        return;
-      }
-      setIsScanningCarton(true);
-      try {
-        const result = await sampleService.scanCarton({ sample_record_id: id, carton_barcode: code });
-        toast.success(`Added ${result.added} box${result.added === 1 ? '' : 'es'} from carton ${result.cartonBarcode}`);
-        invalidateSample();
-      } catch (err) {
-        toast.error(apiErrorMessage(err, 'Failed to scan carton'));
-      } finally {
-        setIsScanningCarton(false);
-      }
-    },
-    [id, invalidateSample]
+  const invalidateKeys = INVALIDATE_KEYS(id);
+
+  const { mutate: scanItem, isPending: isScanning } = useApiMutation(
+    (barcode: string) => sampleService.scan(id, { barcode, foot: scanFoot }),
+    {
+      invalidateKeys,
+      onSuccess: (result) => {
+        const message =
+          result.item_type === 'CARTON'
+            ? `Added carton ${result.barcode} (${result.boxes_added} box${result.boxes_added === 1 ? '' : 'es'}) to this sample`
+            : `Added box ${result.barcode}${result.foot !== 'PAIR' ? ` (${result.foot.toLowerCase()} shoe)` : ''} to this sample`;
+        toast.success(message);
+      },
+    }
   );
 
-  const handleRemoveBox = useCallback(
-    async (mappingId: string, barcode: string) => {
-      setRemovingId(mappingId);
-      try {
-        await sampleService.removeBox({ mapping_id: mappingId, sample_record_id: id });
-        toast.success(`Removed: ${barcode}`);
-        invalidateSample();
-      } catch (err) {
-        toast.error(apiErrorMessage(err, 'Failed to remove box'));
-      } finally {
-        setRemovingId(null);
-      }
-    },
-    [id, invalidateSample]
+  const { mutate: unpackCarton, isPending: isUnpacking } = useApiMutation(
+    (mappingId: string) => sampleService.unpackCarton(id, mappingId),
+    {
+      invalidateKeys,
+      onSuccess: (result) => {
+        toast.success(`Carton ${result.carton_barcode} unpacked into ${result.boxes_unpacked} loose box${result.boxes_unpacked === 1 ? '' : 'es'}`);
+        setUnpackTarget(null);
+      },
+    }
   );
 
-  const handleSetFoot = useCallback(
-    async (mappingId: string, foot: 'LEFT' | 'RIGHT' | 'PAIR') => {
-      try {
-        await sampleService.setBoxFoot({ sample_record_id: id, mapping_id: mappingId, foot });
-        invalidateSample();
-      } catch (err) {
-        toast.error(apiErrorMessage(err, 'Failed to update foot'));
-      } finally {
-        setSplittingMappingId(null);
-      }
-    },
-    [id, invalidateSample]
+  const { mutate: removeItem, isPending: isRemoving } = useApiMutation(
+    (vars: { item_type: 'BOX' | 'CARTON'; mapping_id: string }) => sampleService.remove(id, vars),
+    {
+      invalidateKeys,
+      onSuccess: (result) => {
+        toast.success(`${result.item_type === 'CARTON' ? 'Carton' : 'Box'} ${result.barcode} removed from this sample`);
+        setRemoveTarget(null);
+      },
+    }
   );
 
-  const handleRemoveCarton = useCallback(
-    async (masterCartonId: string) => {
-      try {
-        await sampleService.removeCarton({ sample_record_id: id, master_carton_id: masterCartonId });
-        toast.success('Carton sent back to stock');
-        invalidateSample();
-      } catch (err) {
-        toast.error(apiErrorMessage(err, 'Failed to release carton'));
-      } finally {
-        setRemoveCartonId(null);
-      }
-    },
-    [id, invalidateSample]
+  const { mutate: setFoot } = useApiMutation(
+    (vars: { mapping_id: string; foot: Foot }) => sampleService.setFoot(id, vars),
+    {
+      invalidateKeys,
+      onSuccess: () => setSplittingMappingId(null),
+    }
+  );
+
+  const { mutate: clearSample, isPending: isClearing } = useApiMutation(
+    () => sampleService.clear(id),
+    {
+      invalidateKeys,
+      onSuccess: (result) => {
+        toast.success(`Cleared ${result.released_boxes} box(es) and ${result.released_cartons} carton(s) back to stock`);
+        setShowClearConfirm(false);
+        setOverflowOpen(false);
+      },
+    }
+  );
+
+  const { mutate: deleteSample, isPending: isDeleting } = useApiMutation(
+    () => sampleService.delete(id),
+    {
+      successMessage: 'Sample deleted',
+      invalidateKeys: [['samples'], ['samples-summary']],
+      onSuccess: () => router.push(ROUTES.SAMPLES),
+    }
   );
 
   const handleCopyBarcode = () => {
@@ -199,28 +145,6 @@ export default function SampleDetailPage() {
       toast.success('Barcode copied');
     }
   };
-
-  const toggleCartonExpanded = (cartonId: string) => {
-    setExpandedCartons((prev) => {
-      const next = new Set(prev);
-      if (next.has(cartonId)) next.delete(cartonId);
-      else next.add(cartonId);
-      return next;
-    });
-  };
-
-  // Group child_boxes by carton (source === 'carton') vs loose, for the merged Contents list.
-  const { looseBoxes, cartonGroups } = useMemo(() => {
-    const boxes = sample?.child_boxes ?? [];
-    const loose = boxes.filter((b) => b.source === 'loose');
-    const byCarton = new Map<string, SampleChildBoxRow[]>();
-    for (const b of boxes) {
-      if (b.source !== 'carton' || !b.master_carton_id) continue;
-      if (!byCarton.has(b.master_carton_id)) byCarton.set(b.master_carton_id, []);
-      byCarton.get(b.master_carton_id)!.push(b);
-    }
-    return { looseBoxes: loose, cartonGroups: byCarton };
-  }, [sample?.child_boxes]);
 
   if (isLoading) return <PageSpinner />;
 
@@ -232,25 +156,12 @@ export default function SampleDetailPage() {
     );
   }
 
-  const canModify = sample.status === 'CREATED' || sample.status === 'ACTIVE';
-  const canClose = sample.status === 'ACTIVE' && isManager;
-  const canUnpack = sample.status === 'CREATED' || sample.status === 'ACTIVE' || sample.status === 'CLOSED';
+  const items = sample.items ?? [];
+  const looseBoxes = items.filter((i): i is SampleItem & { item_type: 'BOX' } => i.item_type === 'BOX');
+  const cartonItems = items.filter((i): i is SampleItem & { item_type: 'CARTON' } => i.item_type === 'CARTON');
+  const state = sample.state ?? 'EMPTY';
   const totalAssortmentQty = assortment?.reduce((sum, item) => sum + item.count, 0) || 0;
-
-  const recipientLine = sample.customer_firm_name
-    ? sample.customer_firm_name
-    : sample.recipient_name
-    ? `Free-text recipient: ${sample.recipient_name}`
-    : null;
-
-  const nextStepHint =
-    sample.status === 'CREATED'
-      ? 'Add boxes to get started.'
-      : sample.status === 'ACTIVE'
-      ? 'Add more boxes, or take the sample barcode to Dispatch.'
-      : sample.status === 'CLOSED'
-      ? 'Scan this barcode on the Dispatch screen.'
-      : null;
+  const canDeleteThis = canDelete && state === 'EMPTY' && !sample.shipped_box_count;
 
   return (
     <div>
@@ -258,11 +169,6 @@ export default function SampleDetailPage() {
         title={`Sample: ${sample.sample_barcode}`}
         action={
           <div className="flex items-center gap-2 flex-wrap">
-            {canModify && (
-              <Button variant="outline" size="sm" onClick={() => setShowAddBox(!showAddBox)} leftIcon={<Plus className="h-4 w-4" />}>
-                Add Boxes
-              </Button>
-            )}
             <Button variant="secondary" size="sm" onClick={() => printSampleLabel(sample)} leftIcon={<Printer className="h-4 w-4" />}>
               Print Label
             </Button>
@@ -283,24 +189,26 @@ export default function SampleDetailPage() {
                     >
                       <Copy className="h-3.5 w-3.5" /> Copy Barcode
                     </button>
-                    {canClose && (
-                      <button
-                        onClick={() => closeSample(undefined as void)}
-                        disabled={isClosing}
-                        className="w-full text-left px-4 py-2 text-sm text-brand-text-dark hover:bg-gray-50 flex items-center gap-2"
-                      >
-                        <Lock className="h-3.5 w-3.5" /> Close Sample
-                      </button>
-                    )}
-                    {canUnpack && (
+                    {canUpdate && items.length > 0 && (
                       <button
                         onClick={() => {
-                          setShowUnpackConfirm(true);
+                          setShowClearConfirm(true);
                           setOverflowOpen(false);
                         }}
                         className="w-full text-left px-4 py-2 text-sm text-brand-error hover:bg-red-50 flex items-center gap-2"
                       >
                         <PackageOpen className="h-3.5 w-3.5" /> Empty Sample
+                      </button>
+                    )}
+                    {canDeleteThis && (
+                      <button
+                        onClick={() => {
+                          setShowDeleteConfirm(true);
+                          setOverflowOpen(false);
+                        }}
+                        className="w-full text-left px-4 py-2 text-sm text-brand-error hover:bg-red-50 flex items-center gap-2"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" /> Delete Sample
                       </button>
                     )}
                   </div>
@@ -316,34 +224,15 @@ export default function SampleDetailPage() {
         }
       />
 
-      {/* Status / Info / Timeline cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-6">
+      {/* Status / Timeline cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-6">
         <Card className="p-6">
           <p className="text-sm text-brand-text-muted mb-1">Status</p>
-          <StatusBadge status={sample.status} label={sampleStatusLabel(sample.status)} variant={sampleStatusVariant(sample.status)} />
-          <p className="mt-2 text-sm font-medium text-brand-text-dark">{sample.name}</p>
-          {recipientLine && <p className="text-xs text-brand-text-muted mt-0.5">{recipientLine}</p>}
-          {nextStepHint && <p className="text-xs text-brand-text-muted mt-2 italic">{nextStepHint}</p>}
-        </Card>
-
-        <Card className="p-6">
-          <p className="text-sm text-brand-text-muted mb-1">Details</p>
-          {sample.purpose && (
-            <p className="text-xs text-brand-text-muted mb-1">
-              <span className="font-medium text-brand-text-dark">Purpose:</span> {sample.purpose}
-            </p>
-          )}
-          {sample.sample_date && (
-            <p className="text-xs text-brand-text-muted mb-1">
-              <span className="font-medium text-brand-text-dark">Sample Date:</span> {formatDateTime(sample.sample_date)}
-            </p>
-          )}
-          {sample.notes && (
-            <p className="text-xs text-brand-text-muted">
-              <span className="font-medium text-brand-text-dark">Notes:</span> {sample.notes}
-            </p>
-          )}
-          {!sample.purpose && !sample.sample_date && !sample.notes && <p className="text-sm text-brand-text-muted">No additional details.</p>}
+          <StatusBadge status={state} label={sampleStatusLabel(state)} variant={sampleStatusVariant(state)} />
+          <p className="mt-2 text-sm font-medium text-brand-text-dark">{sample.name || '(unnamed)'}</p>
+          <p className="text-sm font-bold text-brand-text-dark mt-2">
+            {sample.open_box_count ?? 0} box{(sample.open_box_count ?? 0) === 1 ? '' : 'es'} currently in this sample
+          </p>
         </Card>
 
         <Card className="p-6">
@@ -352,69 +241,72 @@ export default function SampleDetailPage() {
             <span className="font-medium text-brand-text-dark">Created:</span> {formatDateTime(sample.created_at)}
             {sample.creator_name ? ` by ${sample.creator_name}` : ''}
           </p>
-          {sample.closed_at && (
+          {sample.last_dispatch_date && (
             <p className="text-xs text-brand-text-muted mt-1">
-              <span className="font-medium text-brand-text-dark">Closed:</span> {formatDateTime(sample.closed_at)}
+              <span className="font-medium text-brand-text-dark">Last dispatch:</span> {formatDateTime(sample.last_dispatch_date)}
+              {sample.shipped_box_count ? ` (${sample.shipped_box_count} box${sample.shipped_box_count === 1 ? '' : 'es'} sent total)` : ''}
             </p>
           )}
-          {sample.dispatched_at && (
-            <p className="text-xs text-brand-text-muted mt-1">
-              <span className="font-medium text-brand-text-dark">Dispatched:</span> {formatDateTime(sample.dispatched_at)}
-            </p>
-          )}
-          <p className="text-sm font-bold text-brand-text-dark mt-2">{sample.child_count} items</p>
+          <p className="text-xs text-brand-text-muted mt-2 italic">
+            Recipient, purpose, and reference date are captured when you dispatch this sample, not here.
+          </p>
         </Card>
       </div>
 
-      {/* Add Boxes section */}
-      {showAddBox && canModify && (
+      {/* Scan card */}
+      {canUpdate && (
         <Card className="p-6 mb-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold text-brand-text-dark flex items-center gap-2">
-              <ScanLine className="h-4 w-4" />
-              Scan to Add Boxes
-            </h3>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                setShowAddBox(false);
-                setShowScanner(false);
-                setShowCartonScanner(false);
-              }}
-            >
-              <X className="h-4 w-4" />
-            </Button>
+          <div className="flex items-center gap-2 mb-4">
+            <div className="p-2 rounded-lg" style={{ backgroundColor: '#F3F0FF' }}>
+              <ScanLine className="h-4 w-4 text-purple-600" />
+            </div>
+            <h3 className="font-semibold text-brand-text-dark">Scan Into This Sample</h3>
           </div>
 
-          <HIDScannerInput onScan={addBoxByBarcode} placeholder="Scan or enter child box barcode..." autoFocus disabled={isAdding} className="mb-4" />
+          <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center mb-3">
+            <span className="text-xs text-brand-text-muted whitespace-nowrap">For a loose box, send:</span>
+            <div className="flex gap-1.5">
+              {(['PAIR', 'LEFT', 'RIGHT'] as Foot[]).map((f) => (
+                <button
+                  key={f}
+                  type="button"
+                  onClick={() => setScanFoot(f)}
+                  className={`px-2.5 py-1 rounded text-xs font-medium border ${
+                    scanFoot === f
+                      ? 'border-binny-navy bg-binny-navy-50 text-binny-navy'
+                      : 'border-brand-border bg-white text-brand-text-muted hover:bg-gray-50'
+                  }`}
+                >
+                  {f === 'PAIR' ? 'Whole Pair' : f === 'LEFT' ? 'Left Shoe' : 'Right Shoe'}
+                </button>
+              ))}
+            </div>
+          </div>
 
-          <div className="flex items-center gap-4">
-            <Button variant={showScanner ? 'secondary' : 'outline'} size="sm" onClick={() => setShowScanner(!showScanner)} leftIcon={<ScanLine className="h-4 w-4" />}>
+          <HIDScannerInput
+            onScan={(code) => scanItem(code)}
+            placeholder="Scan a child box or master carton barcode..."
+            autoFocus
+            disabled={isScanning}
+          />
+          <div className="mt-4 pt-4 border-t border-brand-border">
+            <Button
+              variant={showScanner ? 'secondary' : 'outline'}
+              size="sm"
+              onClick={() => setShowScanner(!showScanner)}
+              leftIcon={<ScanLine className="h-4 w-4" />}
+            >
               {showScanner ? 'Hide Camera' : 'Use Camera Instead'}
             </Button>
-            <button
-              type="button"
-              onClick={() => setShowCartonScanner(!showCartonScanner)}
-              className="text-sm text-brand-text-muted hover:text-brand-text-dark inline-flex items-center gap-1"
-            >
-              {showCartonScanner ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-              Scan a whole carton instead
-            </button>
           </div>
-
           {showScanner && (
-            <div className="max-w-md mt-4">
-              <QRScanner onScanSuccess={addBoxByBarcode} autoStart />
-            </div>
-          )}
-
-          {showCartonScanner && (
-            <div className="mt-4 pt-4 border-t border-brand-border">
-              <p className="text-xs text-brand-text-muted mb-3">
-                The whole carton gets reserved for this sample. You can take individual boxes out of it later, or send it back to stock.
-              </p>
-              <HIDScannerInput onScan={handleScanCarton} placeholder="Scan or enter master carton barcode..." disabled={isScanningCarton} />
+            <div className="mt-4">
+              <QRScanner
+                onScanSuccess={(code) => scanItem(code)}
+                autoStart
+                fullScreen={fullScreenScan}
+                onToggleFullScreen={() => setFullScreenScan(!fullScreenScan)}
+              />
             </div>
           )}
         </Card>
@@ -476,126 +368,112 @@ export default function SampleDetailPage() {
         </Card>
       )}
 
-      {/* Contents — merged carton groups + loose boxes (was two separate tables) */}
+      {/* Contents */}
       <Card padding={false}>
         <div className="p-4 border-b border-brand-border">
-          <h3 className="font-semibold text-brand-text-dark">Contents ({sample.child_count})</h3>
+          <h3 className="font-semibold text-brand-text-dark">Contents ({items.length})</h3>
         </div>
 
-        {!cartons?.length && !looseBoxes.length ? (
+        {items.length === 0 ? (
           <div className="p-12 text-center">
-            <p className="text-brand-text-muted">Nothing in this sample yet.</p>
+            <p className="text-brand-text-muted">Nothing in this sample yet. Scan a box or carton above.</p>
           </div>
         ) : (
           <div className="divide-y divide-brand-border">
-            {(cartons ?? []).map((carton) => {
-              const cartonId = carton.master_carton_id;
-              const isExpanded = expandedCartons.has(cartonId);
-              const boxesInCarton = cartonGroups.get(cartonId) ?? [];
-              const remaining = carton.child_count;
-              const takenOut = carton.taken_out_count ?? 0;
-              const original = remaining + takenOut;
-
-              return (
-                <div key={cartonId}>
-                  <button
-                    type="button"
-                    onClick={() => toggleCartonExpanded(cartonId)}
-                    className="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors text-left"
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      {isExpanded ? <ChevronDown className="h-4 w-4 text-brand-text-muted shrink-0" /> : <ChevronRight className="h-4 w-4 text-brand-text-muted shrink-0" />}
-                      <Boxes className="h-4 w-4 text-binny-navy shrink-0" />
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-brand-text-dark">
-                          Carton {carton.carton_barcode} —{' '}
-                          {takenOut > 0 ? `${remaining} of ${original} boxes, reserved whole` : `${remaining} boxes, reserved whole`}
+            {cartonItems.map((carton) => (
+              <div key={carton.mapping_id} className="p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Boxes className="h-4 w-4 text-binny-navy shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-brand-text-dark">
+                        Carton {carton.barcode} — {carton.box_count} box{carton.box_count === 1 ? '' : 'es'}, reserved whole
+                      </p>
+                      {(carton.article_summary || carton.colour_summary || carton.size_summary) && (
+                        <p className="text-xs text-brand-text-muted mt-0.5">
+                          {[carton.article_summary, carton.colour_summary, carton.size_summary].filter(Boolean).join(' · ')}
                         </p>
-                        {(carton.article_summary || carton.colour_summary || carton.size_summary) && (
-                          <p className="text-xs text-brand-text-muted mt-0.5">
-                            {[carton.article_summary, carton.colour_summary, carton.size_summary].filter(Boolean).join(' · ')}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  </button>
-
-                  {isExpanded && (
-                    <div className="px-4 pb-4">
-                      {canModify && (
-                        <div className="flex items-center gap-2 mb-3">
-                          <Button size="sm" variant="outline" onClick={() => setTakeOutCartonId(cartonId)} leftIcon={<ArrowUpFromLine className="h-3.5 w-3.5" />}>
-                            Take boxes out…
-                          </Button>
-                          <Button size="sm" variant="ghost" onClick={() => setRemoveCartonId(cartonId)}>
-                            Send carton back to stock
-                          </Button>
-                        </div>
                       )}
-                      <div className="space-y-1.5">
-                        {boxesInCarton.map((box) => (
-                          <div key={box.id} className="flex items-center justify-between py-1.5 px-2 bg-gray-50 rounded text-sm">
-                            <div className="flex items-center gap-3 min-w-0">
-                              <span className="font-mono text-xs text-brand-text-muted">{box.barcode}</span>
-                              <span className="text-xs text-brand-text-dark truncate">{box.article_name} · {box.colour} · {box.size}</span>
-                            </div>
-                            <StatusBadge status={box.status} size="sm" />
-                          </div>
-                        ))}
-                      </div>
+                    </div>
+                  </div>
+                  {canUpdate && (
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setUnpackTarget(carton)}
+                        leftIcon={<PackageOpen className="h-3.5 w-3.5" />}
+                      >
+                        Unpack
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setRemoveTarget(carton)}
+                        leftIcon={<X className="h-3.5 w-3.5" />}
+                      >
+                        Remove
+                      </Button>
                     </div>
                   )}
                 </div>
-              );
-            })}
+              </div>
+            ))}
 
             {looseBoxes.length > 0 && (
               <div>
-                {(cartons?.length ?? 0) > 0 && (
+                {cartonItems.length > 0 && (
                   <div className="px-4 pt-4 pb-1">
-                    <p className="text-xs font-semibold text-brand-text-muted uppercase tracking-wide">Individual boxes ({looseBoxes.length})</p>
+                    <p className="text-xs font-semibold text-brand-text-muted uppercase tracking-wide">
+                      Individual boxes ({looseBoxes.length})
+                    </p>
                   </div>
                 )}
                 <div className="divide-y divide-brand-border">
                   {looseBoxes.map((box, index) => {
-                    const isSplitting = splittingMappingId === box.id;
+                    const isSplitting = splittingMappingId === box.mapping_id;
                     return (
-                      <div key={box.id} className="flex items-center justify-between p-4">
+                      <div key={box.mapping_id} className="flex items-center justify-between p-4">
                         <div className="flex items-start gap-3 min-w-0">
                           <span className="text-xs font-medium text-brand-text-muted w-6 pt-0.5">{index + 1}.</span>
                           <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
                               <span className="font-mono text-xs text-brand-text-dark">{box.barcode}</span>
-                              <span className="text-sm font-medium text-brand-text-dark">{box.article_name}</span>
-                              <span className="text-xs text-brand-text-muted">{box.colour}</span>
-                              <span className="text-xs text-brand-text-muted">Size {box.size}</span>
-                              <span className="text-xs text-brand-text-muted">{formatCurrency(box.mrp)}</span>
-                              <StatusBadge status={box.status} size="sm" />
-                              {box.source_master_carton_id && (
-                                <span className="text-[11px] text-brand-text-muted">[from carton]</span>
+                              {box.article_summary && (
+                                <span className="text-sm font-medium text-brand-text-dark">{box.article_summary}</span>
+                              )}
+                              {box.colour_summary && <span className="text-xs text-brand-text-muted">{box.colour_summary}</span>}
+                              {box.size_summary && <span className="text-xs text-brand-text-muted">Size {box.size_summary}</span>}
+                              {box.mrp != null && <span className="text-xs text-brand-text-muted">{formatCurrency(box.mrp)}</span>}
+                              {box.source_carton_barcode && (
+                                <span className="text-[11px] text-brand-text-muted">[from {box.source_carton_barcode}]</span>
                               )}
                             </div>
 
-                            {canModify && (
+                            {canUpdate && (
                               <>
                                 {isSplitting ? (
                                   <div className="flex items-center gap-2 mt-1.5">
                                     <span className="text-xs text-brand-text-muted">Which shoe?</span>
                                     <button
                                       type="button"
-                                      onClick={() => handleSetFoot(box.id, 'LEFT')}
+                                      onClick={() => setFoot({ mapping_id: box.mapping_id, foot: 'LEFT' })}
                                       className="px-2 py-0.5 rounded text-[11px] font-medium border border-brand-border bg-white hover:bg-gray-100"
                                     >
                                       Left
                                     </button>
                                     <button
                                       type="button"
-                                      onClick={() => handleSetFoot(box.id, 'RIGHT')}
+                                      onClick={() => setFoot({ mapping_id: box.mapping_id, foot: 'RIGHT' })}
                                       className="px-2 py-0.5 rounded text-[11px] font-medium border border-brand-border bg-white hover:bg-gray-100"
                                     >
                                       Right
                                     </button>
-                                    <button type="button" onClick={() => setSplittingMappingId(null)} className="text-[11px] text-brand-text-muted hover:text-brand-text-dark">
+                                    <button
+                                      type="button"
+                                      onClick={() => setSplittingMappingId(null)}
+                                      className="text-[11px] text-brand-text-muted hover:text-brand-text-dark"
+                                    >
                                       Cancel
                                     </button>
                                   </div>
@@ -606,7 +484,7 @@ export default function SampleDetailPage() {
                                     </span>
                                     <button
                                       type="button"
-                                      onClick={() => handleSetFoot(box.id, 'PAIR')}
+                                      onClick={() => setFoot({ mapping_id: box.mapping_id, foot: 'PAIR' })}
                                       title="Undo — send as a whole pair"
                                       className="p-0.5 rounded text-brand-text-muted hover:text-brand-text-dark"
                                     >
@@ -616,7 +494,7 @@ export default function SampleDetailPage() {
                                 ) : (
                                   <button
                                     type="button"
-                                    onClick={() => setSplittingMappingId(box.id)}
+                                    onClick={() => setSplittingMappingId(box.mapping_id)}
                                     className="text-[11px] text-brand-text-muted hover:text-brand-text-dark underline decoration-dotted mt-1"
                                   >
                                     Send one shoe only
@@ -626,10 +504,10 @@ export default function SampleDetailPage() {
                             )}
                           </div>
                         </div>
-                        {canModify && (
+                        {canUpdate && (
                           <button
-                            onClick={() => handleRemoveBox(box.id, box.barcode)}
-                            disabled={removingId === box.id}
+                            onClick={() => setRemoveTarget(box)}
+                            disabled={isRemoving}
                             className="p-1 rounded text-brand-text-muted hover:text-brand-error hover:bg-red-50 transition-colors shrink-0"
                           >
                             <X className="h-4 w-4" />
@@ -645,52 +523,85 @@ export default function SampleDetailPage() {
         )}
       </Card>
 
-      {/* Take boxes out of a carton */}
-      {takeOutCartonId && (
-        <TakeOutCartonModal
-          cartonId={takeOutCartonId}
-          cartonBarcode={cartons?.find((c) => c.master_carton_id === takeOutCartonId)?.carton_barcode ?? ''}
-          boxes={cartonGroups.get(takeOutCartonId) ?? []}
-          sampleId={id}
-          onClose={() => setTakeOutCartonId(null)}
-          onDone={() => {
-            setTakeOutCartonId(null);
-            invalidateSample();
-          }}
-        />
-      )}
-
-      {/* Send carton back to stock confirmation */}
+      {/* Unpack confirmation */}
       <Modal
-        isOpen={!!removeCartonId}
-        onClose={() => setRemoveCartonId(null)}
-        title="Send Carton Back to Stock"
-        description="Nothing inside the carton is unpacked — it just leaves this sample."
+        isOpen={unpackTarget !== null}
+        onClose={() => setUnpackTarget(null)}
+        title="Unpack Carton"
         footer={
           <>
-            <Button variant="secondary" onClick={() => setRemoveCartonId(null)}>Cancel</Button>
-            <Button variant="danger" onClick={() => removeCartonId && handleRemoveCarton(removeCartonId)}>Send Back</Button>
+            <Button variant="secondary" onClick={() => setUnpackTarget(null)}>Cancel</Button>
+            <Button
+              variant="danger"
+              isLoading={isUnpacking}
+              leftIcon={<PackageOpen className="h-4 w-4" />}
+              onClick={() => unpackTarget && unpackCarton(unpackTarget.mapping_id)}
+            >
+              Confirm Unpack
+            </Button>
           </>
         }
       >
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <p className="text-sm text-blue-800">
-            Carton {cartons?.find((c) => c.master_carton_id === removeCartonId)?.carton_barcode} and its{' '}
-            {cartons?.find((c) => c.master_carton_id === removeCartonId)?.child_count} boxes go back to normal stock.
-          </p>
-        </div>
+        {unpackTarget && (
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+            <p className="text-sm text-amber-800">
+              Unpack carton <strong className="font-mono">{unpackTarget.barcode}</strong>? All{' '}
+              <strong>{unpackTarget.box_count}</strong> boxes become individually-trackable loose items in this
+              sample (each foot-splittable), and the carton itself becomes empty and available for repacking. This
+              is all-or-nothing — there is no way to take out just some of the boxes.
+            </p>
+          </div>
+        )}
+      </Modal>
+
+      {/* Remove confirmation */}
+      <Modal
+        isOpen={removeTarget !== null}
+        onClose={() => setRemoveTarget(null)}
+        title="Remove From Sample"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setRemoveTarget(null)}>Cancel</Button>
+            <Button
+              variant="danger"
+              isLoading={isRemoving}
+              leftIcon={<X className="h-4 w-4" />}
+              onClick={() => removeTarget && removeItem({ item_type: removeTarget.item_type, mapping_id: removeTarget.mapping_id })}
+            >
+              Confirm Remove
+            </Button>
+          </>
+        }
+      >
+        {removeTarget && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+            <p className="text-sm text-red-700">
+              {removeTarget.item_type === 'CARTON' ? (
+                <>
+                  Remove <strong className="font-mono">{removeTarget.barcode}</strong> from this sample? Its{' '}
+                  <strong>{removeTarget.box_count}</strong> boxes go back to main inventory, untouched.
+                </>
+              ) : (
+                <>
+                  Remove <strong className="font-mono">{removeTarget.barcode}</strong> from this sample? It goes back
+                  to main inventory as available stock.
+                </>
+              )}
+            </p>
+          </div>
+        )}
       </Modal>
 
       {/* Empty Sample confirmation */}
       <Modal
-        isOpen={showUnpackConfirm}
-        onClose={() => setShowUnpackConfirm(false)}
+        isOpen={showClearConfirm}
+        onClose={() => setShowClearConfirm(false)}
         title="Empty Sample"
-        description="Everything currently in this sample — loose boxes and any reserved cartons — goes back to available stock."
+        description="Everything currently in this sample — loose boxes and any reserved cartons — goes back to available stock. Anything already dispatched from this sample is unaffected."
         footer={
           <>
-            <Button variant="secondary" onClick={() => setShowUnpackConfirm(false)}>Cancel</Button>
-            <Button variant="danger" isLoading={isUnpacking} onClick={() => fullUnpack(undefined as void)} leftIcon={<PackageOpen className="h-4 w-4" />}>
+            <Button variant="secondary" onClick={() => setShowClearConfirm(false)}>Cancel</Button>
+            <Button variant="danger" isLoading={isClearing} onClick={() => clearSample()} leftIcon={<PackageOpen className="h-4 w-4" />}>
               Confirm — Empty It
             </Button>
           </>
@@ -698,104 +609,33 @@ export default function SampleDetailPage() {
       >
         <div className="bg-red-50 border border-red-200 rounded-lg p-4">
           <p className="text-sm text-red-700">
-            This will empty sample <strong className="font-mono">{sample.sample_barcode}</strong> ({sample.child_count} item(s)). This action cannot be undone.
+            This will empty sample <strong className="font-mono">{sample.sample_barcode}</strong> ({items.length} item(s)
+            currently in it). This action cannot be undone.
+          </p>
+        </div>
+      </Modal>
+
+      {/* Delete Sample confirmation */}
+      <Modal
+        isOpen={showDeleteConfirm}
+        onClose={() => setShowDeleteConfirm(false)}
+        title="Delete Sample Record"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setShowDeleteConfirm(false)}>Cancel</Button>
+            <Button variant="danger" isLoading={isDeleting} onClick={() => deleteSample()} leftIcon={<Trash2 className="h-4 w-4" />}>
+              Confirm Delete
+            </Button>
+          </>
+        }
+      >
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <p className="text-sm text-red-700">
+            Permanently delete <strong className="font-mono">{sample.sample_barcode}</strong>? This is only possible
+            because it has never held or shipped anything. This cannot be undone.
           </p>
         </div>
       </Modal>
     </div>
-  );
-}
-
-// ─── Take boxes out of a carton — scan-to-check + checkbox list ──────────────
-
-function TakeOutCartonModal({
-  cartonId,
-  cartonBarcode,
-  boxes,
-  sampleId,
-  onClose,
-  onDone,
-}: {
-  cartonId: string;
-  cartonBarcode: string;
-  boxes: SampleChildBoxRow[];
-  sampleId: string;
-  onClose: () => void;
-  onDone: () => void;
-}) {
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [submitting, setSubmitting] = useState<'keep' | 'release' | null>(null);
-
-  const toggle = (childBoxId: string) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(childBoxId)) next.delete(childBoxId);
-      else next.add(childBoxId);
-      return next;
-    });
-  };
-
-  const handleScan = (barcode: string) => {
-    const match = boxes.find((b) => b.barcode.toUpperCase() === barcode.trim().toUpperCase());
-    if (!match) {
-      toast.error(`${barcode} is not in this carton`);
-      return;
-    }
-    setSelected((prev) => new Set(prev).add(match.child_box_id));
-  };
-
-  const submit = async (releaseCarton: boolean) => {
-    if (selected.size === 0) {
-      toast.error('Select at least one box');
-      return;
-    }
-    setSubmitting(releaseCarton ? 'release' : 'keep');
-    try {
-      await sampleService.takeOutCartonBoxes({
-        sample_record_id: sampleId,
-        master_carton_id: cartonId,
-        child_box_ids: Array.from(selected),
-        release_carton: releaseCarton,
-      });
-      toast.success(`Took ${selected.size} box(es) out of carton ${cartonBarcode}`);
-      onDone();
-    } catch (err) {
-      toast.error(apiErrorMessage(err, 'Failed to take boxes out'));
-    } finally {
-      setSubmitting(null);
-    }
-  };
-
-  return (
-    <Modal
-      isOpen
-      onClose={onClose}
-      title={`Take Boxes Out of ${cartonBarcode}`}
-      description="These boxes come out of the carton and become their own tracked items. The rest of the carton stays packed."
-      footer={
-        <>
-          <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button variant="outline" isLoading={submitting === 'keep'} onClick={() => submit(false)}>
-            Take Out Selected ({selected.size})
-          </Button>
-          <Button variant="danger" isLoading={submitting === 'release'} onClick={() => submit(true)}>
-            Take Out + Send Rest Back
-          </Button>
-        </>
-      }
-    >
-      <div className="space-y-4">
-        <HIDScannerInput onScan={handleScan} placeholder="Scan a box in this carton to select it..." autoFocus />
-        <div className="max-h-[300px] overflow-y-auto space-y-1.5">
-          {boxes.map((box) => (
-            <label key={box.child_box_id} className="flex items-center gap-3 p-2 bg-gray-50 rounded cursor-pointer hover:bg-gray-100">
-              <input type="checkbox" checked={selected.has(box.child_box_id)} onChange={() => toggle(box.child_box_id)} className="h-4 w-4" />
-              <span className="font-mono text-xs text-brand-text-muted">{box.barcode}</span>
-              <span className="text-sm text-brand-text-dark truncate">{box.article_name} · {box.colour} · {box.size}</span>
-            </label>
-          ))}
-        </div>
-      </div>
-    </Modal>
   );
 }

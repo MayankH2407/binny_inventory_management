@@ -102,7 +102,9 @@ export default function CreateReturnPage() {
       successMessage: 'Return recorded',
       invalidateKeys: [
         ['returns'],
-        ['inventory'],
+        ['inventory-breakdown'],
+        ['inventory-leaf'],
+        ['inventory-stock-summary'],
         ['master-cartons'],
         ['ecommerce'],
         ['dashboard-stats'],

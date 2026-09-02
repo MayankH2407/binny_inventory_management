@@ -114,7 +114,7 @@ export default function DispatchesPage() {
       if (existing) {
         existing.records.push(record);
         existing.totalCartons += 1;
-        existing.totalChildBoxes += record.child_count ?? 0;
+        existing.totalChildBoxes += record.total_box_count ?? record.child_count ?? 0;
         if (record.dispatch_date > existing.latestDate) {
           existing.latestDate = record.dispatch_date;
         }
@@ -130,7 +130,7 @@ export default function DispatchesPage() {
           records: [record],
           latestDate: record.dispatch_date,
           totalCartons: 1,
-          totalChildBoxes: record.child_count ?? 0,
+          totalChildBoxes: record.total_box_count ?? record.child_count ?? 0,
           destinations: record.destination ? [record.destination] : [],
           fullyReturned: record.return_status === 'full' ? 1 : 0,
           partiallyReturned: record.return_status === 'partial' ? 1 : 0,

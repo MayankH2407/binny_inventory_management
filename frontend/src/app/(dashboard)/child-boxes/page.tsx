@@ -264,6 +264,7 @@ export default function ChildBoxesPage() {
                 { value: 'GENERATED', label: 'Generated' },
                 { value: 'FREE', label: 'Free' },
                 { value: 'PACKED', label: 'Packed' },
+                { value: 'PARTIAL', label: 'Partial (1 shoe)' },
                 { value: 'DISPATCHED', label: 'Dispatched' },
               ]}
               value={statusFilter}

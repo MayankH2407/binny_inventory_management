@@ -106,10 +106,9 @@ export default function ReportsPage() {
   const [dailyFromDate, setDailyFromDate] = useState(weekAgo);
   const [dailyToDate, setDailyToDate] = useState(today);
 
-  // Sample report filters
+  // Sample report filters — dispatch-based now, no lifecycle status to filter by.
   const [sampleFromDate, setSampleFromDate] = useState(weekAgo);
   const [sampleToDate, setSampleToDate] = useState(today);
-  const [sampleStatus, setSampleStatus] = useState('');
   const [sampleCustomerId, setSampleCustomerId] = useState('');
 
   // Ecommerce report filters — no status filter: an e-commerce dispatch either
@@ -148,11 +147,10 @@ export default function ReportsPage() {
 
   // Sample Report
   const { data: sampleData, isLoading: sampleLoading } = useApiQuery<SampleReportResponse>(
-    ['reports', 'samples', sampleFromDate, sampleToDate, sampleStatus, sampleCustomerId],
+    ['reports', 'samples', sampleFromDate, sampleToDate, sampleCustomerId],
     () => reportService.getSampleReport({
       from: sampleFromDate || undefined,
       to: sampleToDate || undefined,
-      status: sampleStatus || undefined,
       customer_id: sampleCustomerId || undefined,
     }),
     { enabled: activeTab === 'samples', placeholderData: keepPreviousData }
@@ -303,7 +301,6 @@ export default function ReportsPage() {
                 const blob = await reportService.exportSampleReportCsv({
                   from: sampleFromDate || undefined,
                   to: sampleToDate || undefined,
-                  status: sampleStatus || undefined,
                   customer_id: sampleCustomerId || undefined,
                 });
                 const blobObj = new Blob([blob], { type: 'text/csv' });
@@ -423,12 +420,10 @@ export default function ReportsPage() {
           isLoading={sampleLoading}
           fromDate={sampleFromDate}
           toDate={sampleToDate}
-          status={sampleStatus}
           customerId={sampleCustomerId}
           customers={customers}
           onFromDateChange={setSampleFromDate}
           onToDateChange={setSampleToDate}
-          onStatusChange={setSampleStatus}
           onCustomerChange={setSampleCustomerId}
         />
       )}
@@ -918,29 +913,28 @@ function DailyTab({
 }
 
 /* ─── Samples Tab ─── */
+// Dispatch-based now (see backend report.service.ts#getSampleReport) — mirrors
+// the E-commerce tab below, plus a live pool snapshot instead of a per-record
+// lifecycle status.
 function SamplesTab({
   data,
   isLoading,
   fromDate,
   toDate,
-  status,
   customerId,
   customers,
   onFromDateChange,
   onToDateChange,
-  onStatusChange,
   onCustomerChange,
 }: {
   data: SampleReportResponse | null;
   isLoading: boolean;
   fromDate: string;
   toDate: string;
-  status: string;
   customerId: string;
   customers: Array<{ id: string; firm_name: string }>;
   onFromDateChange: (v: string) => void;
   onToDateChange: (v: string) => void;
-  onStatusChange: (v: string) => void;
   onCustomerChange: (v: string) => void;
 }) {
   return (
@@ -962,19 +956,6 @@ function SamplesTab({
             leftIcon={<Calendar className="h-4 w-4" />}
           />
           <Select
-            label="Status"
-            placeholder="All statuses"
-            options={[
-              { value: '', label: 'All Statuses' },
-              { value: 'CREATED', label: 'Created' },
-              { value: 'ACTIVE', label: 'Active' },
-              { value: 'CLOSED', label: 'Closed' },
-              { value: 'DISPATCHED', label: 'Dispatched' },
-            ]}
-            value={status}
-            onChange={(e) => onStatusChange(e.target.value)}
-          />
-          <Select
             label="Customer"
             placeholder="All customers"
             options={[
@@ -992,39 +973,47 @@ function SamplesTab({
       ) : data ? (
         <>
           {/* Summary cards */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
             <Card className="p-4">
-              <p className="text-xs text-brand-text-muted mb-1">Total</p>
-              <p className="text-2xl font-bold text-brand-text-dark">{data.summary.total}</p>
+              <p className="text-xs text-brand-text-muted mb-1">Dispatches</p>
+              <p className="text-2xl font-bold text-brand-text-dark">{data.summary.dispatch_count}</p>
             </Card>
             <Card className="p-4">
-              <p className="text-xs text-brand-text-muted mb-1">Total Pairs</p>
-              <p className="text-2xl font-bold text-brand-text-dark">{data.summary.total_pairs}</p>
+              <p className="text-xs text-brand-text-muted mb-1">Boxes Shipped</p>
+              <p className="text-2xl font-bold text-brand-text-dark">{data.summary.box_count}</p>
             </Card>
-            {Object.entries(data.summary.by_status).map(([s, count]) => (
-              <Card key={s} className="p-4">
-                <p className="text-xs text-brand-text-muted mb-1">{s}</p>
-                <p className="text-2xl font-bold text-brand-text-dark">{count}</p>
-              </Card>
-            ))}
+            <Card className="p-4">
+              <p className="text-xs text-brand-text-muted mb-1">Pairs Shipped</p>
+              <p className="text-2xl font-bold text-brand-text-dark">{data.summary.pairs_total}</p>
+            </Card>
+            <Card className="p-4">
+              <p className="text-xs text-brand-text-muted mb-1">Open Samples (Now)</p>
+              <p className="text-2xl font-bold text-brand-text-dark">{data.summary.pool.open_records}</p>
+              <p className="text-xs text-brand-text-muted mt-0.5">
+                {data.summary.pool.empty_records} empty · {data.summary.pool.open_boxes} open boxes ·{' '}
+                {data.summary.pool.dispatched_records} fully sent
+              </p>
+            </Card>
           </div>
 
           {/* Mobile cards */}
           <div className="space-y-3 lg:hidden">
             {data.rows.map((row) => (
-              <Card key={row.id} className="p-4">
+              <Card key={row.dispatch_id} className="p-4">
                 <div className="flex justify-between items-start mb-2">
                   <div>
-                    <p className="font-semibold text-brand-text-dark text-sm">{row.name}</p>
-                    <p className="text-xs font-mono text-brand-text-muted">{row.sample_barcode}</p>
+                    <p className="font-semibold text-brand-text-dark text-sm">{row.sample_name || row.sample_barcode}</p>
+                    <p className="text-xs text-brand-text-muted">{formatDateTime(row.dispatch_date)}</p>
                   </div>
-                  <StatusBadge status={row.status} />
                 </div>
                 <div className="grid grid-cols-2 gap-1 text-xs">
-                  {row.recipient && <div className="col-span-2"><span className="text-brand-text-muted">Recipient:</span> {row.recipient}</div>}
-                  <div><span className="text-brand-text-muted">Boxes:</span> {row.child_count}</div>
-                  {row.sample_date && <div><span className="text-brand-text-muted">Date:</span> {row.sample_date}</div>}
-                  {row.dispatched_at && <div className="col-span-2"><span className="text-brand-text-muted">Dispatched:</span> {formatDateTime(row.dispatched_at)}</div>}
+                  {row.recipient_name && <div className="col-span-2"><span className="text-brand-text-muted">Recipient:</span> {row.recipient_name}</div>}
+                  {row.customer_name && <div className="col-span-2"><span className="text-brand-text-muted">Customer:</span> {row.customer_name}</div>}
+                  {row.purpose && <div className="col-span-2"><span className="text-brand-text-muted">Purpose:</span> {row.purpose}</div>}
+                  {row.article_summary && <div className="col-span-2"><span className="text-brand-text-muted">Product:</span> {row.article_summary}</div>}
+                  <div><span className="text-brand-text-muted">Boxes:</span> {row.box_count}</div>
+                  <div><span className="text-brand-text-muted">Pairs:</span> {row.pairs}</div>
+                  {row.dispatched_by_name && <div><span className="text-brand-text-muted">By:</span> {row.dispatched_by_name}</div>}
                 </div>
               </Card>
             ))}
@@ -1038,32 +1027,46 @@ function SamplesTab({
             <Table>
               <TableHead>
                 <TableRow>
-                  <TableHeader>Barcode</TableHeader>
-                  <TableHeader>Name</TableHeader>
+                  <TableHeader>Date</TableHeader>
+                  <TableHeader>Sample</TableHeader>
                   <TableHeader>Recipient</TableHeader>
-                  <TableHeader>Status</TableHeader>
+                  <TableHeader>Purpose</TableHeader>
+                  <TableHeader>Customer</TableHeader>
                   <TableHeader className="text-right">Boxes</TableHeader>
-                  <TableHeader>Sample Date</TableHeader>
-                  <TableHeader>Created</TableHeader>
-                  <TableHeader>Dispatched</TableHeader>
+                  <TableHeader className="text-right">Pairs</TableHeader>
+                  <TableHeader>Product</TableHeader>
+                  <TableHeader>Dispatched By</TableHeader>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {data.rows.map((row) => (
-                  <TableRow key={row.id}>
-                    <TableCell className="font-mono text-xs">{row.sample_barcode}</TableCell>
-                    <TableCell className="font-medium">{row.name}</TableCell>
-                    <TableCell>{row.recipient ?? '-'}</TableCell>
-                    <TableCell><StatusBadge status={row.status} /></TableCell>
-                    <TableCell className="text-right">{row.child_count}</TableCell>
-                    <TableCell>{row.sample_date ?? '-'}</TableCell>
-                    <TableCell>{formatDateTime(row.created_at)}</TableCell>
-                    <TableCell>{row.dispatched_at ? formatDateTime(row.dispatched_at) : '-'}</TableCell>
+                  <TableRow key={row.dispatch_id}>
+                    <TableCell className="text-xs">{formatDateTime(row.dispatch_date)}</TableCell>
+                    <TableCell>
+                      <p className="text-sm font-medium text-brand-text-dark">{row.sample_name || '(unnamed)'}</p>
+                      <span className="font-mono text-xs text-brand-text-muted">{row.sample_barcode}</span>
+                    </TableCell>
+                    <TableCell>{row.recipient_name ?? '-'}</TableCell>
+                    <TableCell className="max-w-[160px] truncate">{row.purpose ?? '-'}</TableCell>
+                    <TableCell>{row.customer_name ?? '-'}</TableCell>
+                    <TableCell className="text-right">{row.box_count}</TableCell>
+                    <TableCell className="text-right">{row.pairs}</TableCell>
+                    <TableCell>
+                      {row.article_summary && (
+                        <p className="text-sm font-medium text-brand-text-dark">{row.article_summary}</p>
+                      )}
+                      {(row.colour_summary || row.size_summary) && (
+                        <p className="text-xs text-brand-text-muted">
+                          {[row.colour_summary, row.size_summary].filter(Boolean).join(' | ')}
+                        </p>
+                      )}
+                    </TableCell>
+                    <TableCell>{row.dispatched_by_name ?? '-'}</TableCell>
                   </TableRow>
                 ))}
                 {data.rows.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center text-brand-text-muted py-8">
+                    <TableCell colSpan={9} className="text-center text-brand-text-muted py-8">
                       No samples data for the selected filters
                     </TableCell>
                   </TableRow>

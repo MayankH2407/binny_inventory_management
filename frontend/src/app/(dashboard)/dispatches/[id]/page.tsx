@@ -172,7 +172,9 @@ export default function DispatchDetailPage() {
       successMessage: 'Return recorded',
       invalidateKeys: [
         ['returns'],
-        ['inventory'],
+        ['inventory-breakdown'],
+        ['inventory-leaf'],
+        ['inventory-stock-summary'],
         ['dispatches'],
         ['dispatch', id],
         ['dispatch-returnable', id],

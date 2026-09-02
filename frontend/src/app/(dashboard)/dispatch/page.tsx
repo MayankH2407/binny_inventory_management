@@ -15,7 +15,7 @@ import { sampleService } from '@/services/sample.service';
 import { ecommerceService } from '@/services/ecommerce.service';
 import { customerService } from '@/services/customer.service';
 import { useApiMutation } from '@/hooks/useApi';
-import type { MasterCarton, ChildBoxWithProduct, SampleRecord, SampleChildBoxRow, EcommercePoolLookupHit } from '@/types';
+import type { MasterCarton, ChildBoxWithProduct, SampleRecord, SampleItem, Foot, EcommercePoolLookupHit } from '@/types';
 import toast from 'react-hot-toast';
 import { ROUTES } from '@/constants';
 import { useRouter } from 'next/navigation';
@@ -40,12 +40,19 @@ export default function DispatchPage() {
   const [fullScreenScan, setFullScreenScan] = useState(false);
   const [scannedCartons, setScannedCartons] = useState<MasterCarton[]>([]);
 
-  // Sample state (single)
+  // Sample state (single) — scans the sample's own barcode, then everything
+  // downstream is partial-by-construction like the E-commerce tab: items
+  // pre-checked, operator unchecks to exclude (unchecked items just stay in
+  // the sample for a later dispatch — nothing is released back to stock).
   const [selectedSample, setSelectedSample] = useState<SampleRecord | null>(null);
   const [showSampleScanner, setShowSampleScanner] = useState(false);
-  const [sampleChildren, setSampleChildren] = useState<SampleChildBoxRow[]>([]);
-  // All checked by default — unchecking anything triggers a scoped (partial) dispatch.
-  const [selectedBoxIds, setSelectedBoxIds] = useState<Set<string>>(new Set());
+  const [selectedMappingIds, setSelectedMappingIds] = useState<Set<string>>(new Set());
+  // Last-second foot override per BOX mapping_id, seeded from the item's
+  // current foot only when changed — ignored for CARTON items.
+  const [itemFootOverrides, setItemFootOverrides] = useState<Record<string, Foot>>({});
+  // Recipient/purpose/reference date are captured here at dispatch time —
+  // the sample record itself no longer stores them (see the redesign).
+  const [sampleFields, setSampleFields] = useState({ recipient_name: '', purpose: '', reference_date: '' });
 
   // Ecommerce state (multi — scanned straight out of the E-commerce Area pool)
   const [scannedEcItems, setScannedEcItems] = useState<EcommercePoolLookupHit[]>([]);
@@ -137,39 +144,48 @@ export default function DispatchPage() {
   };
 
   // ── Sample helpers ──
+  const sampleItems: SampleItem[] = selectedSample?.items ?? [];
+
   const lookupSample = useCallback(async (code: string) => {
     const trimmed = code.trim();
     if (!trimmed) return;
     try {
       const record = await sampleService.getByBarcode(trimmed);
-      if (record.status === 'DISPATCHED') {
-        toast.error('This sample has already been dispatched');
+      const items = record.items ?? [];
+      if (items.length === 0) {
+        toast.error('This sample is empty — add boxes to it first.');
         return;
       }
-      if (record.status === 'CREATED') {
-        toast.error('This sample is empty — add boxes first.');
-        return;
-      }
-      const children = await sampleService.getChildren(record.id);
       setSelectedSample(record);
-      setSampleChildren(children);
-      setSelectedBoxIds(new Set(children.map((c) => c.child_box_id)));
-      toast.success(`Sample found: ${record.name}`);
+      setSelectedMappingIds(new Set(items.map((i) => i.mapping_id)));
+      setItemFootOverrides({});
+      toast.success(`Sample found: ${record.name || record.sample_barcode}`);
     } catch {
       toast.error('Sample not found');
     }
   }, []);
 
-  const toggleSampleBox = (childBoxId: string) => {
-    setSelectedBoxIds((prev) => {
+  const toggleSampleItem = (mappingId: string) => {
+    setSelectedMappingIds((prev) => {
       const next = new Set(prev);
-      if (next.has(childBoxId)) next.delete(childBoxId);
-      else next.add(childBoxId);
+      if (next.has(mappingId)) next.delete(mappingId);
+      else next.add(mappingId);
       return next;
     });
   };
 
-  const sampleScopeIsPartial = selectedSample !== null && selectedBoxIds.size < sampleChildren.length;
+  const setItemFoot = (mappingId: string, foot: Foot) => {
+    setItemFootOverrides((prev) => ({ ...prev, [mappingId]: foot }));
+  };
+
+  const clearSampleSelection = () => {
+    setSelectedSample(null);
+    setSelectedMappingIds(new Set());
+    setItemFootOverrides({});
+    setSampleFields({ recipient_name: '', purpose: '', reference_date: '' });
+  };
+
+  const sampleScopeIsPartial = selectedSample !== null && selectedMappingIds.size < sampleItems.length;
 
   // ── Ecommerce helpers ──
   // Scans a barcode straight against the E-commerce Area pool (see
@@ -220,7 +236,7 @@ export default function DispatchPage() {
     sourceType === 'master_carton'
       ? scannedCartons.length > 0 && !!customerId
       : sourceType === 'sample'
-      ? selectedSample !== null && selectedBoxIds.size > 0
+      ? selectedSample !== null && selectedMappingIds.size > 0
       : scannedEcItems.length > 0;
 
   const buildPayload = () => {
@@ -236,15 +252,23 @@ export default function DispatchPage() {
       return { ...base, master_carton_ids: scannedCartons.map((c) => c.id) };
     }
     if (sourceType === 'sample') {
+      const checkedItems = sampleItems.filter((i) => selectedMappingIds.has(i.mapping_id));
       return {
         ...base,
-        sample_record_id: selectedSample!.id,
-        // Omitted entirely (not just "all checked") when nothing was
-        // unchecked, so an untouched review list is byte-identical to the
-        // pre-scoping behavior.
-        ...(sampleScopeIsPartial
-          ? { sample_scope: { child_box_ids: Array.from(selectedBoxIds), release_remainder: true as const } }
-          : {}),
+        sample_dispatch: {
+          sample_record_id: selectedSample!.id,
+          items: checkedItems.map((i) => {
+            const footOverride = itemFootOverrides[i.mapping_id];
+            return {
+              item_type: i.item_type,
+              mapping_id: i.mapping_id,
+              ...(i.item_type === 'BOX' && footOverride && footOverride !== i.foot ? { foot: footOverride } : {}),
+            };
+          }),
+        },
+        sample_recipient_name: sampleFields.recipient_name || undefined,
+        sample_purpose: sampleFields.purpose || undefined,
+        sample_reference_date: sampleFields.reference_date || undefined,
       };
     }
     return {
@@ -267,17 +291,19 @@ export default function DispatchPage() {
       invalidateKeys: [
         ['master-cartons'],
         ['samples'],
+        ['samples-summary'],
         ['ecommerce'],
         ['ecommerce-pool'],
         ['ecommerce-pool-summary'],
+        ['inventory-breakdown'],
+        ['inventory-leaf'],
+        ['inventory-stock-summary'],
         ['dashboard-stats'],
         ['dispatches'],
       ],
       onSuccess: () => {
         setScannedCartons([]);
-        setSelectedSample(null);
-        setSampleChildren([]);
-        setSelectedBoxIds(new Set());
+        clearSampleSelection();
         setScannedEcItems([]);
         setEcFields({ reference_name: '', marketplace: '', order_reference: '', listing_sku: '', order_date: '' });
         setCustomerId('');
@@ -315,8 +341,8 @@ export default function DispatchPage() {
       ? `Create Dispatch (${scannedCartons.length} carton${scannedCartons.length !== 1 ? 's' : ''})`
       : sourceType === 'sample'
       ? sampleScopeIsPartial
-        ? `Dispatch ${selectedBoxIds.size} of ${sampleChildren.length} items`
-        : `Create Dispatch${selectedSample ? ` — ${selectedSample.name}` : ''}`
+        ? `Dispatch ${selectedMappingIds.size} of ${sampleItems.length} items`
+        : `Create Dispatch${selectedSample ? ` — ${selectedSample.sample_barcode}` : ''}`
       : `Create Dispatch (${scannedEcItems.length} item${scannedEcItems.length !== 1 ? 's' : ''})`;
 
   return (
@@ -397,6 +423,32 @@ export default function DispatchPage() {
                 value={formData.notes}
                 onChange={(e) => updateField('notes', e.target.value)}
               />
+
+              {sourceType === 'sample' && selectedSample && (
+                <div className="pt-4 border-t border-brand-border space-y-4">
+                  <h4 className="text-sm font-semibold text-brand-text-dark">
+                    Sample Details (Optional)
+                  </h4>
+                  <Input
+                    label="Recipient"
+                    placeholder="Who is this going to?"
+                    value={sampleFields.recipient_name}
+                    onChange={(e) => setSampleFields((prev) => ({ ...prev, recipient_name: e.target.value }))}
+                  />
+                  <Input
+                    label="Purpose"
+                    placeholder="e.g., dealer feedback, exhibition, internal QC..."
+                    value={sampleFields.purpose}
+                    onChange={(e) => setSampleFields((prev) => ({ ...prev, purpose: e.target.value }))}
+                  />
+                  <Input
+                    label="Reference Date"
+                    type="date"
+                    value={sampleFields.reference_date}
+                    onChange={(e) => setSampleFields((prev) => ({ ...prev, reference_date: e.target.value }))}
+                  />
+                </div>
+              )}
 
               {sourceType === 'ecommerce' && (
                 <div className="pt-4 border-t border-brand-border space-y-4">
@@ -600,27 +652,17 @@ export default function DispatchPage() {
                   <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
                     <div className="flex items-start justify-between">
                       <div className="min-w-0">
-                        <p className="text-sm font-semibold text-brand-text-dark">{selectedSample.name}</p>
+                        <p className="text-sm font-semibold text-brand-text-dark">
+                          {selectedSample.name || '(unnamed)'}
+                        </p>
                         <p className="text-xs font-mono text-brand-text-muted">{selectedSample.sample_barcode}</p>
-                        {(selectedSample.customer_firm_name || selectedSample.recipient_name) && (
-                          <p className="text-xs text-brand-text-muted mt-0.5">
-                            Recipient: {selectedSample.customer_firm_name ?? selectedSample.recipient_name}
-                          </p>
-                        )}
-                        {selectedSample.purpose && (
-                          <p className="text-xs text-brand-text-muted">Purpose: {selectedSample.purpose}</p>
-                        )}
                         <p className="text-xs text-brand-text-muted">
-                          {selectedSample.child_count} boxes &middot; {selectedSample.status}
+                          {sampleItems.length} item{sampleItems.length !== 1 ? 's' : ''} currently in this sample
                         </p>
                       </div>
                       <button
                         type="button"
-                        onClick={() => {
-                          setSelectedSample(null);
-                          setSampleChildren([]);
-                          setSelectedBoxIds(new Set());
-                        }}
+                        onClick={clearSampleSelection}
                         className="p-1 rounded text-brand-text-muted hover:text-brand-error hover:bg-red-100 transition-colors shrink-0"
                       >
                         <X className="h-4 w-4" />
@@ -628,38 +670,70 @@ export default function DispatchPage() {
                     </div>
                   </div>
 
-                  {sampleChildren.length > 0 && (
+                  {sampleItems.length > 0 && (
                     <div className="mt-3">
                       <p className="text-xs font-medium text-brand-text-muted mb-2">
-                        Confirm what&apos;s actually shipping — uncheck anything staying behind.
+                        Confirm what&apos;s actually shipping — uncheck anything staying behind (it just stays in
+                        this sample for a later dispatch).
                       </p>
-                      <div className="max-h-[240px] overflow-y-auto space-y-1 border border-brand-border rounded-lg p-2">
-                        {sampleChildren.map((box) => (
-                          <label key={box.id} className="flex items-center gap-2 p-1.5 rounded hover:bg-gray-50 cursor-pointer text-sm">
-                            <input
-                              type="checkbox"
-                              checked={selectedBoxIds.has(box.child_box_id)}
-                              onChange={() => toggleSampleBox(box.child_box_id)}
-                              className="h-4 w-4"
-                            />
-                            <span className="font-mono text-xs text-brand-text-muted">{box.barcode}</span>
-                            <span className="text-xs text-brand-text-dark truncate">
-                              {box.article_name} · {box.colour} · {box.size}
-                              {box.foot !== 'PAIR' ? ` · ${box.foot === 'LEFT' ? 'Left' : 'Right'} shoe` : ''}
-                            </span>
-                            {box.source === 'carton' && (
-                              <span className="text-[10px] text-brand-text-muted ml-auto shrink-0">[{box.carton_barcode}]</span>
-                            )}
-                          </label>
-                        ))}
+                      <div className="max-h-[280px] overflow-y-auto space-y-1 border border-brand-border rounded-lg p-2">
+                        {sampleItems.map((item) => {
+                          const currentFoot = item.item_type === 'BOX' ? (itemFootOverrides[item.mapping_id] ?? item.foot) : 'PAIR';
+                          return (
+                            <div key={item.mapping_id} className="p-1.5 rounded hover:bg-gray-50 text-sm">
+                              <label className="flex items-center gap-2 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedMappingIds.has(item.mapping_id)}
+                                  onChange={() => toggleSampleItem(item.mapping_id)}
+                                  className="h-4 w-4 shrink-0"
+                                />
+                                {item.item_type === 'CARTON' && (
+                                  <span className="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 shrink-0">
+                                    Carton
+                                  </span>
+                                )}
+                                <span className="font-mono text-xs text-brand-text-muted">{item.barcode}</span>
+                                <span className="text-xs text-brand-text-dark truncate">
+                                  {[item.article_summary, item.colour_summary, item.size_summary].filter(Boolean).join(' · ')}
+                                </span>
+                                {item.item_type === 'CARTON' && (
+                                  <span className="text-[10px] text-brand-text-muted ml-auto shrink-0">
+                                    {item.box_count} box{item.box_count !== 1 ? 'es' : ''}
+                                  </span>
+                                )}
+                                {item.source_carton_barcode && (
+                                  <span className="text-[10px] text-brand-text-muted ml-auto shrink-0">[from {item.source_carton_barcode}]</span>
+                                )}
+                              </label>
+                              {item.item_type === 'BOX' && (
+                                <div className="flex items-center gap-1 mt-1 ml-6">
+                                  {(['PAIR', 'LEFT', 'RIGHT'] as Foot[]).map((f) => (
+                                    <button
+                                      key={f}
+                                      type="button"
+                                      onClick={() => setItemFoot(item.mapping_id, f)}
+                                      className={`px-1.5 py-0.5 rounded text-[10px] font-medium border ${
+                                        currentFoot === f
+                                          ? 'border-binny-navy bg-binny-navy-50 text-binny-navy'
+                                          : 'border-brand-border bg-white text-brand-text-muted hover:bg-gray-100'
+                                      }`}
+                                    >
+                                      {f === 'PAIR' ? 'Pair' : f === 'LEFT' ? 'Left' : 'Right'}
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
 
                       {sampleScopeIsPartial && (
-                        <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                          <p className="text-xs text-amber-800">
-                            <strong>{sampleChildren.length - selectedBoxIds.size} item(s) will be removed from this sample and returned to stock.</strong>{' '}
-                            Only the {selectedBoxIds.size} checked item(s) are recorded as dispatched. Any carton with unchecked
-                            boxes goes back to stock too (its checked boxes come out individually first).
+                        <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                          <p className="text-xs text-blue-800">
+                            {sampleItems.length - selectedMappingIds.size} item(s) stay in this sample — only the{' '}
+                            {selectedMappingIds.size} checked item(s) are dispatched now.
                           </p>
                         </div>
                       )}
