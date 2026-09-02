@@ -1,6 +1,6 @@
 import Badge from './Badge';
 
-type StatusType = 'GENERATED' | 'FREE' | 'PACKED' | 'SAMPLE' | 'ECOMMERCE' | 'DISPATCHED' | 'ACTIVE' | 'CLOSED' | 'CREATED' | 'IN_TRANSIT' | 'DELIVERED';
+type StatusType = 'GENERATED' | 'FREE' | 'PACKED' | 'SAMPLE' | 'ECOMMERCE' | 'PARTIAL' | 'DISPATCHED' | 'ACTIVE' | 'CLOSED' | 'CREATED' | 'IN_TRANSIT' | 'DELIVERED';
 
 type BadgeVariant = 'green' | 'blue' | 'gray' | 'orange' | 'yellow' | 'red' | 'purple';
 
@@ -21,6 +21,9 @@ const statusConfig: Record<string, { variant: 'green' | 'blue' | 'gray' | 'orang
   PACKED: { variant: 'blue', label: 'Packed' },
   SAMPLE: { variant: 'red', label: 'Sample' },
   ECOMMERCE: { variant: 'purple', label: 'E-commerce' },
+  // One shoe already dispatched via a sample, the other never allocated —
+  // available for further sample allocation only (not a full pair).
+  PARTIAL: { variant: 'orange', label: 'Partial (1 shoe)' },
   DISPATCHED: { variant: 'gray', label: 'Dispatched' },
   ACTIVE: { variant: 'green', label: 'Active' },
   CLOSED: { variant: 'orange', label: 'Closed' },

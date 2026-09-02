@@ -5,8 +5,21 @@ import toast from 'react-hot-toast';
 import type { ChildBoxWithProduct } from '@/types';
 
 export function printChildBoxLabels(boxes: ChildBoxWithProduct[]): void {
+  // A PARTIAL box has already shipped one shoe via a sample dispatch — the
+  // label's "Content: 2N (1 Pair)" line would be a lie for it (only one shoe
+  // is actually on hand). Refuse to print rather than reprint a full-pair
+  // label for a half-shipped box; no replacement label is produced.
+  const partialBarcodes = boxes.filter((b) => b.status === 'PARTIAL').map((b) => b.barcode);
+  const printable = boxes.filter((b) => b.status !== 'PARTIAL');
+  if (partialBarcodes.length > 0) {
+    toast.error(
+      `Skipped ${partialBarcodes.length} box${partialBarcodes.length === 1 ? '' : 'es'} with one shoe already shipped (${partialBarcodes.join(', ')}) — the full-pair label would be inaccurate for ${partialBarcodes.length === 1 ? 'it' : 'them'}.`
+    );
+  }
+  if (printable.length === 0) return;
+
   // Pre-render all QR SVGs safely using createElement
-  const labelHtmlParts = boxes.map((box) => {
+  const labelHtmlParts = printable.map((box) => {
     // Derive packedOn from the box's own created_at so reprints show the
     // original creation date rather than today's date.
     let packedOn: string;

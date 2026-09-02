@@ -8,7 +8,6 @@ export const ROUTES = {
   MASTER_CARTONS_CREATE: '/master-cartons/create',
   MASTER_CARTON_DETAIL: (id: string) => `/master-cartons/${id}`,
   SAMPLES: '/samples',
-  SAMPLES_CREATE: '/samples/create',
   SAMPLES_INVENTORY: '/samples/inventory',
   SAMPLE_DETAIL: (id: string) => `/samples/${id}`,
   ECOMMERCE: '/ecommerce',

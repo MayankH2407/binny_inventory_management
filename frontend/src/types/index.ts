@@ -66,7 +66,10 @@ export interface ProductSection {
 }
 
 // ---------- ChildBox ----------
-export type ChildBoxStatus = 'GENERATED' | 'FREE' | 'PACKED' | 'SAMPLE' | 'ECOMMERCE' | 'DISPATCHED';
+// PARTIAL: one shoe shipped via a sample dispatch, the other never allocated
+// and available for further sample allocation only (not packable, not
+// poolable to e-commerce, not counted as a pair anywhere).
+export type ChildBoxStatus = 'GENERATED' | 'FREE' | 'PACKED' | 'SAMPLE' | 'ECOMMERCE' | 'PARTIAL' | 'DISPATCHED';
 
 export interface ChildBox {
   id: string;
@@ -74,6 +77,10 @@ export interface ChildBox {
   product_id: string;
   status: ChildBoxStatus;
   quantity: number;
+  // Set the first time each foot ships via a sample dispatch. Both NULL means
+  // "never foot-split".
+  left_dispatched_at?: string | null;
+  right_dispatched_at?: string | null;
   created_by: string;
   created_at: string;
   updated_at: string;
@@ -142,66 +149,76 @@ export interface CartonMembership {
   taken_out_count?: number;
 }
 
-// ---------- Sample child-box row (GET /samples/:id/children) ----------
-// Deliberately NOT ChildBoxWithProduct: that type's `id` means "the child box's
-// own id" everywhere else, but this endpoint's `id` is actually the MAPPING id
-// (sample_box_mapping.id for loose rows, carton_child_mapping.id for
-// carton-sourced rows) — reusing ChildBoxWithProduct here is exactly the type
-// mismatch that caused the original "remove box" bug (mapping id sent where a
-// child box id was expected). child_box_id is the real box id.
-export interface SampleChildBoxRow {
-  id: string; // mapping id — use this for take-out/remove/set-foot calls
-  child_box_id: string;
-  sample_record_id: string;
-  is_active: boolean;
+// ---------- Samples pool (redesign, 2026-09) ----------
+// Mirrors the E-commerce pool pattern (EcommercePoolItem/EcommercePoolSummary/
+// EcommercePoolLookup below) with one deviation: a lightweight parent record
+// survives (so staff can look up "what's in this sample" before it ships) and
+// items carry `foot` — the one capability e-commerce has no equivalent of.
+export type Foot = 'LEFT' | 'RIGHT' | 'PAIR';
+export type SampleState = 'EMPTY' | 'OPEN' | 'DISPATCHED';
+
+// GET /samples/:id/contents — the "pool" of one sample record: loose boxes +
+// whole reserved cartons, currently open (not yet dispatched).
+export interface SampleItem {
+  item_type: 'BOX' | 'CARTON';
+  mapping_id: string;
   barcode: string;
-  status: ChildBoxStatus;
-  quantity: number;
-  article_name: string;
-  article_code: string;
-  sku: string;
-  size: string;
-  colour: string;
-  mrp: number;
-  foot: 'LEFT' | 'RIGHT' | 'PAIR';
-  source: 'loose' | 'carton';
-  carton_barcode: string | null;
-  // Present only when source === 'carton' — the carton this row came from.
+  child_box_id: string | null;
   master_carton_id: string | null;
-  // Present only when source === 'loose' AND this box was taken out of a
-  // carton allocation individually — which carton it originally came from.
-  source_master_carton_id: string | null;
+  foot: Foot;
+  box_count: number;
+  pairs: number;
+  article_summary: string | null;
+  colour_summary: string | null;
+  size_summary: string | null;
+  mrp: number | null;
+  // Set when this loose box came out of a whole carton unpacked in the sample.
+  source_carton_barcode: string | null;
+  added_at: string;
+  added_by_name: string | null;
 }
 
 // ---------- SampleRecord ----------
-export type SampleStatus = 'CREATED' | 'ACTIVE' | 'CLOSED' | 'DISPATCHED';
-
+// Status is DERIVED at read time from live mapping rows (EMPTY/OPEN/
+// DISPATCHED), never stored — recipient/customer/purpose/date are captured at
+// DISPATCH time now (see DispatchRecord's sample_* fields below), not here.
 export interface SampleRecord {
   id: string;
   sample_barcode: string;
-  name: string;
-  customer_id: string | null;
-  recipient_name: string | null;
-  purpose: string | null;
-  sample_date: string | null;
-  notes: string | null;
-  status: SampleStatus;
-  child_count: number;
-  closed_at: string | null;
-  dispatched_at: string | null;
+  name: string | null;
   created_by: string;
   created_at: string;
   updated_at: string;
-  child_boxes?: SampleChildBoxRow[];
-  creator?: User;
+  state?: SampleState;
+  open_item_count?: number;
+  open_box_count?: number;
+  open_pairs?: number;
+  shipped_box_count?: number;
+  last_dispatch_date?: string | null;
   creator_name?: string | null;
-  customer?: Customer | null;
-  customer_firm_name?: string | null;
   article_summary?: string | null;
   colour_summary?: string | null;
   size_summary?: string | null;
   mrp_summary?: number | null;
+  items?: SampleItem[];
 }
+
+export interface SampleSummary {
+  total_records: number;
+  empty_records: number;
+  open_records: number;
+  dispatched_records: number;
+  open_items: number;
+  open_boxes: number;
+}
+
+// GET /samples/lookup/:barcode — a scan-to-check for the dispatch UI, mirrors
+// EcommercePoolLookup. Resolution order: sample record barcode -> box/carton
+// currently in a sample -> box/carton not in any sample (in_sample: false).
+export type SampleLookupResult =
+  | { kind: 'RECORD'; sample_record_id: string; sample_barcode: string; name: string | null; open_item_count: number; items: SampleItem[] }
+  | (SampleItem & { kind: 'ITEM'; in_sample: true; sample_record_id: string; sample_barcode: string })
+  | { kind: 'ITEM'; in_sample: false; reason: string; item_type: 'BOX' | 'CARTON'; barcode: string };
 
 // ---------- EcommerceRecord ----------
 export type EcommerceStatus = 'CREATED' | 'ACTIVE' | 'CLOSED' | 'DISPATCHED';
@@ -336,6 +353,11 @@ export interface DispatchRecord {
   order_reference?: string | null;
   listing_sku?: string | null;
   order_date?: string | null;
+  // Sample dispatch details (only meaningful when source_type === 'sample') —
+  // captured at dispatch time now, mirroring the e-commerce fields above.
+  sample_recipient_name?: string | null;
+  sample_purpose?: string | null;
+  sample_reference_date?: string | null;
   // Legacy / joined columns
   carton_barcode?: string;
   child_count?: number;
@@ -429,22 +451,43 @@ export interface CreateReturnRequest {
 }
 
 // ---------- Report types ----------
+// Sample report row — one per sample-sourced dispatch (see backend
+// report.service.ts#getSampleReport). Dispatch-based, mirroring the
+// e-commerce report below — recipient/purpose/date are dispatch-time facts
+// now, not per-record lifecycle state.
 export interface SampleReportRow {
-  id: string;
+  dispatch_id: string;
+  dispatch_date: string;
   sample_barcode: string;
-  name: string;
-  recipient: string | null;
-  status: string;
-  child_count: number;
-  sample_date: string | null;
-  created_at: string;
-  dispatched_at: string | null;
+  sample_name: string | null;
+  recipient_name: string | null;
+  purpose: string | null;
+  reference_date: string | null;
+  customer_name: string | null;
+  destination: string | null;
+  box_count: number;
+  pairs: number;
+  article_summary: string | null;
+  colour_summary: string | null;
+  size_summary: string | null;
+  dispatched_by_name: string | null;
+  notes: string | null;
 }
 
 export interface SampleReportSummary {
-  total: number;
-  by_status: Record<string, number>;
-  total_pairs: number;
+  dispatch_count: number;
+  box_count: number;
+  pairs_total: number;
+  // Live snapshot of what's currently sitting in samples (not scoped to the
+  // report's date range — a "right now" figure, mirroring the e-commerce pool
+  // snapshot below).
+  pool: {
+    total_records: number;
+    empty_records: number;
+    open_records: number;
+    dispatched_records: number;
+    open_boxes: number;
+  };
 }
 
 export interface SampleReportResponse {
@@ -631,7 +674,14 @@ export interface CreateMasterCartonRequest {
 export interface CreateDispatchRequest {
   // Exactly one of these must be provided
   master_carton_ids?: string[];
-  sample_record_id?: string;
+  // Sample dispatch: scan the sample's own barcode, then ship specific items
+  // out of it by mapping_id (not barcode — a box's two feet can sit in two
+  // different samples). Partial-by-construction — anything not listed here
+  // just stays in the sample, unlike the old release-the-remainder scope.
+  sample_dispatch?: {
+    sample_record_id: string;
+    items: Array<{ item_type: 'BOX' | 'CARTON'; mapping_id: string; foot?: Foot }>;
+  };
   // E-commerce dispatch: scan loose boxes / whole cartons straight out of the
   // E-commerce Area pool (see ecommerceService.getPool).
   ecommerce_pool?: {
@@ -650,12 +700,10 @@ export interface CreateDispatchRequest {
   order_reference?: string;
   listing_sku?: string;
   order_date?: string;
-  // Ship only some of a sample's contents — everything else in the sample is
-  // released back to available stock. Only valid with sample_record_id.
-  sample_scope?: {
-    child_box_ids: string[];
-    release_remainder: true;
-  };
+  // Sample dispatch details — only valid alongside sample_dispatch.
+  sample_recipient_name?: string;
+  sample_purpose?: string;
+  sample_reference_date?: string;
 }
 
 export interface UnpackRequest {

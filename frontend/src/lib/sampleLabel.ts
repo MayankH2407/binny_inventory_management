@@ -10,6 +10,12 @@ import type { SampleRecord } from '@/types';
  * pre-aggregated article/colour/size/MRP summaries (unlike master cartons,
  * there's no per-size assortment grid here — one sample can span many
  * articles/sizes and a per-size breakdown isn't tracked for it).
+ *
+ * Recipient/purpose/date are now DISPATCH-time facts (see the redesign —
+ * samples no longer capture them at create time), so this label — printed
+ * before the sample ships — shows creation date + open box count instead of
+ * a recipient it can't yet know. Purely a bookkeeping label, no dispatch
+ * details.
  */
 export function printSampleLabel(sample: SampleRecord): void {
   const printWindow = window.open('', '_blank', 'width=500,height=400');
@@ -22,13 +28,12 @@ export function printSampleLabel(sample: SampleRecord): void {
     createElement(QRCodeSVG, { value: sample.sample_barcode, size: 128, level: 'M' })
   );
 
-  const sampleDateSource = sample.sample_date || sample.created_at;
-  const sampleDate = (sampleDateSource ? new Date(sampleDateSource) : new Date()).toLocaleDateString(
+  const createdDate = new Date(sample.created_at).toLocaleDateString(
     'en-IN',
     { day: '2-digit', month: 'short', year: 'numeric' }
   );
 
-  const recipientLabel = sample.customer_firm_name || sample.recipient_name || '-';
+  const boxCountLabel = `${sample.open_box_count ?? 0} box${(sample.open_box_count ?? 0) === 1 ? '' : 'es'}`;
 
   printWindow.document.write(`
     <!DOCTYPE html>
@@ -110,7 +115,7 @@ export function printSampleLabel(sample: SampleRecord): void {
             <td class="colour-cell"><div class="fit-box">${sample.colour_summary || '-'}</div></td>
           </tr>
           <tr style="height:8mm">
-            <td class="size-cell"><div class="fit-box">Size: ${sample.size_summary || '-'} &nbsp;&middot;&nbsp; ${sample.child_count} boxes</div></td>
+            <td class="size-cell"><div class="fit-box">Size: ${sample.size_summary || '-'} &nbsp;&middot;&nbsp; ${boxCountLabel}</div></td>
           </tr>
           <tr style="height:8mm">
             <td class="mrp-cell">
@@ -121,8 +126,8 @@ export function printSampleLabel(sample: SampleRecord): void {
             </td>
           </tr>
           <tr style="height:7mm">
-            <td class="small-cell"><div class="fit-box"><span class="sub-label">Sample Date:&nbsp;</span>${sampleDate}</div></td>
-            <td class="small-cell"><div class="fit-box"><span class="sub-label">To:&nbsp;</span>${recipientLabel}</div></td>
+            <td class="small-cell"><div class="fit-box"><span class="sub-label">Created:&nbsp;</span>${createdDate}</div></td>
+            <td class="small-cell"><div class="fit-box"><span class="sub-label">Sample:&nbsp;</span>${sample.name || sample.sample_barcode}</div></td>
           </tr>
         </table>
       </div>

@@ -30,7 +30,6 @@ export const reportService = {
   async getSampleReport(params?: {
     from?: string;
     to?: string;
-    status?: string;
     customer_id?: string;
   }): Promise<SampleReportResponse> {
     const response = await api.get<SampleReportResponse>('/reports/samples', { params });
@@ -54,7 +53,6 @@ export const reportService = {
   async exportSampleReportCsv(params?: {
     from?: string;
     to?: string;
-    status?: string;
     customer_id?: string;
   }) {
     const response = await api.get('/reports/samples/export', {
