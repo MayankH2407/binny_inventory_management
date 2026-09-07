@@ -404,6 +404,30 @@ export async function bulkCreateProductsBySizeRange(
   try {
     await client.query('BEGIN');
 
+    // Reject up front if ANY size in the requested range already exists for
+    // this section+article+category+colour (case-insensitive) — mirrors
+    // createProduct's single-variant guard. Without this, re-running the
+    // tool for a colour that already has some/all of these sizes silently
+    // inserts a second full row per size (same article/colour/size/mrp,
+    // differing only by SKU serial) — this is exactly how the catalog
+    // accumulated duplicate rows before (see bulkCreateProducts' Pass 1.5
+    // guard, added for the identical reason on the CSV path).
+    const existingSizesResult = await client.query(
+      `SELECT DISTINCT size FROM products
+       WHERE UPPER(REPLACE(section, ' ', '-'))      = $1
+         AND UPPER(REPLACE(article_name, ' ', '-')) = $2
+         AND UPPER(REPLACE(category, ' ', '-'))     = $3
+         AND UPPER(REPLACE(colour, ' ', '-'))       = $4
+         AND CASE WHEN size ~ '^[0-9]+$' THEN size::int ELSE NULL END BETWEEN $5 AND $6`,
+      [normSection, normArticle, normCategory, normColour, from, to]
+    );
+    if (existingSizesResult.rows.length > 0) {
+      const existingSizes = existingSizesResult.rows.map((r: { size: string }) => r.size).sort();
+      throw new ConflictError(
+        `Product(s) already exist: ${articleName} / ${colour} / size(s) ${existingSizes.join(', ')} — remove them from the range or use a different colour.`
+      );
+    }
+
     const products: Product[] = [];
 
     for (let size = from; size <= to; size++) {
