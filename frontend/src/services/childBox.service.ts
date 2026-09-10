@@ -29,6 +29,8 @@ export const childBoxService = {
     status?: string;
     product_id?: string;
     search?: string;
+    from_date?: string;
+    to_date?: string;
   }): Promise<ChildBoxListResponse> {
     const response = await api.get<ChildBoxListResponse>('/child-boxes', { params });
     return response.data;

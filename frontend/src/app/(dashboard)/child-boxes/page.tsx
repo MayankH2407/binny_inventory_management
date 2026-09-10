@@ -53,6 +53,8 @@ export default function ChildBoxesPage() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [productFilter, setProductFilter] = useState('');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   // Track the full selected box objects (keyed by id), NOT just ids, so
   // "Print Selected" can print boxes chosen on ANY page — the previous
@@ -71,7 +73,7 @@ export default function ChildBoxesPage() {
   const bulkFileRef = useRef<HTMLInputElement>(null);
 
   const { data, isLoading, refetch } = useApiQuery(
-    ['child-boxes', String(page), search, statusFilter, productFilter],
+    ['child-boxes', String(page), search, statusFilter, productFilter, fromDate, toDate],
     () =>
       childBoxService.getAll({
         page,
@@ -79,6 +81,8 @@ export default function ChildBoxesPage() {
         search: search || undefined,
         status: statusFilter || undefined,
         product_id: productFilter || undefined,
+        from_date: fromDate || undefined,
+        to_date: toDate || undefined,
       }),
     { placeholderData: keepPreviousData }
   );
@@ -245,9 +249,9 @@ export default function ChildBoxesPage() {
           </span>
         </div>
         {/* Filters */}
-        <div className="p-4 border-b border-brand-border">
-          <div className="flex flex-col sm:flex-row gap-3">
-            <div className="flex-1">
+        <div className="p-4 border-b border-brand-border bg-binny-navy-50/50">
+          <div className="flex flex-col lg:flex-row gap-3">
+            <div className="flex-1 min-w-[200px]">
               <Input
                 placeholder="Search by barcode, article name, or SKU..."
                 value={search}
@@ -258,37 +262,66 @@ export default function ChildBoxesPage() {
                 leftIcon={<Search className="h-4 w-4" />}
               />
             </div>
-            <Select
-              options={[
-                { value: '', label: 'All Statuses' },
-                { value: 'GENERATED', label: 'Generated' },
-                { value: 'FREE', label: 'Free' },
-                { value: 'PACKED', label: 'Packed' },
-                { value: 'PARTIAL', label: 'Partial (1 shoe)' },
-                { value: 'DISPATCHED', label: 'Dispatched' },
-              ]}
-              value={statusFilter}
-              onChange={(e) => {
-                setStatusFilter(e.target.value);
-                setPage(1);
-              }}
-              className="w-full sm:w-44"
-            />
-            <Select
-              options={[
-                { value: '', label: 'All Products' },
-                ...products.map((p) => ({
-                  value: p.id,
-                  label: `${p.article_name} (${p.sku})`,
-                })),
-              ]}
-              value={productFilter}
-              onChange={(e) => {
-                setProductFilter(e.target.value);
-                setPage(1);
-              }}
-              className="w-full sm:w-56"
-            />
+            {/* Wrapped in sized divs (not className on Input) because Input's
+                outer wrapper is hardcoded w-full and ignores a width className
+                passed to it — see the same note on master-cartons/page.tsx.
+                flex-wrap on phones/tablets (5 controls don't fit under lg);
+                lg:flex-nowrap once the outer row switches to single-line. */}
+            <div className="flex gap-2 flex-wrap lg:flex-nowrap">
+              <div className="w-full sm:w-36">
+                <Input
+                  type="date"
+                  placeholder="Created from"
+                  value={fromDate}
+                  onChange={(e) => {
+                    setFromDate(e.target.value);
+                    setPage(1);
+                  }}
+                />
+              </div>
+              <div className="w-full sm:w-36">
+                <Input
+                  type="date"
+                  placeholder="Created to"
+                  value={toDate}
+                  onChange={(e) => {
+                    setToDate(e.target.value);
+                    setPage(1);
+                  }}
+                />
+              </div>
+              <Select
+                options={[
+                  { value: '', label: 'All Statuses' },
+                  { value: 'GENERATED', label: 'Generated' },
+                  { value: 'FREE', label: 'Free' },
+                  { value: 'PACKED', label: 'Packed' },
+                  { value: 'PARTIAL', label: 'Partial (1 shoe)' },
+                  { value: 'DISPATCHED', label: 'Dispatched' },
+                ]}
+                value={statusFilter}
+                onChange={(e) => {
+                  setStatusFilter(e.target.value);
+                  setPage(1);
+                }}
+                className="w-full sm:w-44"
+              />
+              <Select
+                options={[
+                  { value: '', label: 'All Products' },
+                  ...products.map((p) => ({
+                    value: p.id,
+                    label: `${p.article_name} (${p.sku})`,
+                  })),
+                ]}
+                value={productFilter}
+                onChange={(e) => {
+                  setProductFilter(e.target.value);
+                  setPage(1);
+                }}
+                className="w-full sm:w-56"
+              />
+            </div>
           </div>
         </div>
 

@@ -207,4 +207,62 @@ describe('getInventoryBreakdown', () => {
       expect(r.loose_stock).toHaveLength(0);
     });
   });
+
+  describe('level=size_group — "Loose" bucket (warehouse channel)', () => {
+    it('buckets not-in-a-carton boxes into their own "Loose" card; packed boxes keep their real range', async () => {
+      const p1 = await seedProduct({ section: 'TEST_SECTION_PU', category: 'Gents', article_group: 'City', article_name: 'City 01', colour: 'RED', size_from: '6', size_to: '10' });
+      const mc = await seedMasterCarton('ACTIVE');
+      const cbPacked = await seedChildBox(p1, 'PACKED', 10);
+      await seedChildBox(p1, 'FREE', 4);
+      await packChildBox(cbPacked, mc);
+
+      const result = await getInventoryBreakdown({
+        level: 'size_group',
+        path:  { section: 'TEST_SECTION_PU', category: 'Gents', group: 'City', article: 'City 01', colour: 'RED' },
+      });
+      const items = (result as { items: BreakdownItem[] }).items;
+
+      const realGroup = items.find(i => i.value === '6-10');
+      expect(realGroup).toBeDefined();
+      expect(realGroup!.pieces).toBe(10);
+
+      const loose = items.find(i => i.value === 'Loose');
+      expect(loose).toBeDefined();
+      expect(loose!.pieces).toBe(4);
+    });
+
+    it('drilling into the "Loose" card at leaf shows only loose boxes, no cartons', async () => {
+      const p1 = await seedProduct({ section: 'TEST_SECTION_PU', category: 'Gents', article_group: 'City', article_name: 'City 01', colour: 'RED', size_from: '6', size_to: '10' });
+      const mc = await seedMasterCarton('ACTIVE');
+      const cbPacked = await seedChildBox(p1, 'PACKED', 10);
+      await seedChildBox(p1, 'FREE', 4);
+      await packChildBox(cbPacked, mc);
+
+      const result = await getInventoryBreakdown({
+        level: 'leaf',
+        path:  { section: 'TEST_SECTION_PU', category: 'Gents', group: 'City', article: 'City 01', colour: 'RED', size_group: 'Loose' },
+      });
+      const r = result as { master_cartons: unknown[]; loose_stock: { pieces: number }[] };
+      expect(r.master_cartons).toHaveLength(0);
+      expect(r.loose_stock).toHaveLength(1);
+      expect(r.loose_stock[0].pieces).toBe(4);
+    });
+  });
+
+  describe('level=size_group — ecommerce channel groups by individual size', () => {
+    it('groups by p.size, not a size-group range', async () => {
+      const p1 = await seedProduct({ section: 'TEST_SECTION_PU', category: 'Gents', article_group: 'City', article_name: 'City 01', colour: 'RED', size: '8', size_from: '6', size_to: '10' });
+      await seedChildBox(p1, 'ECOMMERCE', 3);
+
+      const result = await getInventoryBreakdown({
+        level: 'size_group',
+        channel: 'ecommerce',
+        path:  { section: 'TEST_SECTION_PU', category: 'Gents', group: 'City', article: 'City 01', colour: 'RED' },
+      });
+      const items = (result as { items: BreakdownItem[] }).items;
+      expect(items).toHaveLength(1);
+      expect(items[0].value).toBe('8'); // p.size, not the reconstructed '6-10' range
+      expect(items[0].pieces).toBe(3);
+    });
+  });
 });

@@ -36,6 +36,7 @@ interface ProductForm {
   colour: string;
   size: string;
   mrp: string;
+  factory_price: string;
   description: string;
   category: string;
   section: string;
@@ -47,7 +48,7 @@ interface ProductForm {
 }
 
 const emptyForm: ProductForm = {
-  article_name: '', article_code: '', colour: '', size: '', mrp: '',
+  article_name: '', article_code: '', colour: '', size: '', mrp: '', factory_price: '',
   description: '', category: '', section: '', location: '', article_group: '',
   hsn_code: '', size_from: '', size_to: '',
 };
@@ -173,6 +174,7 @@ export default function ProductsPage() {
       colour: form.colour,
       size: form.size,
       mrp: parseFloat(form.mrp) || 0,
+      factory_price: form.factory_price.trim() ? parseFloat(form.factory_price) : null,
       description: form.description || null,
       category: form.category || null,
       section: form.section || null,
@@ -191,6 +193,7 @@ export default function ProductsPage() {
       article_code: form.article_code,
       colour: form.colour,
       mrp: parseFloat(form.mrp) || 0,
+      factory_price: form.factory_price.trim() ? parseFloat(form.factory_price) : null,
       description: form.description || null,
       category: form.category || null,
       section: form.section || null,
@@ -217,6 +220,10 @@ export default function ProductsPage() {
     }
     if (!form.mrp || parseFloat(form.mrp) <= 0) {
       toast.error('MRP must be a positive number');
+      return;
+    }
+    if (form.factory_price.trim() && parseFloat(form.factory_price) <= 0) {
+      toast.error('Factory Price must be a positive number');
       return;
     }
 
@@ -256,6 +263,7 @@ export default function ProductsPage() {
     setForm({
       article_name: product.article_name, article_code: product.article_code,
       colour: product.colour, size: product.size, mrp: String(product.mrp),
+      factory_price: product.factory_price != null ? String(product.factory_price) : '',
       description: product.description || '', category: product.category || '',
       section: product.section || '', location: product.location || '',
       article_group: product.article_group || '', hsn_code: product.hsn_code || '',
@@ -579,6 +587,7 @@ export default function ProductsPage() {
                     <TableHeader>Colour</TableHeader>
                     <TableHeader>Size</TableHeader>
                     <TableHeader>MRP</TableHeader>
+                    <TableHeader>Factory Price</TableHeader>
                     <TableHeader>Category</TableHeader>
                     <TableHeader>Section</TableHeader>
                     <TableHeader>Status</TableHeader>
@@ -606,6 +615,7 @@ export default function ProductsPage() {
                       <TableCell className="uppercase">{p.colour}</TableCell>
                       <TableCell>{p.size}</TableCell>
                       <TableCell>{formatCurrency(p.mrp)}</TableCell>
+                      <TableCell>{p.factory_price != null ? formatCurrency(p.factory_price) : '-'}</TableCell>
                       <TableCell>{p.category || '-'}</TableCell>
                       <TableCell>{p.section || '-'}</TableCell>
                       <TableCell>
@@ -734,6 +744,16 @@ export default function ProductsPage() {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <Input
+              label="Factory Price"
+              type="number"
+              placeholder="e.g., 520 (optional, internal cost)"
+              value={form.factory_price}
+              onChange={(e) => updateField('factory_price', e.target.value)}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <Select
               label="Section *"
               placeholder="Select section..."
@@ -853,7 +873,7 @@ export default function ProductsPage() {
           <div className="text-xs text-brand-text-muted">
             <p className="font-medium mb-1">Required columns:</p>
             <p>article_code, article_name, colour, size, mrp, section, category</p>
-            <p className="mt-1">Optional: location, description, article_group, hsn_code, size_from, size_to</p>
+            <p className="mt-1">Optional: location, description, article_group, hsn_code, size_from, size_to, factory_price</p>
             <p className="mt-1">Maximum {MAX_CSV_ROWS} rows per upload. Images must be uploaded separately after import.</p>
           </div>
 
@@ -937,7 +957,7 @@ export default function ProductsPage() {
       <Modal isOpen={showUpdateModal} onClose={closeUpdateModal} title="Bulk Update Products">
         <div className="space-y-4">
           <p className="text-sm text-brand-text-muted">
-            Upload a CSV to update EXISTING products. Rows are matched by SKU. Editable columns: mrp, description, hsn_code, location, article_group, is_active. Identity columns (article_code, article_name, colour, size, section, category) are ignored. Empty cells are left unchanged.
+            Upload a CSV to update EXISTING products. Rows are matched by SKU. Editable columns: mrp, factory_price, description, hsn_code, location, article_group, is_active. Identity columns (article_code, article_name, colour, size, section, category) are ignored. Empty cells are left unchanged.
           </p>
 
           {/* Export download */}

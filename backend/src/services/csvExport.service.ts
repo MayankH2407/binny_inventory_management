@@ -2,6 +2,7 @@ import { query } from '../config/database';
 import { getProductWiseReport, getDailyActivity, getSampleReport, getEcommerceReport, getCartonInventoryReport } from './report.service';
 import { getCartonHierarchy } from './inventory.service';
 import { dateFromCondition, dateToCondition } from '../utils/dateRange';
+import { sizeGroupExpr } from '../utils/sizeGroup';
 
 function toCSV(headers: string[], rows: string[][]): string {
   const escape = (val: string) => `"${String(val ?? '').replace(/"/g, '""')}"`;
@@ -36,7 +37,33 @@ export async function exportInventorySummaryCSV(): Promise<string> {
   return toCSV(headers, rows);
 }
 
-export async function exportDispatchCSV(fromDate?: string, toDate?: string): Promise<string> {
+export interface PartyWiseDispatchRow {
+  party_name: string;
+  product_name: string;
+  size_group: string;
+  qty: number;
+  master_carton_count: number;
+}
+
+/**
+ * Party-wise dispatch aggregation (client spec: Party Name | Product Name |
+ * Size Group | Qty | Master Carton). Grain = party × article × size-group,
+ * aggregated across the whole date-filtered range — NOT one row per dispatch
+ * record, unlike the old 26-column export this replaced. Shared by both the
+ * CSV export below and the PDF summary data endpoint (dispatch.controller.ts)
+ * so the two downloads offered from the same date range never disagree.
+ *
+ * The 5-branch LATERAL union gathering child boxes across all 3 dispatch
+ * sources (master carton / sample / e-commerce, whole-carton and loose
+ * variants) is unchanged from the prior version — still the correct roll-up
+ * post samples/e-commerce pool redesigns. Each branch now ALSO projects the
+ * master_carton_id it shipped through (NULL for the two loose-box branches,
+ * since a loose box was never in a carton) so `Master Carton` can be a true
+ * COUNT(DISTINCT ...) of actual cartons — the old getDispatchSummary only
+ * ever counted dr.master_carton_id directly, undercounting cartons reached
+ * via a sample/e-commerce whole-carton allocation.
+ */
+export async function getPartyWiseDispatchRows(fromDate?: string, toDate?: string): Promise<PartyWiseDispatchRow[]> {
   const conditions: string[] = [];
   const values: unknown[] = [];
   let paramIndex = 1;
@@ -51,125 +78,73 @@ export async function exportDispatchCSV(fromDate?: string, toDate?: string): Pro
   }
 
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  const sizeGroup = sizeGroupExpr('p');
 
-  // Itemized: one row per dispatch record × product variant, across ALL three
-  // dispatch sources (master carton / sample / e-commerce). The source's child
-  // boxes are gathered via a LATERAL UNION over the three mapping tables — mirrors
-  // the roll-up used by getDispatches() so the report matches the list.
   const result = await query(`
     SELECT
-      dr.dispatch_date,
-      CASE dr.source_type
-        WHEN 'MASTER_CARTON' THEN 'Master Carton'
-        WHEN 'SAMPLE' THEN 'Sample'
-        WHEN 'ECOMMERCE' THEN 'E-commerce'
-        ELSE ''
-      END AS source_type,
-      COALESCE(mc.carton_barcode, sr.sample_barcode, er.ecommerce_barcode, NULLIF(dr.order_reference, ''), NULLIF(dr.reference_name, ''), NULLIF(dr.marketplace, ''), CASE WHEN dr.source_type = 'ECOMMERCE' THEN 'E-commerce' END) AS source_barcode,
-      dr.marketplace,
-      dr.order_reference,
-      dr.listing_sku,
-      COALESCE(c.firm_name, 'Walk-in / No Customer') AS customer_name,
-      c.gstin,
-      dr.destination,
-      c.contact_person_name,
-      c.contact_person_mobile,
-      p.section,
-      p.article_name,
-      p.article_code,
-      p.colour,
-      p.size,
-      p.hsn_code,
-      COUNT(DISTINCT src.child_box_id) AS box_count,
+      COALESCE(c.firm_name, 'Walk-in / No Customer') AS party_name,
+      p.article_name                                 AS product_name,
+      ${sizeGroup}                                    AS size_group,
       -- Foot-aware: a box shipped as a single shoe (sample dispatch, foot
-      -- LEFT/RIGHT) bills as half a pair, not a full pair at full MRP. Every
-      -- other source ships whole pairs (src.foot is NULL there), so this
-      -- collapses to the original cb.quantity sum for them.
-      COALESCE(SUM(CASE WHEN src.foot IN ('LEFT', 'RIGHT') THEN 0.5 ELSE cb.quantity END), 0) AS pairs,
-      p.mrp,
-      COALESCE(SUM(CASE WHEN src.foot IN ('LEFT', 'RIGHT') THEN 0.5 ELSE cb.quantity END), 0) * p.mrp AS total_value,
-      dr.vehicle_number,
-      dr.lr_number,
-      dr.transport_details,
-      u.name AS dispatched_by_name,
-      dr.notes
+      -- LEFT/RIGHT) bills as half a pair, not a full pair. Every other source
+      -- ships whole pairs (src.foot is NULL there), collapsing to cb.quantity.
+      COALESCE(SUM(CASE WHEN src.foot IN ('LEFT', 'RIGHT') THEN 0.5 ELSE cb.quantity END), 0) AS qty,
+      COUNT(DISTINCT src.master_carton_id)           AS master_carton_count
     FROM dispatch_records dr
-    LEFT JOIN master_cartons mc ON mc.id = dr.master_carton_id
-    LEFT JOIN sample_records sr ON sr.id = dr.sample_record_id
-    LEFT JOIN ecommerce_records er ON er.id = dr.ecommerce_record_id
     LEFT JOIN customers c ON c.id = dr.customer_id
-    JOIN users u ON u.id = dr.dispatched_by
     JOIN LATERAL (
-      SELECT ccm.child_box_id, NULL::varchar(10) AS foot FROM carton_child_mapping ccm WHERE ccm.master_carton_id = dr.master_carton_id AND ccm.is_active = true
+      SELECT ccm.child_box_id, NULL::varchar(10) AS foot, ccm.master_carton_id
+      FROM carton_child_mapping ccm WHERE ccm.master_carton_id = dr.master_carton_id AND ccm.is_active = true
       UNION ALL
       -- Samples pool redesign: mapping rows stay is_active=true forever for
       -- history (shipped or not) — dispatch_record_id = dr.id is what "shipped
-      -- on THIS dispatch" actually means. foot carries through so the SELECT
-      -- above can bill a single shipped shoe as half a pair.
-      SELECT sbm.child_box_id, sbm.foot FROM sample_box_mapping sbm WHERE sbm.dispatch_record_id = dr.id
+      -- on THIS dispatch" actually means. foot carries through for the
+      -- half-pair billing above; no carton (a loose sample box).
+      SELECT sbm.child_box_id, sbm.foot, NULL::uuid FROM sample_box_mapping sbm WHERE sbm.dispatch_record_id = dr.id
       UNION ALL
       -- Whole cartons scanned intact into a sample (carton stays PACKED; see
-      -- unpackCartonInSample) — no foot concept for a whole-carton shipment.
-      SELECT ccm.child_box_id, NULL::varchar(10) AS foot FROM sample_carton_mapping scm
+      -- unpackCartonInSample) — no foot concept, real carton id.
+      SELECT ccm.child_box_id, NULL::varchar(10) AS foot, ccm.master_carton_id FROM sample_carton_mapping scm
       JOIN carton_child_mapping ccm ON ccm.master_carton_id = scm.master_carton_id AND ccm.is_active = true
       WHERE scm.dispatch_record_id = dr.id
       UNION ALL
       -- E-commerce pool: loose boxes shipped on this dispatch. No is_active filter —
-      -- a returned item must still show on its original shipment's CSV row.
-      SELECT ebm.child_box_id, NULL::varchar(10) AS foot FROM ecommerce_box_mapping ebm WHERE ebm.dispatch_record_id = dr.id
+      -- a returned item must still show on its original shipment's row.
+      SELECT ebm.child_box_id, NULL::varchar(10) AS foot, NULL::uuid FROM ecommerce_box_mapping ebm WHERE ebm.dispatch_record_id = dr.id
       UNION ALL
       -- E-commerce pool: whole cartons shipped on this dispatch (carton stays intact
       -- until unpacked; see ecommerce.service.ts#unpackCartonInEcommercePool).
-      SELECT ccm.child_box_id, NULL::varchar(10) AS foot FROM ecommerce_carton_mapping ecm
+      SELECT ccm.child_box_id, NULL::varchar(10) AS foot, ccm.master_carton_id FROM ecommerce_carton_mapping ecm
       JOIN carton_child_mapping ccm ON ccm.master_carton_id = ecm.master_carton_id AND ccm.is_active = true
       WHERE ecm.dispatch_record_id = dr.id
     ) src ON true
     JOIN child_boxes cb ON cb.id = src.child_box_id
     JOIN products p ON p.id = cb.product_id
     ${whereClause}
-    GROUP BY dr.id, mc.id, sr.id, er.id, c.id, u.id, p.id
-    ORDER BY customer_name, dr.dispatch_date DESC, source_barcode, p.article_name, p.colour, p.size
+    GROUP BY c.id, p.article_name, ${sizeGroup}
+    ORDER BY party_name, product_name, size_group
   `, values);
 
-  const headers = [
-    'Dispatch Date', 'Source Type', 'Source Barcode', 'Marketplace', 'Order Reference', 'Listing SKU',
-    'Customer', 'GSTIN', 'Destination',
-    'Contact Person', 'Contact Mobile', 'Section', 'Article', 'Article Code', 'Colour', 'Size', 'HSN Code',
-    'Boxes', 'Pairs', 'MRP', 'Total Value', 'Vehicle', 'LR Number', 'Transport Details', 'Dispatched By', 'Notes',
-  ];
+  return result.rows.map((r: Record<string, unknown>) => ({
+    party_name: String(r.party_name ?? ''),
+    product_name: String(r.product_name ?? ''),
+    size_group: String(r.size_group ?? ''),
+    qty: Number(r.qty ?? 0),
+    master_carton_count: Number(r.master_carton_count ?? 0),
+  }));
+}
 
-  const num = (v: unknown) => (v === null || v === undefined ? '' : Number(v).toFixed(2));
-
-  const rows = result.rows.map((r: Record<string, unknown>) => [
-    r.dispatch_date ? new Date(r.dispatch_date as string).toISOString().slice(0, 10) : '',
-    String(r.source_type ?? ''),
-    String(r.source_barcode ?? ''),
-    String(r.marketplace ?? ''),
-    String(r.order_reference ?? ''),
-    String(r.listing_sku ?? ''),
-    String(r.customer_name ?? ''),
-    String(r.gstin ?? ''),
-    String(r.destination ?? ''),
-    String(r.contact_person_name ?? ''),
-    String(r.contact_person_mobile ?? ''),
-    String(r.section ?? ''),
-    String(r.article_name ?? ''),
-    String(r.article_code ?? ''),
-    String(r.colour ?? ''),
-    String(r.size ?? ''),
-    String(r.hsn_code ?? ''),
-    String(r.box_count ?? ''),
-    String(r.pairs ?? ''),
-    num(r.mrp),
-    num(r.total_value),
-    String(r.vehicle_number ?? ''),
-    String(r.lr_number ?? ''),
-    String(r.transport_details ?? ''),
-    String(r.dispatched_by_name ?? ''),
-    String(r.notes ?? ''),
+export async function exportDispatchCSV(fromDate?: string, toDate?: string): Promise<string> {
+  const rows = await getPartyWiseDispatchRows(fromDate, toDate);
+  const headers = ['Party Name', 'Product Name', 'Size Group', 'Qty', 'Master Carton'];
+  const csvRows = rows.map((r) => [
+    r.party_name,
+    r.product_name,
+    r.size_group,
+    String(r.qty),
+    String(r.master_carton_count),
   ]);
-
-  return toCSV(headers, rows);
+  return toCSV(headers, csvRows);
 }
 
 export async function exportDailyActivityCSV(fromDate: string, toDate: string): Promise<string> {

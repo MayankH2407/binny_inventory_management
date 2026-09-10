@@ -9,6 +9,7 @@ import { CreateChildBoxInput, CreateBulkChildBoxInput, CreateBulkMultiSizeChildB
 import { logger } from '../utils/logger';
 import { parse } from 'csv-parse/sync';
 import { generateUniqueBarcode, generateUniqueBarcodes } from '../utils/barcodeGenerator';
+import { dateFromCondition, dateToCondition } from '../utils/dateRange';
 
 export async function createChildBox(
   input: CreateChildBoxInput,
@@ -294,6 +295,8 @@ export async function getChildBoxes(
     status?: string;
     product_id?: string;
     search?: string;
+    from_date?: string;
+    to_date?: string;
   },
   page: number = 1,
   limit: number = 25
@@ -314,6 +317,14 @@ export async function getChildBoxes(
     conditions.push(`(cb.barcode ILIKE $${paramIndex} OR p.article_name ILIKE $${paramIndex} OR p.sku ILIKE $${paramIndex})`);
     values.push(`%${filters.search}%`);
     paramIndex++;
+  }
+  if (filters.from_date) {
+    conditions.push(dateFromCondition('cb.created_at', paramIndex++));
+    values.push(filters.from_date);
+  }
+  if (filters.to_date) {
+    conditions.push(dateToCondition('cb.created_at', paramIndex++));
+    values.push(filters.to_date);
   }
 
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';

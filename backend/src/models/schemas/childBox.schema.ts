@@ -40,6 +40,8 @@ export const childBoxListQuerySchema = z.object({
   status: z.enum(statusValues).optional(),
   product_id: z.string().uuid().optional(),
   search: z.string().optional(),
+  from_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'from_date must be YYYY-MM-DD').optional(),
+  to_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'to_date must be YYYY-MM-DD').optional(),
 });
 
 export const createBulkMultiSizeChildBoxSchema = z.object({

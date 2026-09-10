@@ -197,15 +197,16 @@ describe('Sample foot-split dispatch (integration)', () => {
 
     // 10. The dispatch CSV must bill each half-pair shipment as 0.5 pairs, not
     //     a full pair at full MRP (the highest-consequence ripple: this is the
-    //     customer-facing invoice document).
+    //     customer-facing invoice document). Party-wise grain (Party Name |
+    //     Product Name | Size Group | Qty | Master Carton) aggregates both
+    //     walk-in sample dispatches of this same test article into ONE row —
+    //     0.5 (sample A's left shoe) + 0.5 (sample B's right shoe) = 1.0 Qty,
+    //     0 Master Carton (both shipments were loose sample boxes, no carton).
     const today = new Date().toISOString().slice(0, 10);
     const csv = await exportDispatchCSV(today, today);
-    const csvLines = csv.split('\n').filter((l) => l.includes(sampleA.sample_barcode) || l.includes(sampleB.sample_barcode));
-    expect(csvLines.length).toBeGreaterThanOrEqual(2);
-    for (const line of csvLines) {
-      // Column order: ...,Boxes,Pairs,MRP,Total Value,... — Pairs is 0.5 per shipment.
-      expect(line).toMatch(/"1","0\.5","500\.00","250\.00"/);
-    }
+    const csvLines = csv.split('\n').filter((l) => l.includes('Foot Split Test Article'));
+    expect(csvLines).toHaveLength(1);
+    expect(csvLines[0]).toBe('"Walk-in / No Customer","Foot Split Test Article","6-10","1","0"');
 
     // 11. Now that the box is fully DISPATCHED via samples, a return attempt
     //     must still be rejected — the "sample dispatches cannot be returned"

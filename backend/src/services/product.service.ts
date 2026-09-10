@@ -88,11 +88,11 @@ export async function createProduct(
   }
 
   const result = await query(
-    `INSERT INTO products (article_name, sku, article_code, colour, size, mrp, description, category, section, location, article_group, hsn_code, size_from, size_to)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+    `INSERT INTO products (article_name, sku, article_code, colour, size, mrp, factory_price, description, category, section, location, article_group, hsn_code, size_from, size_to)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
      RETURNING *`,
     [
-      input.article_name, sku, input.article_code, input.colour, input.size, input.mrp, input.description || null,
+      input.article_name, sku, input.article_code, input.colour, input.size, input.mrp, input.factory_price ?? null, input.description || null,
       input.category, input.section, input.location || null,
       input.article_group || null, input.hsn_code || null, input.size_from || null, input.size_to || null,
     ]
@@ -252,7 +252,7 @@ export async function updateProduct(
   let paramIndex = 1;
 
   const updateableFields: (keyof UpdateProductInput)[] = [
-    'article_name', 'sku', 'article_code', 'colour', 'size', 'mrp', 'description', 'is_active',
+    'article_name', 'sku', 'article_code', 'colour', 'size', 'mrp', 'factory_price', 'description', 'is_active',
     'category', 'section', 'location', 'article_group', 'hsn_code', 'size_from', 'size_to',
   ];
 
@@ -445,11 +445,11 @@ export async function bulkCreateProductsBySizeRange(
       const sku = `${normSection}-${normArticle}-${normCategory}-${serialStr}-${normColour}`;
 
       const result = await client.query(
-        `INSERT INTO products (article_name, sku, article_code, colour, size, mrp, description, category, section, location, article_group, hsn_code, size_from, size_to)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        `INSERT INTO products (article_name, sku, article_code, colour, size, mrp, factory_price, description, category, section, location, article_group, hsn_code, size_from, size_to)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
          RETURNING *`,
         [
-          articleName, sku, articleCode, colour, String(size), input.mrp,
+          articleName, sku, articleCode, colour, String(size), input.mrp, input.factory_price ?? null,
           description || null, input.category, section, input.location || null,
           articleGroup || null, input.hsn_code || null, input.size_from, input.size_to,
         ]
@@ -530,7 +530,7 @@ export async function bulkCreateProducts(
     cleanName: string; cleanColour: string; cleanSection: string;
     cleanArticleCode: string; cleanArticleGroup: string | null; cleanDesc: string | null;
     category: string; location: string | null;
-    size: string; mrp: number; hsn: string | null; sizeFrom: string | null; sizeTo: string | null;
+    size: string; mrp: number; factoryPrice: number | null; hsn: string | null; sizeFrom: string | null; sizeTo: string | null;
     normSection: string; normArticle: string; normCategory: string; normColour: string;
     sku: string;
   }
@@ -556,6 +556,17 @@ export async function bulkCreateProducts(
     const mrp = parseFloat(row.mrp);
     if (!row.mrp?.trim() || isNaN(mrp) || mrp <= 0) {
       rowErrors.push('mrp must be a positive number');
+    }
+
+    // Optional: internal cost figure, never required.
+    let factoryPrice: number | null = null;
+    if (row.factory_price?.trim()) {
+      const fp = parseFloat(row.factory_price);
+      if (isNaN(fp) || fp <= 0) {
+        rowErrors.push('factory_price must be a positive number');
+      } else {
+        factoryPrice = fp;
+      }
     }
 
     if (row.article_code && row.article_code.trim().length > 20) {
@@ -590,7 +601,7 @@ export async function bulkCreateProducts(
       cleanArticleGroup: row.article_group?.trim() ? (toTitleCase(row.article_group.trim()) ?? null) : null,
       cleanDesc: row.description?.trim() ? (stripHtml(row.description.trim()) ?? null) : null,
       category: canonicalCat!, location: canonicalLoc ?? null,
-      size: row.size.trim(), mrp,
+      size: row.size.trim(), mrp, factoryPrice,
       hsn: row.hsn_code?.trim() || null,
       sizeFrom: row.size_from?.trim() || null,
       sizeTo: row.size_to?.trim() || null,
@@ -687,13 +698,14 @@ export async function bulkCreateProducts(
   }
 
   // ── Pass 4: chunked multi-row INSERT (per chunk txn; degrade to per-row on failure) ──
-  const insertCols = `(article_name, sku, article_code, colour, size, mrp, description, category, section, location, article_group, hsn_code, size_from, size_to)`;
+  const insertCols = `(article_name, sku, article_code, colour, size, mrp, factory_price, description, category, section, location, article_group, hsn_code, size_from, size_to)`;
   const rowParams = (v: ValidRow): unknown[] => [
-    v.cleanName, v.sku, v.cleanArticleCode, v.cleanColour, v.size, v.mrp, v.cleanDesc,
+    v.cleanName, v.sku, v.cleanArticleCode, v.cleanColour, v.size, v.mrp, v.factoryPrice, v.cleanDesc,
     v.category, v.cleanSection, v.location, v.cleanArticleGroup, v.hsn, v.sizeFrom, v.sizeTo,
   ];
   let created = 0;
-  const CHUNK = 500; // 500 × 14 cols = 7000 bind params, well under PG's 65535
+  const COLS = 15;
+  const CHUNK = 500; // 500 × 15 cols = 7500 bind params, well under PG's 65535
   for (let start = 0; start < toInsert.length; start += CHUNK) {
     const chunk = toInsert.slice(start, start + CHUNK);
     const client = await pool.connect();
@@ -702,8 +714,8 @@ export async function bulkCreateProducts(
       const valuesSql: string[] = [];
       const params: unknown[] = [];
       chunk.forEach((v, idx) => {
-        const b = idx * 14;
-        valuesSql.push(`($${b+1},$${b+2},$${b+3},$${b+4},$${b+5},$${b+6},$${b+7},$${b+8},$${b+9},$${b+10},$${b+11},$${b+12},$${b+13},$${b+14})`);
+        const b = idx * COLS;
+        valuesSql.push(`(${Array.from({ length: COLS }, (_, k) => `$${b + k + 1}`).join(',')})`);
         params.push(...rowParams(v));
       });
       await client.query(`INSERT INTO products ${insertCols} VALUES ${valuesSql.join(', ')}`, params);
@@ -714,7 +726,10 @@ export async function bulkCreateProducts(
       // Degrade to per-row so one unexpected bad row doesn't sink the whole chunk
       for (const v of chunk) {
         try {
-          await query(`INSERT INTO products ${insertCols} VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`, rowParams(v));
+          await query(
+            `INSERT INTO products ${insertCols} VALUES (${Array.from({ length: COLS }, (_, k) => `$${k + 1}`).join(',')})`,
+            rowParams(v)
+          );
           created++;
         } catch (err) {
           const message = err instanceof Error ? err.message : 'Unknown error';
@@ -752,11 +767,11 @@ function csvCell(v: unknown): string {
 export async function exportProductsCsv(): Promise<string> {
   const columns = [
     'sku', 'article_code', 'article_name', 'colour', 'size', 'section', 'category',
-    'mrp', 'hsn_code', 'location', 'article_group', 'description', 'is_active',
+    'mrp', 'factory_price', 'hsn_code', 'location', 'article_group', 'description', 'is_active',
   ];
 
   const result = await query(
-    `SELECT sku, article_code, article_name, colour, size, section, category, mrp, hsn_code, location, article_group, description, is_active
+    `SELECT sku, article_code, article_name, colour, size, section, category, mrp, factory_price, hsn_code, location, article_group, description, is_active
      FROM products
      ORDER BY article_name, colour, size`
   );
@@ -847,6 +862,15 @@ export async function bulkUpdateProducts(
         rowErrors.push('mrp must be a positive number');
       } else {
         updates.mrp = mrp;
+      }
+    }
+
+    if (row.factory_price?.trim()) {
+      const factoryPrice = parseFloat(row.factory_price);
+      if (isNaN(factoryPrice) || factoryPrice <= 0) {
+        rowErrors.push('factory_price must be a positive number');
+      } else {
+        updates.factory_price = factoryPrice;
       }
     }
 

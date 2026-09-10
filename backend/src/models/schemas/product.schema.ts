@@ -28,6 +28,14 @@ export const createProductSchema = z.object({
     .number()
     .positive('MRP must be positive')
     .max(99999999.99, 'MRP must not exceed 99999999.99'),
+  // Internal cost figure, never shown on the customer-facing child-box label.
+  // Optional/nullable: no historical data exists to require it.
+  factory_price: z
+    .number()
+    .positive('Factory price must be positive')
+    .max(99999999.99, 'Factory price must not exceed 99999999.99')
+    .nullable()
+    .optional(),
   description: z
     .string()
     .max(1000, 'Description must not exceed 1000 characters')
@@ -49,6 +57,7 @@ export const updateProductSchema = z.object({
   colour: z.string().min(1).max(50).trim().optional(),
   size: z.string().min(1).max(10).trim().optional(),
   mrp: z.number().positive().max(99999999.99).optional(),
+  factory_price: z.number().positive().max(99999999.99).nullable().optional(),
   description: z.string().max(1000).nullable().optional(),
   is_active: z.boolean().optional(),
   category: z.enum(VALID_CATEGORIES).nullable().optional(),
@@ -107,6 +116,12 @@ export const bulkCreateBySizeRangeSchema = z.object({
     .number()
     .positive('MRP must be positive')
     .max(99999999.99, 'MRP must not exceed 99999999.99'),
+  factory_price: z
+    .number()
+    .positive('Factory price must be positive')
+    .max(99999999.99, 'Factory price must not exceed 99999999.99')
+    .nullable()
+    .optional(),
   description: z
     .string()
     .max(1000, 'Description must not exceed 1000 characters')

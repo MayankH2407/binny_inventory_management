@@ -4,6 +4,7 @@ import { CHILD_BOX_STATUS, MASTER_CARTON_STATUS } from '../config/constants';
 import { NotFoundError } from '../utils/errors';
 import { BreakdownLevel, BreakdownPath, BreakdownChannel } from '../models/schemas/inventory.schema';
 import { dateFromCondition, dateToCondition } from '../utils/dateRange';
+import { sizeGroupExpr } from '../utils/sizeGroup';
 
 export interface InventoryDashboard {
   totalChildBoxes: number;
@@ -873,9 +874,19 @@ const LEVEL_TO_COLUMN: Record<BreakdownLevel, string> = {
   article:    'p.article_name',
   colour:     'p.colour',
   // size_group column was dropped; reconstruct range label from size_from/size_to
-  size_group: "COALESCE(p.size_from, '') || CASE WHEN p.size_to IS NOT NULL AND p.size_to != p.size_from THEN '-' || p.size_to ELSE '' END",
+  size_group: sizeGroupExpr('p'),
   leaf:       '', // handled separately
 };
+
+/**
+ * Sentinel bucket value for loose (not-in-a-carton) stock at the `size_group`
+ * level, warehouse channel only. Client asked for "loose" to be its own card
+ * next to the real size-group ranges (6-10, 7-10, etc.), not just the
+ * existing loose_child_box_count sub-count chip on every card. Safe as a
+ * literal: real size-group values are only ever digits/"K" suffixes and a
+ * hyphen (per sampled data — "6-10", "6K-8K"), never this string.
+ */
+export const LOOSE_BUCKET = 'Loose';
 
 /**
  * Maps each path key to its product column for WHERE filtering.
@@ -891,8 +902,12 @@ const PATH_KEY_TO_COLUMN: Record<keyof BreakdownPath, string> = {
   group:      'p.article_group',
   article:    'p.article_name',
   colour:     'p.colour',
-  // Match the same reconstructed expression used in grouping
-  size_group: "COALESCE(p.size_from, '') || CASE WHEN p.size_to IS NOT NULL AND p.size_to != p.size_from THEN '-' || p.size_to ELSE '' END",
+  // Match the same reconstructed expression used in grouping. NOTE: this
+  // default is overridden per-request in getInventoryBreakdown for two
+  // special cases — the ecommerce channel (matches p.size instead) and the
+  // warehouse LOOSE_BUCKET sentinel (dropped from the filter entirely) — see
+  // the path-filter loop there.
+  size_group: sizeGroupExpr('p'),
 };
 
 /**
@@ -921,16 +936,31 @@ export async function getInventoryBreakdown(input: {
   const { level, path } = input;
   const channel: BreakdownChannel = input.channel ?? 'warehouse';
 
+  // Is this request drilling into the synthetic "Loose" bucket (warehouse
+  // channel, size_group level only — see LOOSE_BUCKET)? If so, the size_group
+  // path value isn't a real product column value to match — it's handled
+  // entirely by the loose-vs-packed predicates further down, so it's skipped
+  // in the generic path-filter loop below.
+  const isLooseBucket = channel === 'warehouse' && path.size_group === LOOSE_BUCKET;
+
   // Build path filter conditions
   const conditions: string[] = ['p.is_active = true'];
   const values: unknown[] = [];
   let paramIndex = 1;
 
   for (const [key, col] of Object.entries(PATH_KEY_TO_COLUMN) as [keyof BreakdownPath, string][]) {
-    if (path[key] !== undefined && path[key] !== '') {
-      conditions.push(`${col} = $${paramIndex++}`);
-      values.push(path[key]);
+    if (path[key] === undefined || path[key] === '') continue;
+    if (key === 'size_group') {
+      if (isLooseBucket) continue; // handled specially, not a product-column match
+      if (channel === 'ecommerce') {
+        // E-commerce drills by individual size, not a size-group range.
+        conditions.push(`p.size = $${paramIndex++}`);
+        values.push(path[key]);
+        continue;
+      }
     }
+    conditions.push(`${col} = $${paramIndex++}`);
+    values.push(path[key]);
   }
 
   const whereClause = conditions.join(' AND ');
@@ -1027,7 +1057,11 @@ export async function getInventoryBreakdown(input: {
       };
     }
 
-    const chanGroupCol = LEVEL_TO_COLUMN[level];
+    // E-commerce drills by individual size at this level (client ask), not a
+    // size-group range — sample channel is unaffected.
+    const chanGroupCol = (channel === 'ecommerce' && level === 'size_group')
+      ? 'p.size'
+      : LEVEL_TO_COLUMN[level];
     // Union loose channel boxes (status-based) with boxes reached through a
     // whole-carton allocation (mapping-table-based, still PACKED status).
     const chanResult = await query(`
@@ -1071,10 +1105,13 @@ export async function getInventoryBreakdown(input: {
 
   // ── Leaf level ─────────────────────────────────────────────────────────────
   if (level === 'leaf') {
-    // Master cartons with per-size breakdown.
+    // Master cartons with per-size breakdown. The synthetic "Loose" bucket
+    // has no cartons by definition (that's what makes it "loose") — skip the
+    // query entirely rather than run it with a WHERE clause that no longer
+    // constrains by size at all.
     // Inner subquery aggregates child boxes by (carton, size, mrp); outer rolls
     // up to one row per carton and json_aggs the size buckets in numeric order.
-    const mcResult = await query(`
+    const mcResult = isLooseBucket ? { rows: [] as Record<string, unknown>[] } : await query(`
       SELECT
         mc.id                                  AS master_carton_id,
         mc.carton_barcode,
@@ -1163,7 +1200,18 @@ export async function getInventoryBreakdown(input: {
   }
 
   // ── Non-leaf levels ────────────────────────────────────────────────────────
-  const groupCol = LEVEL_TO_COLUMN[level];
+  // At size_group, warehouse channel (this whole branch is warehouse-only —
+  // sample/ecommerce already returned above), carve loose boxes into their
+  // own "Loose" sibling bucket instead of the size-group range their product
+  // would otherwise reconstruct to.
+  const groupCol = level === 'size_group'
+    ? `CASE
+         WHEN cb.status = 'FREE' AND NOT EXISTS (
+           SELECT 1 FROM carton_child_mapping ccm4 WHERE ccm4.child_box_id = cb.id AND ccm4.is_active = true
+         ) THEN '${LOOSE_BUCKET}'
+         ELSE ${LEVEL_TO_COLUMN.size_group}
+       END`
+    : LEVEL_TO_COLUMN[level];
 
   const result = await query(`
     SELECT

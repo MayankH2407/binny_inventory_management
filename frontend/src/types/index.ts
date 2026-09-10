@@ -41,6 +41,7 @@ export interface Product {
   colour: string;
   size: string;
   mrp: number;
+  factory_price: number | null;
   description: string | null;
   category: string | null;
   section: string | null;

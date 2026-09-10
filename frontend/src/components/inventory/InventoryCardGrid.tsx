@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { ChevronRight, Layers, Tag, Group, Package, Palette, Ruler, LayoutGrid } from 'lucide-react';
+import { ChevronRight, Layers, Tag, Group, Package, Palette, Ruler, LayoutGrid, Boxes } from 'lucide-react';
 import InventoryStockBar from '@/components/inventory/InventoryStockBar';
 import { applyStockFilter, type StockFilter } from '@/components/inventory/InventoryFilters';
 
@@ -85,10 +85,19 @@ interface CardProps {
   highlightCartons?: boolean;
 }
 
+// Sentinel bucket value for not-in-a-carton stock at the size_group level
+// (warehouse channel only) — mirrors LOOSE_BUCKET in inventory.service.ts.
+const LOOSE_BUCKET = 'Loose';
+
 function InventoryCard({ item, href, level, highlightCartons }: CardProps) {
+  const isLooseBucket = level === 'size_group' && item.value === LOOSE_BUCKET;
   const meta = LEVEL_META[level];
-  const { Icon, gradient } = meta;
-  const displayName = item.value === '' ? '(Ungrouped)' : item.value;
+  const { Icon, gradient } = isLooseBucket
+    ? { Icon: Boxes, gradient: 'from-gray-400 to-gray-500' }
+    : meta;
+  const displayName = isLooseBucket
+    ? 'Loose Stock'
+    : item.value === '' ? '(Ungrouped)' : item.value;
   const isZero = item.pieces === 0;
 
   const stats: Array<{ label: string; value: number }> = [

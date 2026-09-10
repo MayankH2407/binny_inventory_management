@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { Search, ClipboardList, ChevronDown, ChevronUp, ChevronRight, Truck, User, Package, FlaskConical, ShoppingCart, Download } from 'lucide-react';
+import { Search, ClipboardList, ChevronDown, ChevronUp, ChevronRight, Truck, User, Package, FlaskConical, ShoppingCart, Download, FileText } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Button from '@/components/ui/Button';
 import Input from '@/components/ui/Input';
@@ -13,6 +13,7 @@ import { SkeletonTable } from '@/components/ui/Spinner';
 import PageHeader from '@/components/layout/PageHeader';
 import { PAGE_SIZE, ROUTES } from '@/constants';
 import { dispatchService } from '@/services/dispatch.service';
+import { printDispatchSummary } from '@/lib/dispatchSummaryLabel';
 import Link from 'next/link';
 import { formatCurrency } from '@/lib/utils';
 import { useApiQuery } from '@/hooks/useApi';
@@ -166,9 +167,10 @@ export default function DispatchesPage() {
   };
 
   const [isExporting, setIsExporting] = useState(false);
+  const [isPrintingSummary, setIsPrintingSummary] = useState(false);
 
-  // Download the itemized dispatch-details CSV honouring the current From/To
-  // date filters (leaving them blank exports all dispatches).
+  // Download the party-wise dispatch CSV honouring the current From/To date
+  // filters (leaving them blank exports all dispatches).
   const handleExport = async () => {
     setIsExporting(true);
     try {
@@ -193,6 +195,23 @@ export default function DispatchesPage() {
     }
   };
 
+  // Same party-wise aggregation as the CSV, rendered as a printable summary
+  // (browser print-to-PDF — "Save as PDF" in the print dialog).
+  const handlePrintSummary = async () => {
+    setIsPrintingSummary(true);
+    try {
+      const rows = await dispatchService.getSummary({
+        from_date: fromDate || undefined,
+        to_date: toDate || undefined,
+      });
+      printDispatchSummary(rows, fromDate || undefined, toDate || undefined);
+    } catch {
+      toast.error('Failed to generate summary');
+    } finally {
+      setIsPrintingSummary(false);
+    }
+  };
+
   return (
     <div>
       <PageHeader
@@ -202,11 +221,19 @@ export default function DispatchesPage() {
           <div className="flex items-center gap-2">
             <Button
               variant="secondary"
+              leftIcon={<FileText className="h-4 w-4" />}
+              onClick={handlePrintSummary}
+              isLoading={isPrintingSummary}
+            >
+              Download PDF Summary
+            </Button>
+            <Button
+              variant="secondary"
               leftIcon={<Download className="h-4 w-4" />}
               onClick={handleExport}
               isLoading={isExporting}
             >
-              Export CSV
+              Download CSV
             </Button>
             <Link href={ROUTES.DISPATCH}>
               <Button leftIcon={<Truck className="h-4 w-4" />}>Dispatch Carton</Button>

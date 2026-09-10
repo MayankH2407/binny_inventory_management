@@ -54,6 +54,23 @@ export async function exportDispatches(
   }
 }
 
+// Same aggregation as exportDispatches, returned as JSON — powers the
+// "Download PDF Summary" button on the Dispatches page (browser print-to-PDF
+// of a rendered HTML summary, no server-side PDF library involved).
+export async function getDispatchSummaryData(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const { from_date, to_date } = req.query as { from_date?: string; to_date?: string };
+    const rows = await csvExportService.getPartyWiseDispatchRows(from_date, to_date);
+    sendSuccess(res, rows, 'Dispatch summary retrieved successfully');
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function getDispatchById(
   req: AuthenticatedRequest,
   res: Response,

@@ -35,12 +35,12 @@ export async function getChildBoxes(
   next: NextFunction
 ): Promise<void> {
   try {
-    const { page, limit, status, product_id, search } = req.query as {
+    const { page, limit, status, product_id, search, from_date, to_date } = req.query as {
       page?: number; limit?: number; status?: string; product_id?: string;
-      search?: string;
+      search?: string; from_date?: string; to_date?: string;
     };
     const result = await childBoxService.getChildBoxes(
-      { status, product_id, search },
+      { status, product_id, search, from_date, to_date },
       page || 1,
       limit || 25
     );

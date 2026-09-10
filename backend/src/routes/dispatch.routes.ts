@@ -35,6 +35,16 @@ router.get(
   dispatchController.exportDispatches
 );
 
+// Same party-wise aggregation as /export, returned as JSON so the frontend
+// can render it into a printable PDF summary — kept as one shared query
+// (csvExportService.getPartyWiseDispatchRows) so the two downloads offered
+// from the same date range never disagree.
+router.get(
+  '/export/summary',
+  validate({ query: dispatchListQuerySchema }),
+  dispatchController.getDispatchSummaryData
+);
+
 router.get(
   '/:id',
   validate({ params: dispatchIdParamSchema }),
