@@ -119,7 +119,10 @@ describe('GET /api/v1/inventory/breakdown', () => {
     });
   });
 
-  it('leaf path returns both master_cartons and loose_stock', async () => {
+  it('leaf path: a real assortment value returns only its matching cartons; "Loose" returns only loose stock', async () => {
+    // size_group is the carton's ACTUAL packed range, not the product's
+    // declared size_from/size_to — this product's only packed box is size
+    // '8' (the seedProduct default), so the real assortment is "8".
     const p1 = await seedProduct({
       section: 'PU', category: 'Gents', article_group: 'City',
       article_name: 'Test Article', colour: 'BLACK', size_from: '6', size_to: '10',
@@ -152,17 +155,19 @@ describe('GET /api/v1/inventory/breakdown', () => {
     );
 
     const token = makeToken();
-    const res = await request(app)
-      .get('/api/v1/inventory/breakdown?level=leaf&path[section]=PU&path[category]=Gents&path[group]=City&path[article]=Test Article&path[colour]=BLACK&path[size_group]=6-10')
+
+    const assortmentRes = await request(app)
+      .get('/api/v1/inventory/breakdown?level=leaf&path[section]=PU&path[category]=Gents&path[group]=City&path[article]=Test Article&path[colour]=BLACK&path[size_group]=8')
       .set('Authorization', `Bearer ${token}`)
       .expect(200);
+    expect(assortmentRes.body.data.master_cartons.length).toBeGreaterThanOrEqual(1);
+    expect(assortmentRes.body.data.loose_stock).toHaveLength(0);
 
-    expect(res.body.success).toBe(true);
-    expect(res.body.data).toHaveProperty('master_cartons');
-    expect(res.body.data).toHaveProperty('loose_stock');
-    expect(Array.isArray(res.body.data.master_cartons)).toBe(true);
-    expect(Array.isArray(res.body.data.loose_stock)).toBe(true);
-    expect(res.body.data.master_cartons.length).toBeGreaterThanOrEqual(1);
-    expect(res.body.data.loose_stock.length).toBeGreaterThanOrEqual(1);
+    const looseRes = await request(app)
+      .get('/api/v1/inventory/breakdown?level=leaf&path[section]=PU&path[category]=Gents&path[group]=City&path[article]=Test Article&path[colour]=BLACK&path[size_group]=Loose')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    expect(looseRes.body.data.master_cartons).toHaveLength(0);
+    expect(looseRes.body.data.loose_stock.length).toBeGreaterThanOrEqual(1);
   });
 });

@@ -5,6 +5,7 @@ import { NotFoundError } from '../utils/errors';
 import { BreakdownLevel, BreakdownPath, BreakdownChannel } from '../models/schemas/inventory.schema';
 import { dateFromCondition, dateToCondition } from '../utils/dateRange';
 import { sizeGroupExpr } from '../utils/sizeGroup';
+import { assortmentRangeLabel } from '../utils/sizeSort';
 
 export interface InventoryDashboard {
   totalChildBoxes: number;
@@ -937,13 +938,17 @@ export async function getInventoryBreakdown(input: {
   const channel: BreakdownChannel = input.channel ?? 'warehouse';
 
   // Is this request drilling into the synthetic "Loose" bucket (warehouse
-  // channel, size_group level only — see LOOSE_BUCKET)? If so, the size_group
-  // path value isn't a real product column value to match — it's handled
-  // entirely by the loose-vs-packed predicates further down, so it's skipped
-  // in the generic path-filter loop below.
+  // channel, size_group level only — see LOOSE_BUCKET)?
   const isLooseBucket = channel === 'warehouse' && path.size_group === LOOSE_BUCKET;
 
-  // Build path filter conditions
+  // Build path filter conditions. For the warehouse channel, size_group is
+  // NEVER a literal product-column match — it's the actual min-to-max size
+  // range physically packed together in a real carton (an "assortment"),
+  // computed downstream from real child_boxes, not from the product's own
+  // declared size_from/size_to. So it's always excluded here for warehouse;
+  // whatever value the caller passed (a real range like "6-8", or the Loose
+  // sentinel) is read directly from `path.size_group` further down instead.
+  // E-commerce is unaffected — it still drills by individual literal size.
   const conditions: string[] = ['p.is_active = true'];
   const values: unknown[] = [];
   let paramIndex = 1;
@@ -951,13 +956,12 @@ export async function getInventoryBreakdown(input: {
   for (const [key, col] of Object.entries(PATH_KEY_TO_COLUMN) as [keyof BreakdownPath, string][]) {
     if (path[key] === undefined || path[key] === '') continue;
     if (key === 'size_group') {
-      if (isLooseBucket) continue; // handled specially, not a product-column match
       if (channel === 'ecommerce') {
         // E-commerce drills by individual size, not a size-group range.
         conditions.push(`p.size = $${paramIndex++}`);
         values.push(path[key]);
-        continue;
       }
+      continue; // warehouse: never a product-column match, see comment above
     }
     conditions.push(`${col} = $${paramIndex++}`);
     values.push(path[key]);
@@ -1108,7 +1112,12 @@ export async function getInventoryBreakdown(input: {
     // Master cartons with per-size breakdown. The synthetic "Loose" bucket
     // has no cartons by definition (that's what makes it "loose") — skip the
     // query entirely rather than run it with a WHERE clause that no longer
-    // constrains by size at all.
+    // constrains by size at all. For a real size_group value (warehouse
+    // channel — an actual carton assortment range like "6-8"), whereClause no
+    // longer constrains by size at all either (see the path-filter loop
+    // above), so this query returns EVERY eligible carton's FULL size
+    // breakdown for this colour/article/etc — filtered down to just the
+    // cartons whose actual packed range matches, below.
     // Inner subquery aggregates child boxes by (carton, size, mrp); outer rolls
     // up to one row per carton and json_aggs the size buckets in numeric order.
     const mcResult = isLooseBucket ? { rows: [] as Record<string, unknown>[] } : await query(`
@@ -1152,9 +1161,10 @@ export async function getInventoryBreakdown(input: {
       ORDER BY mc.created_at DESC
     `, values);
 
-    // Loose child boxes: FREE status with no active carton mapping.
-    // size column added so the UI can show per-box size.
-    const looseResult = await query(`
+    // Loose child boxes: FREE status with no active carton mapping. Only
+    // needed for the Loose bucket's own leaf — a real assortment card's leaf
+    // never shows loose stock (see the return below), so skip the query.
+    const looseResult = !isLooseBucket ? { rows: [] as Record<string, unknown>[] } : await query(`
       SELECT
         cb.id        AS child_box_id,
         cb.barcode,
@@ -1175,43 +1185,128 @@ export async function getInventoryBreakdown(input: {
         cb.created_at DESC
     `, values);
 
+    const mappedCartons = mcResult.rows.map(r => ({
+      master_carton_id: String(r.master_carton_id),
+      carton_barcode:   String(r.carton_barcode),
+      child_box_count:  parseInt(r.child_box_count, 10),
+      pieces:           parseInt(r.pieces, 10),
+      mrp:              parseFloat(r.mrp),
+      status:           String(r.status),
+      size_breakdown:   Array.isArray(r.size_breakdown) ? r.size_breakdown.map((sb: { size: string; pairs: number | string; box_count: number | string }) => ({
+        size:      String(sb.size ?? ''),
+        pairs:     typeof sb.pairs === 'number' ? sb.pairs : parseInt(String(sb.pairs), 10),
+        box_count: typeof sb.box_count === 'number' ? sb.box_count : parseInt(String(sb.box_count), 10),
+      })) : [],
+    }));
+
+    // Warehouse channel, a real (non-Loose) size_group value: this is the
+    // client's "assortment" ask — the value is the actual min-to-max range
+    // physically packed together in a carton (e.g. "6-8"), not a product
+    // attribute, so filter here in JS rather than in the query above.
+    const wantedRange = channel === 'warehouse' && !isLooseBucket ? path.size_group : undefined;
+    const filteredCartons = wantedRange
+      ? mappedCartons.filter(c => assortmentRangeLabel(c.size_breakdown.map((sb: { size: string }) => sb.size)) === wantedRange)
+      : mappedCartons;
+
+    // A real assortment card's leaf shows only its matching cartons — loose
+    // stock belongs to the separate "Loose" card/leaf, never duplicated here.
     return {
-      master_cartons: mcResult.rows.map(r => ({
-        master_carton_id: String(r.master_carton_id),
-        carton_barcode:   String(r.carton_barcode),
-        child_box_count:  parseInt(r.child_box_count, 10),
-        pieces:           parseInt(r.pieces, 10),
-        mrp:              parseFloat(r.mrp),
-        status:           String(r.status),
-        size_breakdown:   Array.isArray(r.size_breakdown) ? r.size_breakdown.map((sb: { size: string; pairs: number | string; box_count: number | string }) => ({
-          size:      String(sb.size ?? ''),
-          pairs:     typeof sb.pairs === 'number' ? sb.pairs : parseInt(String(sb.pairs), 10),
-          box_count: typeof sb.box_count === 'number' ? sb.box_count : parseInt(String(sb.box_count), 10),
-        })) : [],
-      })),
-      loose_stock: looseResult.rows.map(r => ({
+      master_cartons: filteredCartons,
+      loose_stock: isLooseBucket ? looseResult.rows.map(r => ({
         child_box_id: String(r.child_box_id),
         barcode:      String(r.barcode),
         pieces:       parseInt(r.pieces, 10),
         mrp:          parseFloat(r.mrp),
         size:         String(r.size ?? ''),
-      })),
+      })) : [],
     };
   }
 
+  // ── size_group level (warehouse channel): carton assortments ──────────────
+  // Client ask: show how many cartons hold EXACTLY a given packed size range
+  // (e.g. "6-8" vs "6-10" vs "7-9" as separate cards, counted separately) —
+  // derived from what's actually packed together in real cartons, not from
+  // the product's own declared size_from/size_to (which was the old, wrong
+  // behaviour: a carton only holding sizes 6-8 was folding into a "6-10"
+  // card just because that's the product's catalog-wide range). A range that
+  // no real carton currently has (e.g. "6-9") correctly never appears — there
+  // is no catalog-level fallback here, only real, currently-existing cartons.
+  if (level === 'size_group') {
+    const rawResult = await query(`
+      SELECT
+        ccm.master_carton_id,
+        p.size,
+        COUNT(cb.id)::int     AS box_count,
+        SUM(cb.quantity)::int AS pairs
+      FROM carton_child_mapping ccm
+      JOIN child_boxes cb ON cb.id = ccm.child_box_id
+        AND ccm.is_active = true
+        AND cb.status = 'PACKED'
+      JOIN products p ON p.id = cb.product_id
+      JOIN master_cartons mc ON mc.id = ccm.master_carton_id
+      WHERE mc.status != 'DISPATCHED'
+        AND NOT EXISTS (SELECT 1 FROM sample_carton_mapping scm WHERE scm.master_carton_id = mc.id AND scm.is_active = true AND scm.dispatch_record_id IS NULL)
+        AND NOT EXISTS (SELECT 1 FROM ecommerce_carton_mapping ecm WHERE ecm.master_carton_id = mc.id AND ecm.is_active = true AND ecm.dispatch_record_id IS NULL)
+        AND ${whereClause}
+      GROUP BY ccm.master_carton_id, p.size
+    `, values);
+
+    const perCarton = new Map<string, { size: string; box_count: number; pairs: number }[]>();
+    for (const r of rawResult.rows as { master_carton_id: string; size: string; box_count: number; pairs: number }[]) {
+      const list = perCarton.get(r.master_carton_id) ?? [];
+      list.push({ size: r.size, box_count: r.box_count, pairs: r.pairs });
+      perCarton.set(r.master_carton_id, list);
+    }
+
+    const byRange = new Map<string, { pieces: number; child_box_count: number; cartonIds: Set<string> }>();
+    for (const [cartonId, sizes] of perCarton) {
+      const range = assortmentRangeLabel(sizes.map(s => s.size));
+      const agg = byRange.get(range) ?? { pieces: 0, child_box_count: 0, cartonIds: new Set<string>() };
+      for (const s of sizes) {
+        agg.pieces += s.pairs;
+        agg.child_box_count += s.box_count;
+      }
+      agg.cartonIds.add(cartonId);
+      byRange.set(range, agg);
+    }
+
+    const items: BreakdownItem[] = Array.from(byRange.entries()).map(([value, agg]) => ({
+      value,
+      pieces: agg.pieces,
+      child_box_count: agg.child_box_count,
+      master_carton_count: agg.cartonIds.size,
+      loose_child_box_count: 0,
+      legacy_carton_count: 0,
+    }));
+
+    // Loose bucket: a single sibling card for not-in-a-carton stock, sized
+    // regardless — it has no "assortment" (it isn't packed with anything).
+    const looseAgg = await query(`
+      SELECT COUNT(cb.id)::int AS child_box_count, COALESCE(SUM(cb.quantity), 0)::int AS pieces
+      FROM child_boxes cb
+      JOIN products p ON p.id = cb.product_id
+      WHERE cb.status = 'FREE'
+        AND NOT EXISTS (SELECT 1 FROM carton_child_mapping ccm2 WHERE ccm2.child_box_id = cb.id AND ccm2.is_active = true)
+        AND ${whereClause}
+    `, values);
+    const looseRow = looseAgg.rows[0] as { child_box_count: number; pieces: number };
+    if (looseRow.child_box_count > 0) {
+      items.push({
+        value: LOOSE_BUCKET,
+        pieces: looseRow.pieces,
+        child_box_count: looseRow.child_box_count,
+        master_carton_count: 0,
+        loose_child_box_count: looseRow.child_box_count,
+        legacy_carton_count: 0,
+      });
+    }
+
+    items.sort((a, b) => b.pieces - a.pieces);
+    return { items };
+  }
+
   // ── Non-leaf levels ────────────────────────────────────────────────────────
-  // At size_group, warehouse channel (this whole branch is warehouse-only —
-  // sample/ecommerce already returned above), carve loose boxes into their
-  // own "Loose" sibling bucket instead of the size-group range their product
-  // would otherwise reconstruct to.
-  const groupCol = level === 'size_group'
-    ? `CASE
-         WHEN cb.status = 'FREE' AND NOT EXISTS (
-           SELECT 1 FROM carton_child_mapping ccm4 WHERE ccm4.child_box_id = cb.id AND ccm4.is_active = true
-         ) THEN '${LOOSE_BUCKET}'
-         ELSE ${LEVEL_TO_COLUMN.size_group}
-       END`
-    : LEVEL_TO_COLUMN[level];
+  const groupCol = LEVEL_TO_COLUMN[level];
 
   const result = await query(`
     SELECT

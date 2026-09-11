@@ -170,6 +170,9 @@ describe('getInventoryBreakdown', () => {
 
   describe('level=leaf', () => {
     it('returns master_cartons and loose_stock arrays', async () => {
+      // size_group is now the carton's ACTUAL packed range, not the product's
+      // declared size_from/size_to — this product's only packed box is size
+      // '8' (the seedProduct default), so the real assortment is just "8".
       const p1 = await seedProduct({ section: 'TEST_SECTION_PU', category: 'Gents', article_group: 'City', article_name: 'City 01', colour: 'RED', size_from: '6', size_to: '10' });
 
       const mc = await seedMasterCarton('ACTIVE');
@@ -179,15 +182,16 @@ describe('getInventoryBreakdown', () => {
 
       const result = await getInventoryBreakdown({
         level: 'leaf',
-        path:  { section: 'TEST_SECTION_PU', category: 'Gents', group: 'City', article: 'City 01', colour: 'RED', size_group: '6-10' },
+        path:  { section: 'TEST_SECTION_PU', category: 'Gents', group: 'City', article: 'City 01', colour: 'RED', size_group: '8' },
       });
 
       expect('master_cartons' in result).toBe(true);
       const r = result as { master_cartons: { master_carton_id: string; pieces: number }[]; loose_stock: { child_box_id: string; pieces: number }[] };
       expect(r.master_cartons).toHaveLength(1);
       expect(r.master_cartons[0].pieces).toBe(10);
-      expect(r.loose_stock).toHaveLength(1);
-      expect(r.loose_stock[0].pieces).toBe(4);
+      // A real assortment card's leaf never includes loose stock (that's the
+      // separate "Loose" card's job) — only the Loose sentinel leaf does.
+      expect(r.loose_stock).toHaveLength(0);
     });
 
     it('excludes child boxes in DISPATCHED cartons from master_cartons', async () => {
@@ -199,7 +203,7 @@ describe('getInventoryBreakdown', () => {
 
       const result = await getInventoryBreakdown({
         level: 'leaf',
-        path:  { section: 'TEST_SECTION_PU', category: 'Gents', group: 'City', article: 'City 01', colour: 'RED', size_group: '6-10' },
+        path:  { section: 'TEST_SECTION_PU', category: 'Gents', group: 'City', article: 'City 01', colour: 'RED', size_group: '8' },
       });
 
       const r = result as { master_cartons: unknown[]; loose_stock: unknown[] };
@@ -208,13 +212,53 @@ describe('getInventoryBreakdown', () => {
     });
   });
 
-  describe('level=size_group — "Loose" bucket (warehouse channel)', () => {
-    it('buckets not-in-a-carton boxes into their own "Loose" card; packed boxes keep their real range', async () => {
-      const p1 = await seedProduct({ section: 'TEST_SECTION_PU', category: 'Gents', article_group: 'City', article_name: 'City 01', colour: 'RED', size_from: '6', size_to: '10' });
-      const mc = await seedMasterCarton('ACTIVE');
-      const cbPacked = await seedChildBox(p1, 'PACKED', 10);
-      await seedChildBox(p1, 'FREE', 4);
-      await packChildBox(cbPacked, mc);
+  describe('level=size_group — carton assortments (warehouse channel)', () => {
+    // Client ask: show how many cartons hold EXACTLY a given real packed size
+    // range (e.g. 6-7 vs 6-8 vs 6-10 vs 7-9, counted separately), derived from
+    // what's actually packed together — NOT the product's declared
+    // size_from/size_to. A range nothing is actually packed as (e.g. "6-9")
+    // must never appear as a card.
+    async function seedAssortmentScenario() {
+      const base = { section: 'TEST_SECTION_PU', category: 'Gents', article_group: 'City', article_name: 'City 01', colour: 'RED', size_from: '6', size_to: '10' };
+      const p6  = await seedProduct({ ...base, size: '6' });
+      const p7  = await seedProduct({ ...base, size: '7' });
+      const p8  = await seedProduct({ ...base, size: '8' });
+      const p9  = await seedProduct({ ...base, size: '9' });
+      const p10 = await seedProduct({ ...base, size: '10' });
+
+      // Carton A: sizes 6,7 -> assortment "6-7"
+      const mcA = await seedMasterCarton('ACTIVE');
+      await packChildBox(await seedChildBox(p6, 'PACKED', 1), mcA);
+      await packChildBox(await seedChildBox(p7, 'PACKED', 1), mcA);
+
+      // Carton B: sizes 6,7,8 -> assortment "6-8"
+      const mcB = await seedMasterCarton('ACTIVE');
+      await packChildBox(await seedChildBox(p6, 'PACKED', 1), mcB);
+      await packChildBox(await seedChildBox(p7, 'PACKED', 1), mcB);
+      await packChildBox(await seedChildBox(p8, 'PACKED', 1), mcB);
+
+      // Carton C: sizes 6,7,8,9,10 -> assortment "6-10"
+      const mcC = await seedMasterCarton('ACTIVE');
+      await packChildBox(await seedChildBox(p6, 'PACKED', 1), mcC);
+      await packChildBox(await seedChildBox(p7, 'PACKED', 1), mcC);
+      await packChildBox(await seedChildBox(p8, 'PACKED', 1), mcC);
+      await packChildBox(await seedChildBox(p9, 'PACKED', 1), mcC);
+      await packChildBox(await seedChildBox(p10, 'PACKED', 1), mcC);
+
+      // Carton D: sizes 7,8,9 -> assortment "7-9"
+      const mcD = await seedMasterCarton('ACTIVE');
+      await packChildBox(await seedChildBox(p7, 'PACKED', 1), mcD);
+      await packChildBox(await seedChildBox(p8, 'PACKED', 1), mcD);
+      await packChildBox(await seedChildBox(p9, 'PACKED', 1), mcD);
+
+      // One loose box, for the separate "Loose" card.
+      await seedChildBox(p8, 'FREE', 4);
+
+      return { mcA, mcB, mcC, mcD };
+    }
+
+    it('shows each real assortment as its own card, counted separately; a range nothing is packed as never appears', async () => {
+      await seedAssortmentScenario();
 
       const result = await getInventoryBreakdown({
         level: 'size_group',
@@ -222,21 +266,37 @@ describe('getInventoryBreakdown', () => {
       });
       const items = (result as { items: BreakdownItem[] }).items;
 
-      const realGroup = items.find(i => i.value === '6-10');
-      expect(realGroup).toBeDefined();
-      expect(realGroup!.pieces).toBe(10);
+      const byValue = Object.fromEntries(items.map(i => [i.value, i]));
+      expect(byValue['6-7']).toMatchObject({ master_carton_count: 1, child_box_count: 2, pieces: 2 });
+      expect(byValue['6-8']).toMatchObject({ master_carton_count: 1, child_box_count: 3, pieces: 3 });
+      expect(byValue['6-10']).toMatchObject({ master_carton_count: 1, child_box_count: 5, pieces: 5 });
+      expect(byValue['7-9']).toMatchObject({ master_carton_count: 1, child_box_count: 3, pieces: 3 });
+      // No carton is packed 6-9 — must not appear as a card at all.
+      expect(byValue['6-9']).toBeUndefined();
 
-      const loose = items.find(i => i.value === 'Loose');
+      const loose = byValue['Loose'];
       expect(loose).toBeDefined();
-      expect(loose!.pieces).toBe(4);
+      expect(loose.pieces).toBe(4);
+      expect(loose.master_carton_count).toBe(0);
+    });
+
+    it('drilling into a real assortment card at leaf shows only its exact-match cartons', async () => {
+      const { mcB } = await seedAssortmentScenario();
+
+      const result = await getInventoryBreakdown({
+        level: 'leaf',
+        path:  { section: 'TEST_SECTION_PU', category: 'Gents', group: 'City', article: 'City 01', colour: 'RED', size_group: '6-8' },
+      });
+      const r = result as { master_cartons: { master_carton_id: string; pieces: number; size_breakdown: { size: string }[] }[]; loose_stock: unknown[] };
+      expect(r.master_cartons).toHaveLength(1);
+      expect(r.master_cartons[0].master_carton_id).toBe(mcB);
+      expect(r.master_cartons[0].pieces).toBe(3);
+      expect(r.master_cartons[0].size_breakdown.map(sb => sb.size).sort()).toEqual(['6', '7', '8']);
+      expect(r.loose_stock).toHaveLength(0);
     });
 
     it('drilling into the "Loose" card at leaf shows only loose boxes, no cartons', async () => {
-      const p1 = await seedProduct({ section: 'TEST_SECTION_PU', category: 'Gents', article_group: 'City', article_name: 'City 01', colour: 'RED', size_from: '6', size_to: '10' });
-      const mc = await seedMasterCarton('ACTIVE');
-      const cbPacked = await seedChildBox(p1, 'PACKED', 10);
-      await seedChildBox(p1, 'FREE', 4);
-      await packChildBox(cbPacked, mc);
+      await seedAssortmentScenario();
 
       const result = await getInventoryBreakdown({
         level: 'leaf',
