@@ -1412,8 +1412,12 @@ export async function getInventoryBreakdown(input: {
     || (path.colour !== undefined && path.colour !== '');
 
   if (legacyApplicableLevels.includes(level) && !pathHasArticleOrColour) {
-    // Build legacy WHERE conditions using only legacy-applicable path keys
-    const legacyConds: string[] = ['mc.is_legacy = true'];
+    // Build legacy WHERE conditions using only legacy-applicable path keys.
+    // Exclude DISPATCHED cartons — mirrors the non-legacy query above, which
+    // already excludes shipped stock from "in warehouse" totals. Without
+    // this, a legacy carton that has since been dispatched stays counted
+    // as on-hand inventory forever.
+    const legacyConds: string[] = ['mc.is_legacy = true', "mc.status != 'DISPATCHED'"];
     const legacyVals: unknown[] = [];
     let legacyParamIdx = 1;
 
@@ -1445,10 +1449,24 @@ export async function getInventoryBreakdown(input: {
       GROUP BY ${legacyGroupCol}
     `, legacyVals);
 
-    // Build map: value → legacy_carton_count
-    const legacyMap = new Map<string, number>();
+    // Build map: normalized (trimmed, uppercased) value → display value +
+    // legacy_carton_count. Legacy stock was uploaded with inconsistent
+    // casing vs. the product catalog (e.g. "DUKE" vs "Duke") — matching
+    // case-sensitively split the same real article into two uncombined
+    // cards, silently hiding legacy stock from anyone reading just the
+    // product-catalog card. Normalize the match key so they merge; keep
+    // each row's own casing only for a legacy-only (no product row) card.
+    const normalizeKey = (v: string) => v.trim().toUpperCase();
+    const legacyMap = new Map<string, { display: string; carton_count: number }>();
     for (const row of legacyResult.rows) {
-      legacyMap.set(String(row.value ?? ''), parseInt(row.carton_count, 10));
+      const display = String(row.value ?? '');
+      const key = normalizeKey(display);
+      const existing = legacyMap.get(key);
+      if (existing) {
+        existing.carton_count += parseInt(row.carton_count, 10);
+      } else {
+        legacyMap.set(key, { display, carton_count: parseInt(row.carton_count, 10) });
+      }
     }
 
     // At group level, also fetch per size_group splits
@@ -1461,41 +1479,49 @@ export async function getInventoryBreakdown(input: {
         GROUP BY mc.article_group, mc.size_group
       `, legacyVals);
 
-      legacySizeGroupMap = new Map<string, { size_group: string; carton_count: number }[]>();
+      const sizeGroupTotals = new Map<string, Map<string, number>>();
       for (const row of sgResult.rows) {
-        const grp = String(row.grp ?? '');
-        if (!legacySizeGroupMap.has(grp)) legacySizeGroupMap.set(grp, []);
-        legacySizeGroupMap.get(grp)!.push({
-          size_group: String(row.size_group ?? ''),
-          carton_count: parseInt(row.carton_count, 10),
-        });
+        const key = normalizeKey(String(row.grp ?? ''));
+        const sizeGroup = String(row.size_group ?? '');
+        if (!sizeGroupTotals.has(key)) sizeGroupTotals.set(key, new Map());
+        const inner = sizeGroupTotals.get(key)!;
+        inner.set(sizeGroup, (inner.get(sizeGroup) ?? 0) + parseInt(row.carton_count, 10));
+      }
+      legacySizeGroupMap = new Map<string, { size_group: string; carton_count: number }[]>();
+      for (const [key, inner] of sizeGroupTotals) {
+        legacySizeGroupMap.set(
+          key,
+          Array.from(inner, ([size_group, carton_count]) => ({ size_group, carton_count }))
+        );
       }
     }
 
     // Attach legacy counts to matching product rows
-    const seenValues = new Set<string>();
+    const seenKeys = new Set<string>();
     for (const item of items) {
-      seenValues.add(item.value);
-      const legacyCount = legacyMap.get(item.value) ?? 0;
+      const key = normalizeKey(item.value);
+      seenKeys.add(key);
+      const legacyEntry = legacyMap.get(key);
+      const legacyCount = legacyEntry?.carton_count ?? 0;
       item.legacy_carton_count = legacyCount;
       if (level === 'group' && legacySizeGroupMap && legacyCount > 0) {
-        item.legacy_size_groups = legacySizeGroupMap.get(item.value) ?? [];
+        item.legacy_size_groups = legacySizeGroupMap.get(key) ?? [];
       }
     }
 
     // Append synthetic items for legacy-only values (no product row at this level)
-    for (const [value, count] of legacyMap) {
-      if (seenValues.has(value)) continue;
+    for (const [key, entry] of legacyMap) {
+      if (seenKeys.has(key)) continue;
       const synthetic: BreakdownItem = {
-        value,
+        value: entry.display,
         pieces: 0,
         child_box_count: 0,
         master_carton_count: 0,
         loose_child_box_count: 0,
-        legacy_carton_count: count,
+        legacy_carton_count: entry.carton_count,
       };
       if (level === 'group' && legacySizeGroupMap) {
-        synthetic.legacy_size_groups = legacySizeGroupMap.get(value) ?? [];
+        synthetic.legacy_size_groups = legacySizeGroupMap.get(key) ?? [];
       }
       items.push(synthetic);
     }
