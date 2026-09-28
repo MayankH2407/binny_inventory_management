@@ -30,6 +30,13 @@ const statusConfig: Record<string, { variant: 'green' | 'blue' | 'gray' | 'orang
   CREATED: { variant: 'yellow', label: 'Created' },
   IN_TRANSIT: { variant: 'blue', label: 'In Transit' },
   DELIVERED: { variant: 'green', label: 'Delivered' },
+  MISSING: { variant: 'red', label: 'Missing' },
+  COUNTING: { variant: 'blue', label: 'Counting' },
+  SUBMITTED: { variant: 'yellow', label: 'Submitted' },
+  APPROVED: { variant: 'purple', label: 'Approved' },
+  REJECTED: { variant: 'red', label: 'Rejected' },
+  POSTED: { variant: 'green', label: 'Posted' },
+  CANCELLED: { variant: 'gray', label: 'Cancelled' },
 };
 
 export default function StatusBadge({ status, size = 'md', label, variant }: StatusBadgeProps) {

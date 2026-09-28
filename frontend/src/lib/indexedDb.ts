@@ -5,8 +5,13 @@ const STORE_PENDING_SCANS = 'pending_scans';
 export interface PendingScan {
   id: string;
   barcode: string;
-  sessionType: 'trace' | 'pack' | 'dispatch';
+  sessionType: 'trace' | 'pack' | 'dispatch' | 'reconcile';
   scannedAt: string;
+  // Only set for sessionType 'reconcile' — which stock reconciliation
+  // session this scan belongs to, and whether it was flagged as a carton
+  // whose contents don't match its manifest.
+  reconcileSessionId?: string;
+  contentsMismatch?: boolean;
 }
 
 function openDB(): Promise<IDBDatabase> {

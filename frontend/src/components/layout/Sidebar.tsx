@@ -25,6 +25,7 @@ import {
   ShoppingCart,
   ShieldCheck,
   Undo2,
+  ClipboardCheck,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { NAV_ITEMS } from '@/constants';
@@ -51,6 +52,7 @@ const iconMap: Record<string, React.ElementType> = {
   ShoppingCart,
   ShieldCheck,
   Undo2,
+  ClipboardCheck,
 };
 
 interface SidebarProps {

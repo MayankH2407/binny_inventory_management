@@ -53,5 +53,17 @@ export function useScanFeedback() {
     playTone(400, 150);
   }, []);
 
-  return { triggerSuccess, triggerError };
+  // Distinct from success/error: for a scan that's valid but not clean (e.g.
+  // duplicate, out-of-scope, status conflict) — worth a heads-up, not a hard
+  // stop, so counting staff don't pause on every one.
+  const triggerWarning = useCallback(() => {
+    const now = Date.now();
+    if (now - lastFeedbackTime.current < 200) return;
+    lastFeedbackTime.current = now;
+
+    vibrate([80, 40, 80]);
+    playTone(700, 120);
+  }, []);
+
+  return { triggerSuccess, triggerError, triggerWarning };
 }

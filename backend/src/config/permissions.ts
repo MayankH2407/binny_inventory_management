@@ -157,6 +157,16 @@ export const PERMISSION_CATALOG: PermissionModule[] = [
     ],
   },
   {
+    key: 'stock_reconciliation',
+    label: 'Stock Reconciliation',
+    actions: [
+      { key: 'read',    label: 'View',                  stage_aware: false },
+      { key: 'count',   label: 'Open & Count',           stage_aware: false },
+      { key: 'approve', label: 'Approve / Reject',       stage_aware: false },
+      { key: 'post',    label: 'Post Corrections',       stage_aware: false },
+    ],
+  },
+  {
     key: 'reports',
     label: 'Reports',
     actions: [

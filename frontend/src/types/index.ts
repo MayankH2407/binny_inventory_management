@@ -451,6 +451,87 @@ export interface CreateReturnRequest {
   items: Array<{ barcode: string; item_type: 'BOX' | 'CARTON' }>;
 }
 
+// ---------- Stock reconciliation types ----------
+export interface StockReconScope {
+  section?: string;
+  category?: string;
+  article_group?: string;
+}
+
+export interface StockReconSession {
+  id: string;
+  session_code: string;
+  status: 'COUNTING' | 'SUBMITTED' | 'APPROVED' | 'REJECTED' | 'POSTED' | 'CANCELLED';
+  scope: StockReconScope;
+  notes: string | null;
+  snapshot_at: string;
+  recount_of_session_id: string | null;
+  created_by: string;
+  created_by_name?: string;
+  submitted_by?: string | null;
+  submitted_by_name?: string | null;
+  submitted_at?: string | null;
+  approved_by?: string | null;
+  approved_by_name?: string | null;
+  approved_at?: string | null;
+  rejected_by?: string | null;
+  rejected_by_name?: string | null;
+  rejected_at?: string | null;
+  rejection_reason?: string | null;
+  posted_by?: string | null;
+  posted_by_name?: string | null;
+  posted_at?: string | null;
+  summary?: {
+    marked_missing_boxes: number;
+    marked_missing_cartons: number;
+    restored_boxes: number;
+    restored_cartons: number;
+    skipped_moved: number;
+  } | null;
+  expected_count?: number;
+  scanned_count?: number;
+  created_at: string;
+}
+
+export interface StockReconScanResult {
+  client_scan_id: string;
+  scan_type: 'BOX' | 'CARTON' | 'UNKNOWN';
+  result: 'OK' | 'DUPLICATE' | 'NOT_EXPECTED' | 'OUT_OF_SCOPE' | 'STATUS_CONFLICT' | 'UNKNOWN';
+  contents_mismatch: boolean;
+  replayed: boolean;
+  message: string | null;
+}
+
+export interface StockReconProgress {
+  expected_total: number;
+  expected_by_type: { item_type: string; count: number }[];
+  found_total: number;
+  scans_by_result: { result: string; count: number }[];
+}
+
+export interface StockReconVarianceSkuRow {
+  product_id: string;
+  article_name: string;
+  colour: string;
+  size: string;
+  sku: string;
+  mrp: number | null;
+  expected_qty: number;
+  physical_qty: number;
+}
+
+export interface StockReconVariance {
+  sku_summary: StockReconVarianceSkuRow[];
+  missing_boxes: { id: string; barcode: string; article_name: string; colour: string; size: string; sku: string }[];
+  missing_legacy_cartons: { id: string; carton_barcode: string; article_group: string | null; legacy_pairs: number | null }[];
+  found_again: { scan_type: string; child_box_id: string | null; master_carton_id: string | null; box_barcode: string | null; carton_barcode: string | null }[];
+  conflicts: { scan_type: string; box_barcode: string | null; box_status: string | null; carton_barcode: string | null; carton_status: string | null }[];
+  out_of_scope: { raw_payload: string; created_at: string }[];
+  not_expected: { raw_payload: string; created_at: string }[];
+  unknown: { raw_payload: string; created_at: string }[];
+  duplicates: { raw_payload: string; created_at: string }[];
+}
+
 // ---------- Report types ----------
 // Sample report row — one per sample-sourced dispatch (see backend
 // report.service.ts#getSampleReport). Dispatch-based, mirroring the

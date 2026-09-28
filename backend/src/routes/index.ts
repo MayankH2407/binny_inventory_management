@@ -14,6 +14,7 @@ import sampleRoutes from './sample.routes';
 import ecommerceRoutes from './ecommerce.routes';
 import roleRoutes from './role.routes';
 import permissionRoutes from './permission.routes';
+import stockReconciliationRoutes from './stockReconciliation.routes';
 
 const router = Router();
 
@@ -37,5 +38,6 @@ router.use('/dispatches', dispatchRoutes);
 router.use('/returns', returnRoutes);
 router.use('/reports', reportRoutes);
 router.use('/customers', customerRoutes);
+router.use('/stock-reconciliations', stockReconciliationRoutes);
 
 export default router;

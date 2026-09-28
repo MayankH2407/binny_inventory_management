@@ -6,13 +6,14 @@ const ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 const RANDOM_LENGTH = 6;
 const MAX_ATTEMPTS = 10;
 
-export type BarcodeType = 'CB' | 'MC' | 'SR' | 'EC';
+export type BarcodeType = 'CB' | 'MC' | 'SR' | 'EC' | 'RC';
 
 const TABLE_BY_TYPE: Record<BarcodeType, { table: string; column: string }> = {
   CB: { table: 'child_boxes', column: 'barcode' },
   MC: { table: 'master_cartons', column: 'carton_barcode' },
   SR: { table: 'sample_records', column: 'sample_barcode' },
   EC: { table: 'ecommerce_records', column: 'ecommerce_barcode' },
+  RC: { table: 'stock_reconciliation_sessions', column: 'session_code' },
 };
 
 function generateRandom(length: number): string {

@@ -37,6 +37,10 @@ const roles: RoleDefinition[] = [
       'reports:export',
       'audit:read',
       'settings:manage',
+      'stock_reconciliation:read',
+      'stock_reconciliation:count',
+      'stock_reconciliation:approve',
+      'stock_reconciliation:post',
     ],
   },
   {
@@ -61,6 +65,10 @@ const roles: RoleDefinition[] = [
       'dispatch:read',
       'reports:view_all',
       'reports:export',
+      'stock_reconciliation:read',
+      'stock_reconciliation:count',
+      'stock_reconciliation:approve',
+      'stock_reconciliation:post',
     ],
   },
   {
@@ -75,6 +83,8 @@ const roles: RoleDefinition[] = [
       'packing:pack',
       'packing:unpack',
       'reports:view_own',
+      'stock_reconciliation:read',
+      'stock_reconciliation:count',
     ],
   },
   {
