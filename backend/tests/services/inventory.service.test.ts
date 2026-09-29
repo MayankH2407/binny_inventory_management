@@ -156,7 +156,7 @@ describe('getInventoryBreakdown', () => {
       });
 
       expect('items' in result).toBe(true);
-      const items = (result as { items: { value: string; pieces: number; loose_child_box_count: number }[] }).items;
+      const items = (result as { items: { value: string; pieces: number; loose_child_box_count: number; master_carton_count: number }[] }).items;
       const red = items.find(i => i.value === 'RED');
       expect(red).toBeDefined();
       expect(red!.pieces).toBe(14); // 10 packed + 4 loose
@@ -165,6 +165,22 @@ describe('getInventoryBreakdown', () => {
       const blue = items.find(i => i.value === 'BLUE');
       expect(blue).toBeDefined();
       expect(blue!.pieces).toBe(8);
+
+      // `mc` is a single assortment carton holding BOTH colours — RED and
+      // BLUE each correctly report it as their own 1 carton (that part was
+      // never buggy). The bug this guards against is summing those two rows'
+      // counts (1 + 1 = 2) to represent "how many cartons for City 01" — the
+      // true answer is 1 physical carton. scope_totals must report that 1
+      // directly (its own COUNT(DISTINCT mc.id) across both colours), not
+      // require the caller to add up per-colour rows.
+      expect(red!.master_carton_count).toBe(1);
+      expect(blue!.master_carton_count).toBe(1);
+      const namingSum = red!.master_carton_count + blue!.master_carton_count;
+      expect(namingSum).toBe(2); // what naive summation across items would (wrongly) show
+      const scopeTotals = (result as { scope_totals?: { master_carton_count: number; pieces: number } }).scope_totals;
+      expect(scopeTotals).toBeDefined();
+      expect(scopeTotals!.master_carton_count).toBe(1); // the true, correct total
+      expect(scopeTotals!.pieces).toBe(22); // 14 + 8, pieces have no cross-colour overlap
     });
   });
 

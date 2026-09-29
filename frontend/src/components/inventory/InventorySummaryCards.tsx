@@ -27,11 +27,25 @@ interface LeafData {
   loose_stock: Array<{ pieces: number }>;
 }
 
+interface ScopeTotals {
+  pieces: number;
+  child_box_count: number;
+  master_carton_count: number;
+  loose_child_box_count: number;
+}
+
 interface InventorySummaryCardsProps {
   /** 0 = root, 1-5 = mid-level, 6 = leaf */
   depth: number;
   /** Non-leaf items (depths 1-5) */
   items?: InventoryBreakdownItem[];
+  /**
+   * Backend-computed totals across the whole current scope (own
+   * COUNT(DISTINCT mc.id), not a sum of each item's own count) — a carton
+   * spanning multiple colours/sizes of the same article is only counted
+   * once here. Prefer this over summing `items` for "Total Cartons".
+   */
+  scopeTotals?: ScopeTotals;
   /** Leaf data (depth 6) */
   leafData?: LeafData;
   /** Which stock channel (default: warehouse inventory) */
@@ -140,11 +154,15 @@ function RootSummaryCards() {
 
 // ─── Mid-level (depths 1-5): computed from items ──────────────────────────────
 
-function MidSummaryCards({ items }: { items: InventoryBreakdownItem[] }) {
-  const totalPieces = items.reduce((s, it) => s + it.pieces, 0);
-  const totalBoxes = items.reduce((s, it) => s + it.child_box_count, 0);
-  const totalCartons = items.reduce((s, it) => s + it.master_carton_count, 0);
-  const totalLoose = items.reduce((s, it) => s + it.loose_child_box_count, 0);
+function MidSummaryCards({ items, scopeTotals }: { items: InventoryBreakdownItem[]; scopeTotals?: ScopeTotals }) {
+  // Prefer the backend's own scoped totals — summing each item's own count
+  // would double-count any carton spanning multiple colours/sizes of the
+  // same article (see ScopeTotals doc comment). Fall back to summing only if
+  // the backend response predates scope_totals.
+  const totalPieces = scopeTotals?.pieces ?? items.reduce((s, it) => s + it.pieces, 0);
+  const totalBoxes = scopeTotals?.child_box_count ?? items.reduce((s, it) => s + it.child_box_count, 0);
+  const totalCartons = scopeTotals?.master_carton_count ?? items.reduce((s, it) => s + it.master_carton_count, 0);
+  const totalLoose = scopeTotals?.loose_child_box_count ?? items.reduce((s, it) => s + it.loose_child_box_count, 0);
 
   const cards: StatCardProps[] = [
     {
@@ -283,6 +301,7 @@ function ChannelSummaryCards({
 export default function InventorySummaryCards({
   depth,
   items,
+  scopeTotals,
   leafData,
   config = DEFAULT_CHANNEL_CONFIG,
 }: InventorySummaryCardsProps) {
@@ -306,7 +325,7 @@ export default function InventorySummaryCards({
     return <LeafSummaryCards leafData={leafData} />;
   }
   if (items) {
-    return <MidSummaryCards items={items} />;
+    return <MidSummaryCards items={items} scopeTotals={scopeTotals} />;
   }
   return null;
 }

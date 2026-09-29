@@ -20,8 +20,22 @@ import { AlertCircle } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+// Aggregate across the whole current scope, computed backend-side with its
+// own COUNT(DISTINCT mc.id) — NOT a sum of each item's own master_carton_count.
+// A single physical carton legitimately holds more than one colour (or size)
+// of the same article (an assortment carton), so it correctly appears in more
+// than one item's own count; summing those already-correct per-item counts
+// here would double-count that carton once per colour/size it spans.
+export interface BreakdownScopeTotals {
+  pieces: number;
+  child_box_count: number;
+  master_carton_count: number;
+  loose_child_box_count: number;
+}
+
 export interface BreakdownResponse {
   items: InventoryBreakdownItem[];
+  scope_totals?: BreakdownScopeTotals;
 }
 
 // ─── Level mapping ────────────────────────────────────────────────────────────
@@ -137,6 +151,7 @@ export default function DrillDownView({
       <InventorySummaryCards
         depth={depth}
         items={data?.items}
+        scopeTotals={data?.scope_totals}
         config={config}
       />
 
@@ -154,18 +169,25 @@ export default function DrillDownView({
           {data.items.length} item{data.items.length !== 1 ? 's' : ''} &bull;{' '}
           {config.channel === 'warehouse' ? (
             <>
-              {data.items
-                .reduce((sum, it) => sum + it.master_carton_count, 0)
-                .toLocaleString('en-IN')}{' '}
-              carton
-              {data.items.reduce((sum, it) => sum + it.master_carton_count, 0) !== 1
-                ? 's'
-                : ''}{' '}
-              &bull;{' '}
-              {data.items
-                .reduce((sum, it) => sum + it.pieces, 0)
-                .toLocaleString('en-IN')}{' '}
-              pairs total
+              {(() => {
+                // Prefer the backend's own scoped distinct-carton count —
+                // summing each item's master_carton_count here would
+                // double-count any carton spanning multiple colours/sizes of
+                // the same article. Fall back to the sum only if the backend
+                // response is from before scope_totals existed.
+                const cartonTotal =
+                  data.scope_totals?.master_carton_count ??
+                  data.items.reduce((sum, it) => sum + it.master_carton_count, 0);
+                const piecesTotal =
+                  data.scope_totals?.pieces ??
+                  data.items.reduce((sum, it) => sum + it.pieces, 0);
+                return (
+                  <>
+                    {cartonTotal.toLocaleString('en-IN')} carton{cartonTotal !== 1 ? 's' : ''} &bull;{' '}
+                    {piecesTotal.toLocaleString('en-IN')} pairs total
+                  </>
+                );
+              })()}
             </>
           ) : (
             <>

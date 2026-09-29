@@ -833,6 +833,20 @@ export interface BreakdownItem {
   legacy_size_groups?: { size_group: string; carton_count: number }[]; // only populated at level 'group'
 }
 
+// Aggregate across the WHOLE current scope (i.e. every row `items` covers
+// combined), computed with its own COUNT(DISTINCT mc.id) — NOT a sum of each
+// item's own master_carton_count. A single physical carton legitimately holds
+// more than one colour (or size) of the same article — an assortment carton —
+// so it correctly appears in more than one item's own distinct-carton count.
+// Summing those already-correct per-item counts client-side double-counts
+// that carton once per colour it spans. This field is the honest total.
+export interface BreakdownScopeTotals {
+  pieces: number;
+  child_box_count: number;
+  master_carton_count: number;
+  loose_child_box_count: number;
+}
+
 export interface SizeBreakdownEntry {
   size: string;
   pairs: number;
@@ -858,7 +872,7 @@ export interface BreakdownLeafLooseStock {
 }
 
 export type BreakdownResult =
-  | { items: BreakdownItem[] }
+  | { items: BreakdownItem[]; scope_totals?: BreakdownScopeTotals }
   | { master_cartons: BreakdownLeafMasterCarton[]; loose_stock: BreakdownLeafLooseStock[] };
 
 /**
@@ -1394,6 +1408,89 @@ export async function getInventoryBreakdown(input: {
     ORDER BY pieces DESC NULLS LAST
   `, values);
 
+  // ── Scope totals: same query, same WHERE, but NO GROUP BY — one row
+  // aggregating the whole current scope with its own COUNT(DISTINCT mc.id),
+  // so a carton spanning multiple values of ${groupCol} (e.g. two colours of
+  // the same article) is correctly counted once here, unlike summing the
+  // per-row master_carton_count above. See BreakdownScopeTotals.
+  const scopeTotalsResult = await query(`
+    SELECT
+      COALESCE(SUM(cb.quantity) FILTER (
+        WHERE (
+          (cb.status = 'PACKED'
+           AND EXISTS (
+             SELECT 1 FROM carton_child_mapping ccm2
+             JOIN master_cartons mc2 ON mc2.id = ccm2.master_carton_id
+             WHERE ccm2.child_box_id = cb.id
+               AND ccm2.is_active = true
+               AND mc2.status != 'DISPATCHED'
+               AND NOT EXISTS (SELECT 1 FROM sample_carton_mapping scm2 WHERE scm2.master_carton_id = mc2.id AND scm2.is_active = true AND scm2.dispatch_record_id IS NULL)
+               AND NOT EXISTS (SELECT 1 FROM ecommerce_carton_mapping ecm2 WHERE ecm2.master_carton_id = mc2.id AND ecm2.is_active = true AND ecm2.dispatch_record_id IS NULL)
+           )
+          )
+          OR
+          (cb.status = 'FREE'
+           AND NOT EXISTS (
+             SELECT 1 FROM carton_child_mapping ccm3
+             WHERE ccm3.child_box_id = cb.id AND ccm3.is_active = true
+           )
+          )
+        )
+      ), 0)::int AS pieces,
+
+      COUNT(cb.id) FILTER (
+        WHERE (
+          (cb.status = 'PACKED'
+           AND EXISTS (
+             SELECT 1 FROM carton_child_mapping ccm2
+             JOIN master_cartons mc2 ON mc2.id = ccm2.master_carton_id
+             WHERE ccm2.child_box_id = cb.id
+               AND ccm2.is_active = true
+               AND mc2.status != 'DISPATCHED'
+               AND NOT EXISTS (SELECT 1 FROM sample_carton_mapping scm2 WHERE scm2.master_carton_id = mc2.id AND scm2.is_active = true AND scm2.dispatch_record_id IS NULL)
+               AND NOT EXISTS (SELECT 1 FROM ecommerce_carton_mapping ecm2 WHERE ecm2.master_carton_id = mc2.id AND ecm2.is_active = true AND ecm2.dispatch_record_id IS NULL)
+           )
+          )
+          OR
+          (cb.status = 'FREE'
+           AND NOT EXISTS (
+             SELECT 1 FROM carton_child_mapping ccm3
+             WHERE ccm3.child_box_id = cb.id AND ccm3.is_active = true
+           )
+          )
+        )
+      )::int AS child_box_count,
+
+      COUNT(DISTINCT CASE
+        WHEN cb.status = 'PACKED' THEN mc.id
+        ELSE NULL
+      END)::int AS master_carton_count,
+
+      COUNT(cb.id) FILTER (
+        WHERE cb.status = 'FREE'
+          AND NOT EXISTS (
+            SELECT 1 FROM carton_child_mapping ccm3
+            WHERE ccm3.child_box_id = cb.id AND ccm3.is_active = true
+          )
+      )::int AS loose_child_box_count
+
+    FROM products p
+    LEFT JOIN child_boxes cb ON cb.product_id = p.id
+    LEFT JOIN carton_child_mapping ccm ON ccm.child_box_id = cb.id AND ccm.is_active = true
+    LEFT JOIN master_cartons mc ON mc.id = ccm.master_carton_id AND mc.status != 'DISPATCHED'
+      AND NOT EXISTS (SELECT 1 FROM sample_carton_mapping scm WHERE scm.master_carton_id = mc.id AND scm.is_active = true AND scm.dispatch_record_id IS NULL)
+      AND NOT EXISTS (SELECT 1 FROM ecommerce_carton_mapping ecm WHERE ecm.master_carton_id = mc.id AND ecm.is_active = true AND ecm.dispatch_record_id IS NULL)
+    WHERE ${whereClause}
+  `, values);
+
+  const scopeTotalsRow = scopeTotalsResult.rows[0];
+  const scope_totals: BreakdownScopeTotals = {
+    pieces:                parseInt(scopeTotalsRow.pieces, 10),
+    child_box_count:       parseInt(scopeTotalsRow.child_box_count, 10),
+    master_carton_count:   parseInt(scopeTotalsRow.master_carton_count, 10),
+    loose_child_box_count: parseInt(scopeTotalsRow.loose_child_box_count, 10),
+  };
+
   // ── Map product rows (legacy_carton_count starts at 0 for all) ───────────────
   const items: BreakdownItem[] = result.rows.map(r => ({
     value:                 String(r.value ?? ''),
@@ -1527,5 +1624,5 @@ export async function getInventoryBreakdown(input: {
     }
   }
 
-  return { items };
+  return { items, scope_totals };
 }
