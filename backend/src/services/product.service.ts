@@ -29,6 +29,23 @@ function toTitleCase(value: string): string {
 }
 
 /**
+ * Resolve a section to the canonical spelling in the product_sections master
+ * (case-insensitive), so acronym sections ("PU", "EVA", "PVC") keep their
+ * casing. toTitleCase alone turned "PU" into "Pu", which then matched neither
+ * the Products section tabs/edit dropdown nor the inventory grouping. Unknown
+ * sections fall back to Title Case.
+ */
+async function loadSectionCanon(): Promise<Map<string, string>> {
+  const r = await query('SELECT name FROM product_sections', []);
+  return new Map(r.rows.map((x: { name: string }) => [x.name.trim().toLowerCase(), x.name]));
+}
+
+function canonicalSection(value: string, canon: Map<string, string>): string {
+  const t = value.trim().replace(/\s+/g, ' ');
+  return canon.get(t.toLowerCase()) ?? toTitleCase(t);
+}
+
+/**
  * Uppercase a name field: trim + collapse whitespace + UPPERCASE.
  * `article_name` is stored UPPERCASE per client requirement (2026-07-03) — this
  * replaced the earlier Title-Case treatment, whose "going-forward-only" rollout
@@ -58,7 +75,7 @@ export async function createProduct(
 ): Promise<Product> {
   input.article_name = toUpperName(stripHtml(input.article_name) ?? input.article_name);
   input.colour = toUpperName(input.colour);
-  input.section = toTitleCase(input.section);
+  input.section = canonicalSection(input.section, await loadSectionCanon());
   input.article_code = input.article_code.trim().toUpperCase();
   if (input.article_group) input.article_group = toTitleCase(input.article_group);
   if (input.description) input.description = stripHtml(input.description);
@@ -247,6 +264,7 @@ export async function updateProduct(
     }
   }
 
+  const sectionCanon = await loadSectionCanon();
   const fields: string[] = [];
   const values: unknown[] = [];
   let paramIndex = 1;
@@ -264,7 +282,8 @@ export async function updateProduct(
         if (field === 'article_name') values.push(toUpperName(stripHtml(raw) ?? raw));
         else if (field === 'description') values.push(stripHtml(raw));
         else if (field === 'colour') values.push(toUpperName(raw));
-        else if (field === 'section' || field === 'article_group') values.push(toTitleCase(raw));
+        else if (field === 'section') values.push(canonicalSection(raw, sectionCanon));
+        else if (field === 'article_group') values.push(toTitleCase(raw));
         else if (field === 'article_code') values.push(raw.trim().toUpperCase());
         else values.push(raw);
       } else {
@@ -388,7 +407,7 @@ export async function bulkCreateProductsBySizeRange(
   const articleName = toUpperName(stripHtml(input.article_name) ?? input.article_name);
   const description = input.description ? stripHtml(input.description) : input.description;
   const colour = toUpperName(input.colour);
-  const section = toTitleCase(input.section);
+  const section = canonicalSection(input.section, await loadSectionCanon());
   const articleCode = input.article_code.trim().toUpperCase();
   const articleGroup = input.article_group ? toTitleCase(input.article_group) : input.article_group;
 
@@ -523,6 +542,7 @@ export async function bulkCreateProducts(
   }
 
   const errors: BulkRowResult[] = [];
+  const sectionCanon = await loadSectionCanon();
 
   // ── Pass 1: validate + clean every row in memory (no DB round-trips) ───────
   interface ValidRow {
@@ -593,7 +613,7 @@ export async function bulkCreateProducts(
     // Name fields stored in uniform Title Case; codes uppercased.
     const cleanName = toUpperName(stripHtml(row.article_name.trim()) ?? row.article_name.trim());
     const cleanColour = toUpperName(row.colour.trim());
-    const cleanSection = toTitleCase(row.section.trim());
+    const cleanSection = canonicalSection(row.section, sectionCanon);
     valid.push({
       rowNum,
       cleanName, cleanColour, cleanSection,
