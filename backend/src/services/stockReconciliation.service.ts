@@ -6,6 +6,7 @@ import {
   MASTER_CARTON_STATUS,
   TRANSACTION_TYPES,
   STOCK_RECON_STATUS,
+  USER_ROLES,
 } from '../config/constants';
 import { NotFoundError, BadRequestError, ForbiddenError } from '../utils/errors';
 import { createAuditLog } from './auditLog.service';
@@ -20,11 +21,42 @@ import { logger } from '../utils/logger';
 
 type ScopeFilter = { section?: string; category?: string; article_group?: string };
 
+// Main-warehouse stock only. E-commerce and sample stock are separate
+// inventories (like a warehouse transfer) and are NOT part of a verification
+// session — ECOMMERCE/SAMPLE boxes and cartons allocated intact to a
+// sample/e-commerce record are excluded from the snapshot and, if scanned,
+// reported as out of scope rather than counted or flagged missing.
 const EXPECTED_BOX_STATUSES = [
   CHILD_BOX_STATUS.FREE,
   CHILD_BOX_STATUS.PACKED,
-  CHILD_BOX_STATUS.ECOMMERCE,
 ];
+
+const CHANNEL_STATUSES: string[] = [CHILD_BOX_STATUS.ECOMMERCE, CHILD_BOX_STATUS.SAMPLE];
+
+/** SQL: carton `col` is currently allocated (unshipped) to a sample or e-commerce record. */
+function cartonAllocatedSql(col: string): string {
+  return `(EXISTS (SELECT 1 FROM sample_carton_mapping scm WHERE scm.master_carton_id = ${col} AND scm.is_active = true AND scm.dispatch_record_id IS NULL)
+     OR EXISTS (SELECT 1 FROM ecommerce_carton_mapping ecm WHERE ecm.master_carton_id = ${col} AND ecm.is_active = true AND ecm.dispatch_record_id IS NULL))`;
+}
+
+async function isCartonAllocatedToChannel(client: PoolClient, cartonId: string): Promise<boolean> {
+  const r = await client.query(`SELECT ${cartonAllocatedSql('$1::uuid')} AS allocated`, [cartonId]);
+  return !!r.rows[0]?.allocated;
+}
+
+/**
+ * SQL: scan `sc` credits expected BOX row `e` — either the box itself was
+ * scanned, or a carton scan (not flagged mismatched) covers it. Carton
+ * coverage uses the box's carton at snapshot time OR its CURRENT active
+ * carton, so a carton packed/repacked mid-session still credits its boxes.
+ */
+function creditsExpectedBox(sc: string, e: string): string {
+  return `(${sc}.child_box_id = ${e}.child_box_id
+    OR (${sc}.master_carton_id IS NOT NULL AND ${sc}.contents_mismatch = false AND (
+      ${e}.master_carton_id = ${sc}.master_carton_id
+      OR EXISTS (SELECT 1 FROM carton_child_mapping m WHERE m.child_box_id = ${e}.child_box_id AND m.is_active = true AND m.master_carton_id = ${sc}.master_carton_id)
+    )))`;
+}
 
 // ---------------------------------------------------------------------------
 // Scope matching — same trim/upper text comparison used for legacy cartons
@@ -103,7 +135,9 @@ async function snapshotExpected(client: PoolClient, sessionId: string, scope: Sc
      FROM child_boxes cb
      JOIN products p ON p.id = cb.product_id
      LEFT JOIN carton_child_mapping ccm ON ccm.child_box_id = cb.id AND ccm.is_active = true
-     WHERE cb.status IN ('FREE', 'PACKED', 'ECOMMERCE') AND ${boxScope.sql}`,
+     WHERE cb.status IN ('FREE', 'PACKED')
+       AND (ccm.master_carton_id IS NULL OR NOT ${cartonAllocatedSql('ccm.master_carton_id')})
+       AND ${boxScope.sql}`,
     boxValues
   );
 
@@ -114,7 +148,9 @@ async function snapshotExpected(client: PoolClient, sessionId: string, scope: Sc
     `INSERT INTO stock_reconciliation_expected (session_id, item_type, master_carton_id, status_at_snapshot)
      SELECT $1, 'LEGACY_CARTON', mc.id, mc.status
      FROM master_cartons mc
-     WHERE mc.is_legacy = true AND mc.status NOT IN ('DISPATCHED', 'MISSING') AND ${legacyScope.sql}`,
+     WHERE mc.is_legacy = true AND mc.status NOT IN ('DISPATCHED', 'MISSING')
+       AND NOT ${cartonAllocatedSql('mc.id')}
+       AND ${legacyScope.sql}`,
     legacyValues
   );
 }
@@ -203,9 +239,8 @@ export async function getProgress(sessionId: string): Promise<Record<string, unk
      FROM stock_reconciliation_expected e
      WHERE e.session_id = $1 AND (
        EXISTS (SELECT 1 FROM stock_reconciliation_scans sc WHERE sc.session_id = $1 AND sc.result = 'OK' AND (
-         (e.item_type = 'BOX' AND sc.child_box_id = e.child_box_id)
+         (e.item_type = 'BOX' AND ${creditsExpectedBox('sc', 'e')})
          OR (e.item_type = 'LEGACY_CARTON' AND sc.master_carton_id = e.master_carton_id)
-         OR (e.item_type = 'BOX' AND e.master_carton_id IS NOT NULL AND sc.master_carton_id = e.master_carton_id AND sc.contents_mismatch = false)
        ))
      )`,
     [sessionId]
@@ -376,6 +411,19 @@ async function classifyBoxScan(
   );
   const box = boxResult.rows[0];
 
+  // E-commerce / sample stock is a separate inventory — not verified here.
+  const boxCarton = await client.query(
+    `SELECT master_carton_id FROM carton_child_mapping WHERE child_box_id = $1 AND is_active = true LIMIT 1`,
+    [childBoxId]
+  );
+  const boxCartonId: string | undefined = boxCarton.rows[0]?.master_carton_id;
+  if (CHANNEL_STATUSES.includes(box.status) || (boxCartonId && await isCartonAllocatedToChannel(client, boxCartonId))) {
+    return {
+      scan_type: 'BOX', child_box_id: childBoxId, master_carton_id: null, result: 'OUT_OF_SCOPE',
+      message: 'Belongs to E-commerce / Sample inventory — verified separately',
+    };
+  }
+
   const alreadyScanned = await client.query(
     `SELECT 1 FROM stock_reconciliation_scans WHERE session_id = $1 AND child_box_id = $2 AND result = 'OK'`,
     [sessionId, childBoxId]
@@ -430,6 +478,13 @@ async function classifyCartonScan(
   );
   const carton = cartonResult.rows[0];
 
+  if (await isCartonAllocatedToChannel(client, cartonId)) {
+    return {
+      scan_type: 'CARTON', child_box_id: null, master_carton_id: cartonId, result: 'OUT_OF_SCOPE',
+      message: 'Allocated to E-commerce / Sample inventory — verified separately',
+    };
+  }
+
   const alreadyScanned = await client.query(
     `SELECT 1 FROM stock_reconciliation_scans WHERE session_id = $1 AND master_carton_id = $2 AND result = 'OK'`,
     [sessionId, cartonId]
@@ -469,6 +524,27 @@ async function classifyCartonScan(
     return {
       scan_type: 'CARTON', child_box_id: null, master_carton_id: cartonId, result: 'STATUS_CONFLICT',
       message: `Carton is currently ${carton.status} in the system`,
+    };
+  }
+
+  // Carton wasn't in the snapshot as a carton, but may now hold boxes that ARE
+  // expected in this session (e.g. the loose boxes were packed into it after
+  // the session opened). Scanning it then credits those boxes — it is not an
+  // unexpected carton.
+  const coveredResult = await client.query(
+    `SELECT COUNT(*)::int AS count
+     FROM stock_reconciliation_expected e
+     JOIN carton_child_mapping m ON m.child_box_id = e.child_box_id AND m.is_active = true AND m.master_carton_id = $2
+     WHERE e.session_id = $1 AND e.item_type = 'BOX'`,
+    [sessionId, cartonId]
+  );
+  const coveredCount = coveredResult.rows[0]?.count || 0;
+  if (coveredCount > 0) {
+    return {
+      scan_type: 'CARTON', child_box_id: null, master_carton_id: cartonId, result: 'OK',
+      message: contentsMismatch
+        ? 'Contents flagged as mismatched — scan boxes individually'
+        : `Credits ${coveredCount} expected box(es) packed into this carton since the session opened`,
     };
   }
 
@@ -531,10 +607,7 @@ export async function getVariance(sessionId: string): Promise<Record<string, unk
      LEFT JOIN LATERAL (
        SELECT EXISTS (
          SELECT 1 FROM stock_reconciliation_scans sc
-         WHERE sc.session_id = e.session_id AND sc.result = 'OK' AND (
-           sc.child_box_id = e.child_box_id
-           OR (e.master_carton_id IS NOT NULL AND sc.master_carton_id = e.master_carton_id AND sc.contents_mismatch = false)
-         )
+         WHERE sc.session_id = e.session_id AND sc.result = 'OK' AND ${creditsExpectedBox('sc', 'e')}
        ) AS is_found
      ) found ON true
      WHERE e.session_id = $1 AND e.item_type = 'BOX'
@@ -550,10 +623,7 @@ export async function getVariance(sessionId: string): Promise<Record<string, unk
      JOIN products p ON p.id = cb.product_id
      WHERE e.session_id = $1 AND e.item_type = 'BOX' AND NOT EXISTS (
        SELECT 1 FROM stock_reconciliation_scans sc
-       WHERE sc.session_id = e.session_id AND sc.result = 'OK' AND (
-         sc.child_box_id = e.child_box_id
-         OR (e.master_carton_id IS NOT NULL AND sc.master_carton_id = e.master_carton_id AND sc.contents_mismatch = false)
-       )
+       WHERE sc.session_id = e.session_id AND sc.result = 'OK' AND ${creditsExpectedBox('sc', 'e')}
      )`,
     [sessionId]
   );
@@ -682,16 +752,25 @@ export async function cancelSession(sessionId: string, userId: string): Promise<
   }
 }
 
+async function isAdminUser(client: PoolClient, userId: string): Promise<boolean> {
+  const r = await client.query(
+    `SELECT r.name FROM users u JOIN roles r ON r.id = u.role_id WHERE u.id = $1`,
+    [userId]
+  );
+  return r.rows[0]?.name === USER_ROLES.ADMIN;
+}
+
 export async function approveSession(sessionId: string, userId: string): Promise<StockReconciliationSession> {
   const client = await getClient();
   try {
     await client.query('BEGIN');
     const session = await lockSessionInStatus(client, sessionId, [STOCK_RECON_STATUS.SUBMITTED]);
 
-    // Separation of duties: the approver must differ from whoever opened or
-    // submitted the count, so a miscount can't be silently self-approved.
-    // Applies to every role, including Admin.
-    if (session.created_by === userId || session.submitted_by === userId) {
+    // Separation of duties: a non-admin approver must differ from whoever
+    // opened or submitted the count, so a miscount can't be silently
+    // self-approved. Admin is exempt — otherwise an admin who rejects a count
+    // and opens the recount themselves can never give final approval.
+    if ((session.created_by === userId || session.submitted_by === userId) && !(await isAdminUser(client, userId))) {
       throw new ForbiddenError('You counted or submitted this session; a different user must approve it');
     }
 
@@ -815,6 +894,8 @@ export async function postSession(sessionId: string, userId: string): Promise<St
          WHERE sc.session_id = $1 AND sc.result = 'OK' AND (
            sc.child_box_id = $2
            OR ($3::uuid IS NOT NULL AND sc.master_carton_id = $3 AND sc.contents_mismatch = false)
+           OR (sc.master_carton_id IS NOT NULL AND sc.contents_mismatch = false AND EXISTS (
+             SELECT 1 FROM carton_child_mapping m WHERE m.child_box_id = $2 AND m.is_active = true AND m.master_carton_id = sc.master_carton_id))
          ) LIMIT 1`,
         [sessionId, row.child_box_id, row.master_carton_id]
       );

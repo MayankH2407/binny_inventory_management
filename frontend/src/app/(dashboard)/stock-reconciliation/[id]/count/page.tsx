@@ -63,6 +63,16 @@ export default function StockReconciliationCountPage() {
     ['stock-reconciliation-progress', id],
     () => stockReconciliationService.getProgress(id)
   );
+  // Live list of expected items not yet scanned. Refreshes on an interval
+  // (and the cache is shared with the session detail page) — no "Submit for
+  // Approval" needed, so counting is never locked just to see what's missing.
+  const { data: variance } = useApiQuery(
+    ['stock-reconciliation-variance', id],
+    () => stockReconciliationService.getVariance(id),
+    { refetchInterval: 15000 }
+  );
+  const missingBoxes = variance?.missing_boxes ?? [];
+  const missingLegacy = variance?.missing_legacy_cartons ?? [];
   // Loaded once on mount so a reopened session (after a crash, reload, or the
   // device itself dying) shows exactly what's already been scanned — not
   // just the aggregate count above — instead of leaving the operator unsure
@@ -366,6 +376,38 @@ export default function StockReconciliationCountPage() {
           )}
         </Card>
       </div>
+
+      {variance && (
+        <Card className="mt-6">
+          <h3 className="font-semibold text-brand-text-dark mb-1">
+            Not yet scanned ({missingBoxes.length + missingLegacy.length})
+          </h3>
+          <p className="text-xs text-brand-text-muted mb-3">
+            Live list — drops items off as they are scanned. Counting stays open.
+          </p>
+          {missingBoxes.length + missingLegacy.length === 0 ? (
+            <p className="text-sm text-brand-text-muted">Everything expected has been scanned.</p>
+          ) : (
+            <div className="space-y-1 max-h-[360px] overflow-y-auto">
+              {missingBoxes.slice(0, 300).map((b) => (
+                <div key={b.id} className="flex items-center justify-between gap-2 py-1 text-sm border-b border-brand-border last:border-0">
+                  <span className="font-mono text-xs">{b.barcode}</span>
+                  <span className="text-brand-text-muted truncate">{b.article_name} — {b.colour} / {b.size}</span>
+                </div>
+              ))}
+              {missingLegacy.slice(0, 300).map((c2) => (
+                <div key={c2.id} className="flex items-center justify-between gap-2 py-1 text-sm border-b border-brand-border last:border-0">
+                  <span className="font-mono text-xs">{c2.carton_barcode}</span>
+                  <span className="text-brand-text-muted truncate">Legacy carton — {c2.article_group || '—'} ({c2.legacy_pairs ?? '?'} pairs)</span>
+                </div>
+              ))}
+              {missingBoxes.length > 300 && (
+                <p className="text-xs text-brand-text-muted pt-2">Showing first 300 of {missingBoxes.length} boxes — see the session page for the full list.</p>
+              )}
+            </div>
+          )}
+        </Card>
+      )}
     </div>
   );
 }

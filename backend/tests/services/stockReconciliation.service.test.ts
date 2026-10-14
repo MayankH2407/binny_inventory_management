@@ -190,9 +190,6 @@ describe('Stock reconciliation (integration)', () => {
 
     await stockReconService.submitSession(session.id, userA);
 
-    // Self-approval by the same user who counted/submitted must be blocked.
-    await expect(stockReconService.approveSession(session.id, userA)).rejects.toThrow(/different user must approve/);
-
     await stockReconService.approveSession(session.id, userB);
     const posted = await stockReconService.postSession(session.id, userB);
     expect(posted.status).toBe('POSTED');
@@ -268,5 +265,134 @@ describe('Stock reconciliation (integration)', () => {
 
     await query('DELETE FROM child_boxes WHERE id = $1', [movedBoxId]);
     await query('DELETE FROM products WHERE id = $1', [movedProductId]);
+  });
+
+  // -------------------------------------------------------------------------
+  // Stock-verification fixes from the 2026-10-03 meeting.
+  // -------------------------------------------------------------------------
+  async function makeProduct(tag: string, section: string): Promise<string> {
+    const id = uuidv4();
+    await query(
+      `INSERT INTO products (id, sku, article_name, article_code, colour, size, mrp, is_active, section, category, article_group, size_from, size_to)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+      [id, `${TEST_PREFIX}${tag}SKU`, `Recon ${tag}`, tag.slice(0, 6), 'BLACK', '8', 500.0, true, section, 'Gents', `${TEST_PREFIX}GROUP`, '6', '10']
+    );
+    return id;
+  }
+  async function makeBox(productId: string, status: string): Promise<string> {
+    const id = uuidv4();
+    await query(
+      `INSERT INTO child_boxes (id, barcode, product_id, status, quantity) VALUES ($1, $2, $3, $4, 1)`,
+      [id, await generateUniqueBarcode('CB'), productId, status]
+    );
+    return id;
+  }
+  async function cleanupFixture(opts: { boxIds: string[]; cartonIds?: string[]; productId: string }): Promise<void> {
+    const cartons = opts.cartonIds ?? [];
+    await query('DELETE FROM inventory_transactions WHERE child_box_id = ANY($1::uuid[]) OR master_carton_id = ANY($2::uuid[])', [opts.boxIds, cartons]);
+    await query('DELETE FROM carton_child_mapping WHERE master_carton_id = ANY($1::uuid[]) OR child_box_id = ANY($2::uuid[])', [cartons, opts.boxIds]);
+    await query('DELETE FROM stock_reconciliation_sessions WHERE id = ANY($1::uuid[])', [sessionIds]);
+    await query('DELETE FROM child_boxes WHERE id = ANY($1::uuid[])', [opts.boxIds]);
+    await query('DELETE FROM master_cartons WHERE id = ANY($1::uuid[])', [cartons]);
+    await query('DELETE FROM products WHERE id = $1', [opts.productId]);
+    sessionIds.length = 0;
+  }
+
+  it('credits a carton that boxes were packed into AFTER the session opened (not "not expected")', async () => {
+    const section = `${TEST_PREFIX}PACKLATE`;
+    const productId2 = await makeProduct('PACKL', section);
+    const boxA = await makeBox(productId2, 'FREE');
+    const boxB = await makeBox(productId2, 'FREE');
+
+    const session = await stockReconService.openSession({ scope: { section } } as any, userA);
+    sessionIds.push(session.id);
+
+    // Loose boxes get packed into a brand-new carton while the count is running.
+    const lateCartonId = uuidv4();
+    const lateCartonBarcode = await generateUniqueBarcode('MC');
+    await query(
+      `INSERT INTO master_cartons (id, carton_barcode, status, max_capacity, child_count, created_by)
+       VALUES ($1, $2, 'CREATED', 50, 0, $3)`,
+      [lateCartonId, lateCartonBarcode, userA]
+    );
+    await packChildBox(boxA, lateCartonId, userA);
+    await packChildBox(boxB, lateCartonId, userA);
+
+    const scan = await stockReconService.submitScans(session.id, [
+      { client_scan_id: 'late1', raw_payload: lateCartonBarcode, contents_mismatch: false, is_manual: false } as any,
+    ], userA);
+    expect(scan.results[0].result).toBe('OK');
+
+    const progress: any = await stockReconService.getProgress(session.id);
+    expect(progress.found_total).toBe(2);
+    const variance: any = await stockReconService.getVariance(session.id);
+    expect(variance.missing_boxes).toHaveLength(0);
+
+    await cleanupFixture({ boxIds: [boxA, boxB], cartonIds: [lateCartonId], productId: productId2 });
+  });
+
+  it('keeps e-commerce and sample stock out of the snapshot and reports their scans as out of scope', async () => {
+    const section = `${TEST_PREFIX}CHANNELS`;
+    const productId3 = await makeProduct('CHAN', section);
+    const warehouseBox = await makeBox(productId3, 'FREE');
+    const ecomBox = await makeBox(productId3, 'ECOMMERCE');
+    const sampleBox = await makeBox(productId3, 'SAMPLE');
+
+    const session = await stockReconService.openSession({ scope: { section } } as any, userA);
+    sessionIds.push(session.id);
+
+    const progress: any = await stockReconService.getProgress(session.id);
+    expect(progress.expected_total).toBe(1);
+
+    const codes = await query('SELECT id, barcode FROM child_boxes WHERE id = ANY($1::uuid[])', [[ecomBox, sampleBox]]);
+    const scan = await stockReconService.submitScans(session.id, codes.rows.map((r: any, i: number) => ({
+      client_scan_id: `ch${i}`, raw_payload: r.barcode, contents_mismatch: false, is_manual: false,
+    })) as any, userA);
+    expect(scan.results.map((r: any) => r.result)).toEqual(['OUT_OF_SCOPE', 'OUT_OF_SCOPE']);
+
+    // Only the warehouse box can ever be reported missing.
+    const variance: any = await stockReconService.getVariance(session.id);
+    expect(variance.missing_boxes.map((b: any) => b.id)).toEqual([warehouseBox]);
+
+    await cleanupFixture({ boxIds: [warehouseBox, ecomBox, sampleBox], productId: productId3 });
+  });
+
+  it('lets Admin approve a count they opened/submitted, but still blocks other roles', async () => {
+    const roles = await query(`SELECT id, name FROM roles WHERE name IN ('Admin', 'Supervisor')`);
+    const adminRole = roles.rows.find((r: any) => r.name === 'Admin');
+    const otherRole = roles.rows.find((r: any) => r.name === 'Supervisor');
+    if (!adminRole || !otherRole) throw new Error('Admin/Supervisor roles missing in dev DB');
+
+    const mkUser = async (roleId: string, tag: string) => (await query(
+      `INSERT INTO users (email, password_hash, name, role_id, is_active) VALUES ($1, 'x', $2, $3, true) RETURNING id`,
+      [`${TEST_PREFIX.toLowerCase()}${tag}@example.com`, `${TEST_PREFIX}${tag}`, roleId]
+    )).rows[0].id as string;
+    const adminUser = await mkUser(adminRole.id, 'adm');
+    const otherUser = await mkUser(otherRole.id, 'sup');
+
+    try {
+      const section = `${TEST_PREFIX}APPROVAL`;
+      const productId4 = await makeProduct('APPR', section);
+      const box = await makeBox(productId4, 'FREE');
+
+      const mkSubmitted = async (userId: string) => {
+        const s = await stockReconService.openSession({ scope: { section } } as any, userId);
+        sessionIds.push(s.id);
+        await stockReconService.submitSession(s.id, userId);
+        return s;
+      };
+
+      const own = await mkSubmitted(otherUser);
+      await expect(stockReconService.approveSession(own.id, otherUser)).rejects.toThrow(/different user must approve/);
+
+      const adminOwn = await mkSubmitted(adminUser);
+      const approved = await stockReconService.approveSession(adminOwn.id, adminUser);
+      expect(approved.status).toBe('APPROVED');
+
+      await cleanupFixture({ boxIds: [box], productId: productId4 });
+    } finally {
+      await query('DELETE FROM audit_logs WHERE user_id = ANY($1::uuid[])', [[adminUser, otherUser]]).catch(() => undefined);
+      await query('DELETE FROM users WHERE id = ANY($1::uuid[])', [[adminUser, otherUser]]);
+    }
   });
 });

@@ -28,6 +28,7 @@ export default function StockReconciliationDetailPage() {
   const router = useRouter();
   const id = params.id as string;
   const userId = useAuthStore((s) => s.user?.id);
+  const isAdmin = useAuthStore((s) => s.user?.role) === 'Admin';
 
   const canCount = useCan('stock_reconciliation:count');
   const canApprove = useCan('stock_reconciliation:approve');
@@ -48,7 +49,9 @@ export default function StockReconciliationDetailPage() {
   const { data: variance } = useApiQuery(
     ['stock-reconciliation-variance', id],
     () => stockReconciliationService.getVariance(id),
-    { enabled: !!session && session.status !== 'COUNTING' }
+    // Live while counting too (refreshes every 15s) so the missing list is
+    // visible without having to "Submit for Approval" — which locks the session.
+    { enabled: !!session, refetchInterval: session?.status === 'COUNTING' ? 15000 : false }
   );
 
   const invalidate = [['stock-reconciliations'], ['stock-reconciliation', id], ['stock-reconciliation-progress', id], ['stock-reconciliation-variance', id], ['inventory-breakdown'], ['inventory-leaf'], ['inventory-stock-summary'], ['dashboard-stats']];
@@ -114,7 +117,9 @@ export default function StockReconciliationDetailPage() {
   const missingBoxCount = variance?.missing_boxes.length ?? 0;
   const missingLegacyCount = variance?.missing_legacy_cartons.length ?? 0;
   const foundAgainCount = variance?.found_again.length ?? 0;
-  const isSameUser = session.created_by === userId || session.submitted_by === userId;
+  const isCounting = session.status === 'COUNTING';
+  // Admin may always approve; other roles must differ from whoever counted/submitted.
+  const isSameUser = !isAdmin && (session.created_by === userId || session.submitted_by === userId);
 
   return (
     <div>
@@ -210,12 +215,16 @@ export default function StockReconciliationDetailPage() {
             Open Recount
           </Button>
         )}
-        {session.status !== 'COUNTING' && (
-          <Button variant="secondary" leftIcon={<Download className="h-4 w-4" />} onClick={handleExport}>
-            Export Variance CSV
-          </Button>
-        )}
+        <Button variant="secondary" leftIcon={<Download className="h-4 w-4" />} onClick={handleExport}>
+          Export {isCounting ? 'Live ' : ''}Variance CSV
+        </Button>
       </div>
+
+      {isCounting && variance && (
+        <p className="text-sm text-brand-text-muted mb-4">
+          Live view — updates every 15 seconds while counting. Items still listed as missing have not been scanned yet; the session stays open for scanning.
+        </p>
+      )}
 
       {variance && (
         <div className="space-y-6">
@@ -259,7 +268,7 @@ export default function StockReconciliationDetailPage() {
 
           <VarianceListSection
             icon={<PackageX className="h-4 w-4" />}
-            title={`Missing boxes (${missingBoxCount})`}
+            title={`${isCounting ? 'Not yet scanned' : 'Missing'} boxes (${missingBoxCount})`}
             empty="Nothing missing among individually-tracked boxes."
           >
             {variance.missing_boxes.map((b) => (
@@ -271,7 +280,7 @@ export default function StockReconciliationDetailPage() {
           </VarianceListSection>
 
           {variance.missing_legacy_cartons.length > 0 && (
-            <VarianceListSection icon={<PackageX className="h-4 w-4" />} title={`Missing legacy cartons (${missingLegacyCount})`} empty="">
+            <VarianceListSection icon={<PackageX className="h-4 w-4" />} title={`${isCounting ? 'Not yet scanned' : 'Missing'} legacy cartons (${missingLegacyCount})`} empty="">
               {variance.missing_legacy_cartons.map((c) => (
                 <div key={c.id} className="flex items-center justify-between text-sm py-1.5 border-b border-brand-border last:border-0">
                   <span className="font-mono text-xs">{c.carton_barcode}</span>
