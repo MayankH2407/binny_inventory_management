@@ -9,8 +9,8 @@ import {
   TouchableOpacity,
   Alert,
 } from 'react-native';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { Stack, useLocalSearchParams, useRouter } from '../../navigation/router';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 import { AxiosError } from 'axios';
 
 import { COLORS, CHILD_BOX_STATUS_COLORS, RETURN_STATUS_COLORS } from '../../constants';

@@ -12,9 +12,9 @@ import {
   Platform,
   Alert,
 } from 'react-native';
-import { Stack, router } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import * as Haptics from 'expo-haptics';
+import { Stack, router } from '../../navigation/router';
+import Ionicons from 'react-native-vector-icons/Ionicons';
+import * as Haptics from '../../utils/haptics';
 import { COLORS } from '../../constants';
 import { customerService } from '../../services/customer.service';
 import type { Customer, CreateCustomerRequest } from '../../types';

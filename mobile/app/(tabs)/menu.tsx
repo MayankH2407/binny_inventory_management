@@ -1,12 +1,13 @@
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import Ionicons from 'react-native-vector-icons/Ionicons';
+import type { IoniconName } from '../../utils/icons';
+import { useRouter } from '../../navigation/router';
 import { COLORS } from '../../constants';
 import { useAuthStore } from '../../stores/authStore';
 import RoleGate from '../../components/RoleGate';
 
 interface MenuItem {
-  icon: keyof typeof Ionicons.glyphMap;
+  icon: IoniconName;
   label: string;
   color: string;
   route?: string;

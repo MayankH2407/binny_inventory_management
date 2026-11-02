@@ -1,6 +1,6 @@
 import { View, Text, ScrollView, StyleSheet } from 'react-native';
-import { Stack, useLocalSearchParams } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { Stack, useLocalSearchParams } from '../../navigation/router';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 import { COLORS, ECOMMERCE_STATUS_COLORS } from '../../constants';
 import { ecommerceService } from '../../services/ecommerce.service';
 import { useApiQuery } from '../../hooks/useApi';

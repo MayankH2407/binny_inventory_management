@@ -1,4 +1,4 @@
-import * as SecureStore from 'expo-secure-store';
+import * as SecureStore from '../../utils/secureStorage';
 
 // Capture interceptor callbacks so we can test them directly
 let requestInterceptorFulfilled: ((config: any) => any) | null = null;

@@ -1,7 +1,7 @@
 import { View, Text, ScrollView, StyleSheet, Alert, Platform } from 'react-native';
-import { Stack } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import Constants from 'expo-constants';
+import { Stack } from '../navigation/router';
+import Ionicons from 'react-native-vector-icons/Ionicons';
+import { version as packageVersion } from '../package.json';
 import { COLORS, API_BASE_URL } from '../constants';
 import { useAuthStore } from '../stores/authStore';
 import Card from '../components/ui/Card';
@@ -10,7 +10,7 @@ import Badge from '../components/ui/Badge';
 
 export default function SettingsScreen() {
   const { user, logout } = useAuthStore();
-  const appVersion = (Constants.expoConfig?.version as string | undefined) ?? '—';
+  const appVersion = packageVersion ?? '—';
 
   function confirmLogout() {
     Alert.alert(

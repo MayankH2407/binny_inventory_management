@@ -14,8 +14,8 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import { Stack } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { Stack } from '../navigation/router';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { COLORS } from '../constants';
 import { userService } from '../services/user.service';

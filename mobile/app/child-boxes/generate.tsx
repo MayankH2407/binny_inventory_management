@@ -1,6 +1,7 @@
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
-import { Stack } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { Stack } from '../../navigation/router';
+import Ionicons from 'react-native-vector-icons/Ionicons';
+import type { IoniconName } from '../../utils/icons';
 import { COLORS } from '../../constants';
 import Card from '../../components/ui/Card';
 
@@ -38,7 +39,7 @@ export default function GenerateChildBoxesScreen() {
   );
 }
 
-function Row({ icon, text }: { icon: keyof typeof import('@expo/vector-icons').Ionicons.glyphMap; text: string }) {
+function Row({ icon, text }: { icon: IoniconName; text: string }) {
   return (
     <View style={styles.row}>
       <Ionicons name={icon} size={18} color={COLORS.primary} style={styles.rowIcon} />

@@ -1,11 +1,12 @@
 import { View, Text, StyleSheet } from 'react-native';
-import { Stack } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { Stack } from '../navigation/router';
+import Ionicons from 'react-native-vector-icons/Ionicons';
+import type { IoniconName } from '../utils/icons';
 import { COLORS } from '../constants';
 
 interface Props {
   title: string;
-  icon: keyof typeof Ionicons.glyphMap;
+  icon: IoniconName;
   description?: string;
 }
 

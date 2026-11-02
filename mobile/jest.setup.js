@@ -1,57 +1,45 @@
-// Mock expo-secure-store
-jest.mock('expo-secure-store', () => ({
+// Mock secure storage (keychain-backed in the app)
+jest.mock('./utils/secureStorage', () => ({
   getItemAsync: jest.fn().mockResolvedValue(null),
   setItemAsync: jest.fn().mockResolvedValue(undefined),
   deleteItemAsync: jest.fn().mockResolvedValue(undefined),
 }));
 
-// Mock expo-router
-jest.mock('expo-router', () => ({
-  useRouter: () => ({
-    push: jest.fn(),
-    replace: jest.fn(),
-    back: jest.fn(),
+// Mock the path-based navigation adapter (wraps React Navigation)
+jest.mock('./navigation/router', () => {
+  const router = { push: jest.fn(), replace: jest.fn(), back: jest.fn(), canGoBack: () => true };
+  return {
+    router,
+    navigationRef: { isReady: () => false },
+    useRouter: () => router,
+    useLocalSearchParams: () => ({}),
+    Stack: { Screen: () => null },
+  };
+});
+
+// Mock haptics
+jest.mock('react-native-haptic-feedback', () => ({
+  __esModule: true,
+  default: { trigger: jest.fn() },
+}));
+
+// Mock the camera
+jest.mock('react-native-vision-camera', () => ({
+  Camera: Object.assign('Camera', {
+    getCameraPermissionStatus: () => 'granted',
+    requestCameraPermission: jest.fn().mockResolvedValue('granted'),
   }),
-  useSegments: () => [],
-  useLocalSearchParams: () => ({}),
-  Redirect: ({ href }) => null,
-  Stack: {
-    Screen: () => null,
-  },
-  Tabs: {
-    Screen: () => null,
-  },
-  Link: ({ children }) => children,
+  useCameraDevice: () => ({ id: 'back' }),
+  useCodeScanner: () => ({}),
 }));
 
-// Mock expo-haptics
-jest.mock('expo-haptics', () => ({
-  impactAsync: jest.fn(),
-  notificationAsync: jest.fn(),
-  selectionAsync: jest.fn(),
-  ImpactFeedbackStyle: { Light: 'light', Medium: 'medium', Heavy: 'heavy' },
-  NotificationFeedbackType: { Success: 'success', Warning: 'warning', Error: 'error' },
-}));
+// Mock icons
+jest.mock('react-native-vector-icons/Ionicons', () => 'Ionicons');
 
-// Mock expo-camera
-jest.mock('expo-camera', () => ({
-  CameraView: 'CameraView',
-  useCameraPermissions: () => [{ granted: true }, jest.fn()],
-}));
-
-// Mock @expo/vector-icons
-jest.mock('@expo/vector-icons', () => ({
-  Ionicons: 'Ionicons',
-}));
-
-// Mock react-native-gesture-handler
-jest.mock('react-native-gesture-handler', () => ({
-  GestureHandlerRootView: ({ children }) => children,
-  Swipeable: 'Swipeable',
-  DrawerLayout: 'DrawerLayout',
-  State: {},
-  PanGestureHandler: 'PanGestureHandler',
-  TapGestureHandler: 'TapGestureHandler',
+// Mock the share sheet
+jest.mock('react-native-share', () => ({
+  __esModule: true,
+  default: { open: jest.fn().mockResolvedValue({}) },
 }));
 
 // Silence React Native warnings in tests

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   Animated,
   Dimensions,
+  Linking,
   Modal,
   Platform,
   StyleSheet,
@@ -9,9 +10,9 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { CameraView, useCameraPermissions } from 'expo-camera';
-import * as Haptics from 'expo-haptics';
-import { Ionicons } from '@expo/vector-icons';
+import { Camera, useCameraDevice, useCodeScanner } from 'react-native-vision-camera';
+import * as Haptics from '../utils/haptics';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 import { COLORS } from '../constants';
 import { parseQRCode } from '../utils';
 
@@ -34,7 +35,15 @@ export default function BarcodeScanner({
   title = 'Scan QR Code',
   expectedType = 'any',
 }: BarcodeScannerProps) {
-  const [permission, requestPermission] = useCameraPermissions();
+  const [permStatus, setPermStatus] = useState<ReturnType<typeof Camera.getCameraPermissionStatus>>(
+    Camera.getCameraPermissionStatus()
+  );
+  const device = useCameraDevice('back');
+
+  const requestPermission = async () => {
+    const result = await Camera.requestCameraPermission();
+    setPermStatus(result === 'granted' ? 'granted' : 'denied');
+  };
 
   // Single-shot guard — reset each time the modal opens
   const scannedRef = useRef(false);
@@ -47,6 +56,7 @@ export default function BarcodeScanner({
   useEffect(() => {
     if (visible) {
       scannedRef.current = false;
+      setPermStatus(Camera.getCameraPermissionStatus());
     }
   }, [visible]);
 
@@ -90,6 +100,14 @@ export default function BarcodeScanner({
     onClose();
   };
 
+  const codeScanner = useCodeScanner({
+    codeTypes: ['qr'],
+    onCodeScanned: (codes) => {
+      const value = codes[0]?.value;
+      if (value) handleBarcodeScanned({ data: value });
+    },
+  });
+
   // ── Overlay layout ────────────────────────────────────────────────────────
 
   const { width, height } = Dimensions.get('window');
@@ -124,8 +142,11 @@ export default function BarcodeScanner({
       <Text style={styles.permissionDesc}>
         Camera access denied. Enable it from system settings.
       </Text>
-      <TouchableOpacity style={styles.permissionButton} onPress={onClose}>
-        <Text style={styles.permissionButtonText}>Close</Text>
+      <TouchableOpacity style={styles.permissionButton} onPress={() => Linking.openSettings()}>
+        <Text style={styles.permissionButtonText}>Open Settings</Text>
+      </TouchableOpacity>
+      <TouchableOpacity style={styles.permissionClose} onPress={onClose}>
+        <Text style={styles.permissionCloseText}>Close</Text>
       </TouchableOpacity>
     </View>
   );
@@ -135,12 +156,18 @@ export default function BarcodeScanner({
   const renderScanner = () => (
     <View style={styles.cameraContainer}>
       {/* Full-screen camera */}
-      <CameraView
-        style={StyleSheet.absoluteFillObject}
-        facing="back"
-        barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
-        onBarcodeScanned={handleBarcodeScanned}
-      />
+      {device ? (
+        <Camera
+          style={StyleSheet.absoluteFill}
+          device={device}
+          isActive={visible}
+          codeScanner={codeScanner}
+        />
+      ) : (
+        <View style={[StyleSheet.absoluteFill, styles.permissionContainer]}>
+          <Text style={styles.permissionDesc}>No camera available on this device.</Text>
+        </View>
+      )}
 
       {/* Dark overlay — top strip */}
       <View style={[styles.overlayStrip, { height: frameTop }]} />
@@ -186,8 +213,8 @@ export default function BarcodeScanner({
   // ── Render body based on permission state ─────────────────────────────────
 
   const renderBody = () => {
-    if (!permission || !permission.granted) {
-      if (!permission || permission.status === 'undetermined') {
+    if (permStatus !== 'granted') {
+      if (permStatus === 'not-determined') {
         return renderPermissionRequest();
       }
       return renderPermissionDenied();

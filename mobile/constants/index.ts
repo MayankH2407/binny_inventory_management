@@ -1,4 +1,4 @@
-export const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'https://srv1409601.hstgr.cloud/binny/api/v1';
+export const API_BASE_URL = process.env.API_URL ?? 'https://srv1409601.hstgr.cloud/binny/api/v1';
 
 if (__DEV__) {
   console.log('[binny] API_BASE_URL =', API_BASE_URL);

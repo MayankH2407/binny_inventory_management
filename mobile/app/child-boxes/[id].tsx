@@ -1,5 +1,5 @@
 import { View, Text, StyleSheet, ScrollView, Platform } from 'react-native';
-import { useLocalSearchParams, Stack } from 'expo-router';
+import { useLocalSearchParams, Stack } from '../../navigation/router';
 import { COLORS } from '../../constants';
 import { useApiQuery } from '../../hooks/useApi';
 import { childBoxService } from '../../services/childBox.service';

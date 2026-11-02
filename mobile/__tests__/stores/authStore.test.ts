@@ -1,4 +1,4 @@
-import * as SecureStore from 'expo-secure-store';
+import * as SecureStore from '../../utils/secureStorage';
 import { authService } from '../../services/auth.service';
 import { useAuthStore } from '../../stores/authStore';
 

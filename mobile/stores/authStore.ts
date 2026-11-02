@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import * as SecureStore from 'expo-secure-store';
+import * as SecureStore from '../utils/secureStorage';
 import { STORAGE_KEYS } from '../constants';
 import { authService } from '../services/auth.service';
 import type { User, LoginRequest } from '../types';

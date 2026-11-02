@@ -12,9 +12,9 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { Stack, useRouter } from 'expo-router';
-import * as Haptics from 'expo-haptics';
-import { Ionicons } from '@expo/vector-icons';
+import { Stack, useRouter } from '../../navigation/router';
+import * as Haptics from '../../utils/haptics';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useInfiniteQuery } from '@tanstack/react-query';
 
 import { COLORS } from '../../constants';

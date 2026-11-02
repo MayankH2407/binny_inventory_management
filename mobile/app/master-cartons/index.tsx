@@ -10,8 +10,8 @@ import {
   ScrollView,
   Platform,
 } from 'react-native';
-import { Stack, router } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { Stack, router } from '../../navigation/router';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { COLORS } from '../../constants';
 import { masterCartonService } from '../../services/masterCarton.service';

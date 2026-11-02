@@ -7,9 +7,9 @@ import {
   StyleSheet,
   Platform,
 } from 'react-native';
-import { Stack } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import * as Haptics from 'expo-haptics';
+import { Stack } from '../navigation/router';
+import Ionicons from 'react-native-vector-icons/Ionicons';
+import * as Haptics from '../utils/haptics';
 
 import { COLORS } from '../constants';
 import { masterCartonService } from '../services/masterCarton.service';

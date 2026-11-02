@@ -10,8 +10,8 @@ import {
   Platform,
   TouchableOpacity,
 } from 'react-native';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { Stack, useLocalSearchParams, useRouter } from '../../navigation/router';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 
 import { COLORS } from '../../constants';
 import { samplesService } from '../../services/samples.service';

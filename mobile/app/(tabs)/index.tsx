@@ -1,6 +1,7 @@
 import { View, Text, ScrollView, StyleSheet, RefreshControl } from 'react-native';
 import { useState, useCallback } from 'react';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from 'react-native-vector-icons/Ionicons';
+import type { IoniconName } from '../../utils/icons';
 import { COLORS } from '../../constants';
 import { useApiQuery } from '../../hooks/useApi';
 import { dashboardService } from '../../services/dashboard.service';
@@ -8,7 +9,7 @@ import Spinner from '../../components/ui/Spinner';
 import Card from '../../components/ui/Card';
 import type { DashboardStats } from '../../types';
 
-function StatCard({ icon, label, value, color }: { icon: keyof typeof Ionicons.glyphMap; label: string; value: number | string; color: string }) {
+function StatCard({ icon, label, value, color }: { icon: IoniconName; label: string; value: number | string; color: string }) {
   return (
     <Card style={styles.statCard}>
       <View style={[styles.iconContainer, { backgroundColor: color + '15' }]}>

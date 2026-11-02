@@ -9,7 +9,7 @@ import {
   TextInput,
   FlatList,
 } from 'react-native';
-import { Stack } from 'expo-router';
+import { Stack } from '../navigation/router';
 import { useQuery } from '@tanstack/react-query';
 import { COLORS, CARTON_STATUS_COLORS, CHILD_BOX_STATUS_COLORS } from '../constants';
 import { reportService } from '../services/report.service';

@@ -11,8 +11,8 @@ import {
   FlatList,
   Platform,
 } from 'react-native';
-import { Stack, useLocalSearchParams } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { Stack, useLocalSearchParams } from '../../navigation/router';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 import { COLORS } from '../../constants';
 import { customerService } from '../../services/customer.service';
 import type { Customer, CreateCustomerRequest } from '../../types';

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { View, Text, ScrollView, RefreshControl, StyleSheet, Platform } from 'react-native';
-import { Stack, useLocalSearchParams } from 'expo-router';
+import { Stack, useLocalSearchParams } from '../../navigation/router';
 
 import { COLORS } from '../../constants';
 import { returnsService } from '../../services/returns.service';

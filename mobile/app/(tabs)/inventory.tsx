@@ -8,8 +8,8 @@ import {
   RefreshControl,
   Platform,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import Ionicons from 'react-native-vector-icons/Ionicons';
+import { useRouter } from '../../navigation/router';
 import { COLORS } from '../../constants';
 import { useApiQuery } from '../../hooks/useApi';
 import { inventoryService } from '../../services/inventory.service';
