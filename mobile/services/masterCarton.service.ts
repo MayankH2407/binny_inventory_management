@@ -49,7 +49,16 @@ export const masterCartonService = {
     return response.data;
   },
 
-  async repack(data: { source_carton_id: string; destination_carton_id: string; child_box_barcodes: string[] }): Promise<void> {
-    await api.post('/master-cartons/repack', data);
+  // Pack one box into a carton by its barcode. Idempotent per (box, carton): a re-scan of a
+  // box already in THIS carton returns alreadyPacked:true instead of an error. The old
+  // source→destination `repack` endpoint no longer exists — repacking is now
+  // fullUnpack + packByBarcode (same as the web's Unpack & Repack page).
+  async packByBarcode(data: { barcode: string; master_carton_id: string }): Promise<{
+    carton: MasterCarton | null;
+    alreadyPacked: boolean;
+    childBoxBarcode: string;
+  }> {
+    const response = await api.post('/master-cartons/pack-by-barcode', data);
+    return response.data;
   },
 };

@@ -311,7 +311,7 @@ describe('customerService', () => {
 describe('dispatchService', () => {
   describe('getAll()', () => {
     it('calls GET /dispatches with query params', async () => {
-      const params = { page: 1, limit: 20, start_date: '2025-01-01' };
+      const params = { page: 1, limit: 20, from_date: '2025-01-01' };
       const listData = { data: [], total: 0, page: 1, limit: 20, totalPages: 0 };
       mockGet.mockResolvedValueOnce({ data: listData });
 
@@ -431,7 +431,7 @@ describe('traceService', () => {
 // ---------------------------------------------------------------------------
 describe('dashboardService', () => {
   describe('getStats()', () => {
-    it('calls GET /dashboard', async () => {
+    it('calls GET /inventory/dashboard', async () => {
       const stats = {
         totalProducts: 50,
         totalChildBoxes: 1000,
@@ -442,7 +442,7 @@ describe('dashboardService', () => {
 
       const result = await dashboardService.getStats();
 
-      expect(api.get).toHaveBeenCalledWith('/dashboard');
+      expect(api.get).toHaveBeenCalledWith('/inventory/dashboard');
       expect(result).toEqual(stats);
     });
 

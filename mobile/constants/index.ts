@@ -38,6 +38,9 @@ export const CHILD_BOX_STATUS_COLORS: Record<string, string> = {
   PACKED: COLORS.statusPacked,
   SAMPLE: '#DC2626',     // red
   ECOMMERCE: '#7C3AED',  // purple
+  // One shoe already shipped via a sample dispatch, the other never
+  // allocated — available for further sample allocation only.
+  PARTIAL: '#F59E0B',    // amber
   DISPATCHED: COLORS.statusDispatched,
 };
 
@@ -60,4 +63,10 @@ export const ECOMMERCE_STATUS_COLORS: Record<string, string> = {
   ACTIVE: COLORS.statusActive,
   CLOSED: COLORS.statusClosed,
   DISPATCHED: COLORS.statusDispatched,
+};
+
+export const RETURN_STATUS_COLORS: Record<'none' | 'partial' | 'full', string> = {
+  none: COLORS.textLight,
+  partial: COLORS.warning,
+  full: COLORS.error,
 };

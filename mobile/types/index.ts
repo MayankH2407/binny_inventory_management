@@ -72,7 +72,7 @@ export interface ProductSection {
   updated_at: string;
 }
 
-export type ChildBoxStatus = 'GENERATED' | 'FREE' | 'PACKED' | 'SAMPLE' | 'ECOMMERCE' | 'DISPATCHED';
+export type ChildBoxStatus = 'GENERATED' | 'FREE' | 'PACKED' | 'SAMPLE' | 'ECOMMERCE' | 'PARTIAL' | 'DISPATCHED';
 
 export interface ChildBox {
   id: string;
@@ -92,6 +92,9 @@ export interface ChildBoxWithProduct extends ChildBox {
   size: string;
   mrp: number;
   sku: string;
+  /** For channel views: whether this box is loose or reached via an allocated carton. */
+  source?: 'loose' | 'carton';
+  carton_barcode?: string | null;
 }
 
 export type MasterCartonStatus = 'CREATED' | 'ACTIVE' | 'CLOSED' | 'DISPATCHED';
@@ -115,32 +118,68 @@ export interface MasterCarton {
   mrp_summary?: number | null;
 }
 
-export type SampleStatus = 'CREATED' | 'ACTIVE' | 'CLOSED' | 'DISPATCHED';
+// ---------- Samples pool (mirrors the web app, redesign 2026-09) ----------
+// A sample record is a lightweight parent; its state is DERIVED server-side from
+// live mapping rows (never stored). Recipient / purpose / date are captured at
+// DISPATCH time (see DispatchRecord.sample_*), not on the record.
+export type Foot = 'LEFT' | 'RIGHT' | 'PAIR';
+export type SampleState = 'EMPTY' | 'OPEN' | 'DISPATCHED';
+
+// GET /samples/:id/contents — loose boxes + whole reserved cartons currently in the sample.
+export interface SampleItem {
+  item_type: 'BOX' | 'CARTON';
+  mapping_id: string;
+  barcode: string;
+  child_box_id: string | null;
+  master_carton_id: string | null;
+  foot: Foot;
+  box_count: number;
+  pairs: number;
+  article_summary: string | null;
+  colour_summary: string | null;
+  size_summary: string | null;
+  mrp: number | null;
+  // Set when this loose box came out of a whole carton unpacked in the sample.
+  source_carton_barcode: string | null;
+  added_at: string;
+  added_by_name: string | null;
+}
 
 export interface SampleRecord {
   id: string;
   sample_barcode: string;
-  name: string;
-  customer_id: string | null;
-  recipient_name: string | null;
-  purpose: string | null;
-  sample_date: string | null;
-  notes: string | null;
-  status: SampleStatus;
-  child_count: number;
-  closed_at: string | null;
-  dispatched_at: string | null;
+  name: string | null;
   created_by: string;
   created_at: string;
   updated_at: string;
-  child_boxes?: ChildBoxWithProduct[];
-  creator?: User;
-  customer_firm_name?: string | null;
+  state?: SampleState;
+  open_item_count?: number;
+  open_box_count?: number;
+  open_pairs?: number;
+  shipped_box_count?: number;
+  last_dispatch_date?: string | null;
+  creator_name?: string | null;
   article_summary?: string | null;
   colour_summary?: string | null;
   size_summary?: string | null;
   mrp_summary?: number | null;
+  items?: SampleItem[];
 }
+
+export interface SampleSummary {
+  total_records: number;
+  empty_records: number;
+  open_records: number;
+  dispatched_records: number;
+  open_items: number;
+  open_boxes: number;
+}
+
+// GET /samples/lookup/:barcode — scan-to-check used by dispatch.
+export type SampleLookupResult =
+  | { kind: 'RECORD'; sample_record_id: string; sample_barcode: string; name: string | null; open_item_count: number; items: SampleItem[] }
+  | (SampleItem & { kind: 'ITEM'; in_sample: true; sample_record_id: string; sample_barcode: string })
+  | { kind: 'ITEM'; in_sample: false; reason: string; item_type: 'BOX' | 'CARTON'; barcode: string };
 
 export type EcommerceStatus = 'CREATED' | 'ACTIVE' | 'CLOSED' | 'DISPATCHED';
 
@@ -168,6 +207,49 @@ export interface EcommerceRecord {
   mrp_summary?: number | null;
 }
 
+// ---------- E-commerce Area pool (replaces record-scoped create/add/close flows) ----------
+export interface EcommercePoolItem {
+  item_type: 'BOX' | 'CARTON';
+  mapping_id: string;
+  barcode: string;
+  box_count: number;
+  pairs: number;
+  article_summary: string | null;
+  colour_summary: string | null;
+  size_summary: string | null;
+  mrp: number | null;
+  // Set when this box came from a whole carton later unpacked in the pool.
+  source_carton_barcode?: string | null;
+  // Set when this item traces back to an old ecommerce_records entry.
+  legacy_record_barcode?: string | null;
+  added_at: string;
+  added_by_name: string | null;
+}
+
+export interface EcommercePoolSummary {
+  carton_items: number;
+  box_items: number;
+  total_items: number;
+  total_boxes: number;
+  total_pairs: number;
+}
+
+// GET /ecommerce/pool/lookup/:barcode — scan-to-check. in_pool:false = known but ineligible.
+export type EcommercePoolLookup =
+  | {
+      in_pool: true;
+      item_type: 'BOX' | 'CARTON';
+      mapping_id: string;
+      barcode: string;
+      box_count: number;
+      pairs: number;
+      article_summary: string | null;
+      colour_summary: string | null;
+      size_summary: string | null;
+      mrp: number | null;
+    }
+  | { in_pool: false; reason: string; item_type?: 'BOX' | 'CARTON'; barcode?: string };
+
 export type DispatchSourceType = 'master_carton' | 'sample' | 'ecommerce';
 
 export type DispatchStatus = 'CREATED' | 'IN_TRANSIT' | 'DELIVERED';
@@ -188,6 +270,16 @@ export interface DispatchRecord {
   metadata: Record<string, unknown> | null;
   source_type?: DispatchSourceType;
   source_label?: string | null;
+  // E-commerce dispatch details (source_type === 'ecommerce')
+  reference_name?: string | null;
+  marketplace?: string | null;
+  order_reference?: string | null;
+  listing_sku?: string | null;
+  order_date?: string | null;
+  // Sample dispatch details (source_type === 'sample') — captured at dispatch time
+  sample_recipient_name?: string | null;
+  sample_purpose?: string | null;
+  sample_reference_date?: string | null;
   carton_barcode?: string;
   child_count?: number;
   customer_firm_name?: string;
@@ -195,6 +287,10 @@ export interface DispatchRecord {
   colour_summary?: string | null;
   size_summary?: string | null;
   mrp_summary?: number | null;
+  // Return-status (computed server-side): how much of this dispatch has been returned.
+  return_status?: 'none' | 'partial' | 'full';
+  returned_box_count?: number;
+  total_box_count?: number;
   created_at: string;
   updated_at: string;
 }
@@ -292,10 +388,18 @@ export interface CreateMasterCartonRequest {
 }
 
 export interface CreateDispatchRequest {
-  // Exactly one of these three must be provided
+  // Exactly one of these three sources must be provided
   master_carton_ids?: string[];
-  sample_record_id?: string;
-  ecommerce_record_id?: string;
+  // Ship specific items out of ONE sample by mapping_id (not barcode — a box's two
+  // feet can sit in two different samples). Anything not listed stays in the sample.
+  sample_dispatch?: {
+    sample_record_id: string;
+    items: Array<{ item_type: 'BOX' | 'CARTON'; mapping_id: string; foot?: Foot }>;
+  };
+  // Scan loose boxes / whole cartons straight out of the E-commerce Area pool.
+  ecommerce_pool?: {
+    items: Array<{ item_type: 'BOX' | 'CARTON'; barcode: string }>;
+  };
   customer_id?: string;
   destination?: string;
   transport_details?: string;
@@ -303,6 +407,16 @@ export interface CreateDispatchRequest {
   vehicle_number?: string;
   dispatch_date?: string;
   notes?: string;
+  // E-commerce details — only valid alongside ecommerce_pool.
+  reference_name?: string;
+  marketplace?: string;
+  order_reference?: string;
+  listing_sku?: string;
+  order_date?: string;
+  // Sample details — only valid alongside sample_dispatch.
+  sample_recipient_name?: string;
+  sample_purpose?: string;
+  sample_reference_date?: string;
 }
 
 export interface AssortmentItem {
@@ -311,6 +425,101 @@ export interface AssortmentItem {
   size: string;
   mrp: number;
   count: number;
+}
+
+// ─── Carton-level membership (samples & e-commerce) ─────────────────────────
+// A whole master carton allocated intact to a sample/e-commerce record.
+// Shape mirrors backend getSampleCartons / getEcommerceCartons — verify field
+// names against those services when wiring the service methods.
+export interface CartonMembership {
+  mapping_id: string;
+  master_carton_id: string;
+  carton_barcode: string;
+  status?: string;
+  child_count: number;
+  article_summary?: string | null;
+  colour_summary?: string | null;
+  size_summary?: string | null;
+  mrp_summary?: number | null;
+  mapped_at?: string | null;
+  // Boxes individually taken out of this carton into the sample as loose items.
+  taken_out_count?: number;
+}
+
+// ─── Returns ────────────────────────────────────────────────────────────────
+export interface ReturnItem {
+  id: string;
+  item_type: 'BOX' | 'CARTON';
+  barcode: string;
+  article_name?: string;
+  colour?: string;
+  size?: string;
+  mrp?: number;
+  carton_barcode?: string | null;
+  dispatch_record_id?: string | null;
+  origin_dispatch_label?: string | null;
+}
+
+export interface ReturnRecord {
+  id: string;
+  return_date: string;
+  created_at: string;
+  dispatch_record_id?: string | null;
+  customer_id?: string | null;
+  customer_firm_name?: string | null;
+  returned_by_name?: string | null;
+  source_label?: string | null;
+  reason?: string | null;
+  notes?: string | null;
+  item_count?: number;
+  box_count?: number;
+  pairs?: number | null;
+  article_summary?: string | null;
+  colour_summary?: string | null;
+  size_summary?: string | null;
+  items?: ReturnItem[];
+}
+
+// Blind-scan lookup result (GET /returns/lookup/:barcode).
+export interface ReturnableItem {
+  item_type: 'BOX' | 'CARTON';
+  id: string;
+  barcode: string;
+  status: string;
+  child_count?: number;
+  returnable: boolean;
+  reason?: string;
+  channel?: string;
+  article_name?: string;
+  colour?: string;
+  size?: string;
+  mrp?: number;
+  product_summary?: {
+    article_summary?: string | null;
+    colour_summary?: string | null;
+    size_summary?: string | null;
+    box_count?: number;
+    pairs?: number;
+    mrp?: number | null;
+  };
+  origin_dispatch?: {
+    id: string;
+    dispatch_date: string;
+    customer_firm_name?: string | null;
+    source_label?: string;
+  } | null;
+  // On GET /returns/dispatch/:id/items, items already returned are flagged:
+  returned?: boolean;
+  returned_at?: string | null;
+}
+
+export interface CreateReturnRequest {
+  dispatch_record_id?: string;
+  customer_id?: string;
+  return_date?: string;
+  reason?: string;
+  notes?: string;
+  items: Array<{ barcode: string; item_type: 'BOX' | 'CARTON' }>;
 }
 
 export interface InventoryStockSummary {

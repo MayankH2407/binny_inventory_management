@@ -13,20 +13,36 @@ import {
 import { Stack, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useInfiniteQuery } from '@tanstack/react-query';
-import { COLORS, SAMPLE_STATUS_COLORS } from '../../constants';
+import { COLORS } from '../../constants';
 import { samplesService } from '../../services/samples.service';
-import type { SampleRecord, SampleStatus } from '../../types';
+import type { SampleRecord, SampleState } from '../../types';
+import { useApiQuery, useApiMutation } from '../../hooks/useApi';
 import Card from '../../components/ui/Card';
 import Badge from '../../components/ui/Badge';
 import EmptyState from '../../components/ui/EmptyState';
 import Spinner from '../../components/ui/Spinner';
 import RoleGate from '../../components/RoleGate';
-import { formatDate } from '../../utils';
+import BarcodeScanner from '../../components/BarcodeScanner';
+import { formatDate, parseQRCode } from '../../utils';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type StatusFilter = 'ALL' | SampleStatus;
-const STATUS_OPTIONS: StatusFilter[] = ['ALL', 'CREATED', 'ACTIVE', 'CLOSED', 'DISPATCHED'];
+// Sample status is DERIVED server-side from live mapping rows: EMPTY (nothing in
+// it), OPEN (items waiting to be dispatched) or DISPATCHED (everything shipped).
+type StateFilter = 'ALL' | SampleState;
+const STATE_OPTIONS: { value: StateFilter; label: string }[] = [
+  { value: 'OPEN', label: 'Open' },
+  { value: 'EMPTY', label: 'Empty' },
+  { value: 'DISPATCHED', label: 'Dispatched' },
+  { value: 'ALL', label: 'All' },
+];
+
+const STATE_COLORS: Record<SampleState, string> = {
+  EMPTY: COLORS.textSecondary,
+  OPEN: COLORS.statusActive,
+  DISPATCHED: COLORS.statusDispatched,
+};
+
 const PAGE_SIZE = 20;
 
 // ─── Main component ───────────────────────────────────────────────────────────
@@ -34,7 +50,8 @@ const PAGE_SIZE = 20;
 export default function SamplesScreen() {
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
+  const [stateFilter, setStateFilter] = useState<StateFilter>('OPEN');
+  const [scannerOpen, setScannerOpen] = useState(false);
 
   // 300 ms debounce
   useEffect(() => {
@@ -44,13 +61,15 @@ export default function SamplesScreen() {
     return () => clearTimeout(timer);
   }, [searchInput]);
 
+  const summaryQ = useApiQuery(['samples-summary'], () => samplesService.getSummary());
+
   const query = useInfiniteQuery({
-    queryKey: ['samples', { status: statusFilter, search }],
+    queryKey: ['samples', { state: stateFilter, search }],
     queryFn: ({ pageParam }) =>
       samplesService.getAll({
         page: pageParam,
         limit: PAGE_SIZE,
-        status: statusFilter === 'ALL' ? undefined : statusFilter,
+        state: stateFilter === 'ALL' ? undefined : stateFilter,
         search: search || undefined,
       }),
     getNextPageParam: (last) =>
@@ -67,31 +86,48 @@ export default function SamplesScreen() {
     }
   }, [query]);
 
+  // One-click "New Sample" — mints an empty record and opens it, ready to scan into.
+  const createMutation = useApiMutation<SampleRecord, void>(
+    () => samplesService.create(),
+    {
+      invalidateKeys: [['samples'], ['samples-summary']],
+      onSuccess: (sample) => router.push(`/samples/${sample.id}`),
+    },
+  );
+
+  // Scan a sample's own sticker to jump straight to it.
+  const findMutation = useApiMutation<SampleRecord, string>(
+    (barcode) => samplesService.getByBarcode(barcode),
+    {
+      onSuccess: (sample) => router.push(`/samples/${sample.id}`),
+      errorMessage: 'No sample found with that barcode',
+    },
+  );
+
+  const handleScan = (raw: string) => {
+    setScannerOpen(false);
+    const parsed = parseQRCode(raw);
+    findMutation.mutate(parsed.type === 'sample' ? parsed.id : raw.trim().toUpperCase());
+  };
+
   // ─── Row renderer ──────────────────────────────────────────────────────────
 
   const renderItem = useCallback(({ item: sample }: { item: SampleRecord }) => {
-    // Recipient line — customer firm name takes priority
-    const recipientLine =
-      sample.customer_firm_name
-        ? `To: ${sample.customer_firm_name}`
-        : sample.recipient_name
-        ? `To: ${sample.recipient_name}`
-        : null;
+    const state: SampleState = sample.state ?? 'EMPTY';
 
-    // Box count + MRP
-    const boxMrpLine =
-      `${sample.child_count} boxes` +
-      (sample.mrp_summary != null
-        ? ` · ₹${Number(sample.mrp_summary).toFixed(2)}`
-        : '');
+    const stockLine =
+      state === 'EMPTY'
+        ? 'Nothing in this sample yet'
+        : `${sample.open_box_count ?? 0} box${(sample.open_box_count ?? 0) === 1 ? '' : 'es'}` +
+          ` · ${sample.open_pairs ?? 0} pairs` +
+          (sample.mrp_summary != null ? ` · ₹${Number(sample.mrp_summary).toFixed(2)}` : '');
 
-    // Dates line
     let datesLine = `Created ${formatDate(sample.created_at)}`;
-    if (sample.closed_at) {
-      datesLine += ` · Closed ${formatDate(sample.closed_at)}`;
+    if (sample.shipped_box_count) {
+      datesLine += ` · ${sample.shipped_box_count} shipped`;
     }
-    if (sample.dispatched_at) {
-      datesLine += ` · Dispatched ${formatDate(sample.dispatched_at)}`;
+    if (sample.last_dispatch_date) {
+      datesLine += ` · Last dispatch ${formatDate(sample.last_dispatch_date)}`;
     }
 
     return (
@@ -101,33 +137,27 @@ export default function SamplesScreen() {
         style={styles.rowTouchable}
       >
         <Card style={styles.itemCard}>
-          {/* Row 1: Barcode + Status badge */}
           <View style={styles.row1}>
             <Text style={styles.barcode} numberOfLines={1}>
               {sample.sample_barcode}
             </Text>
-            <Badge
-              label={sample.status}
-              color={SAMPLE_STATUS_COLORS[sample.status]}
-            />
+            <Badge label={state} color={STATE_COLORS[state]} />
           </View>
 
-          {/* Row 2: Sample name */}
-          <Text style={styles.nameLine} numberOfLines={1}>
-            {sample.name}
-          </Text>
-
-          {/* Row 3: Recipient / customer (optional) */}
-          {!!recipientLine && (
-            <Text style={styles.secondaryLine} numberOfLines={1}>
-              {recipientLine}
+          {!!sample.name && (
+            <Text style={styles.nameLine} numberOfLines={1}>
+              {sample.name}
             </Text>
           )}
 
-          {/* Row 4: Box count + MRP */}
-          <Text style={styles.secondaryLine}>{boxMrpLine}</Text>
+          <Text style={styles.secondaryLine}>{stockLine}</Text>
 
-          {/* Row 5: Dates */}
+          {!!sample.article_summary && state !== 'EMPTY' && (
+            <Text style={styles.secondaryLine} numberOfLines={1}>
+              {sample.article_summary}
+            </Text>
+          )}
+
           <Text style={styles.datesLine} numberOfLines={1}>
             {datesLine}
           </Text>
@@ -156,6 +186,8 @@ export default function SamplesScreen() {
     return null;
   }, [query.isFetchingNextPage, query.hasNextPage, items.length]);
 
+  const summary = summaryQ.data;
+
   // ─── Render ────────────────────────────────────────────────────────────────
 
   return (
@@ -163,7 +195,25 @@ export default function SamplesScreen() {
       <Stack.Screen options={{ title: 'Samples' }} />
 
       <View style={styles.container}>
-        {/* Search bar */}
+        {/* Summary strip */}
+        {summary && (
+          <View style={styles.summaryRow}>
+            <View style={styles.summaryCell}>
+              <Text style={styles.summaryValue}>{summary.open_records}</Text>
+              <Text style={styles.summaryLabel}>Open samples</Text>
+            </View>
+            <View style={styles.summaryCell}>
+              <Text style={styles.summaryValue}>{summary.open_boxes}</Text>
+              <Text style={styles.summaryLabel}>Boxes waiting</Text>
+            </View>
+            <View style={styles.summaryCell}>
+              <Text style={styles.summaryValue}>{summary.dispatched_records}</Text>
+              <Text style={styles.summaryLabel}>Dispatched</Text>
+            </View>
+          </View>
+        )}
+
+        {/* Search bar + scan-to-find */}
         <View style={styles.searchWrapper}>
           <Ionicons
             name="search-outline"
@@ -189,21 +239,28 @@ export default function SamplesScreen() {
               <Ionicons name="close-circle" size={18} color={COLORS.textSecondary} />
             </TouchableOpacity>
           )}
+          <TouchableOpacity
+            onPress={() => setScannerOpen(true)}
+            style={styles.scanBtn}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons name="scan-outline" size={22} color={COLORS.primary} />
+          </TouchableOpacity>
         </View>
 
-        {/* Status filter chips */}
+        {/* State filter chips */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
           style={styles.chipsScroll}
           contentContainerStyle={styles.chipsContent}
         >
-          {STATUS_OPTIONS.map((s) => {
-            const active = statusFilter === s;
+          {STATE_OPTIONS.map((o) => {
+            const active = stateFilter === o.value;
             return (
               <TouchableOpacity
-                key={s}
-                onPress={() => setStatusFilter(s)}
+                key={o.value}
+                onPress={() => setStateFilter(o.value)}
                 style={[styles.chip, active ? styles.chipActive : styles.chipInactive]}
                 activeOpacity={0.7}
               >
@@ -213,7 +270,7 @@ export default function SamplesScreen() {
                     active ? styles.chipTextActive : styles.chipTextInactive,
                   ]}
                 >
-                  {s}
+                  {o.label}
                 </Text>
               </TouchableOpacity>
             );
@@ -229,7 +286,11 @@ export default function SamplesScreen() {
           <EmptyState
             icon="flask-outline"
             title="No samples"
-            message="Samples will appear once created."
+            message={
+              stateFilter === 'OPEN'
+                ? 'No samples in progress. Tap + to start a new one.'
+                : 'No samples match this filter.'
+            }
           />
         ) : (
           <FlatList
@@ -243,7 +304,10 @@ export default function SamplesScreen() {
             refreshControl={
               <RefreshControl
                 refreshing={query.isRefetching && !query.isFetchingNextPage}
-                onRefresh={() => query.refetch()}
+                onRefresh={() => {
+                  query.refetch();
+                  summaryQ.refetch();
+                }}
                 tintColor={COLORS.primary}
                 colors={[COLORS.primary]}
               />
@@ -251,17 +315,30 @@ export default function SamplesScreen() {
           />
         )}
 
-        {/* FAB — Create sample (Admin / Supervisor only) */}
+        {/* FAB — one-click New Sample (Admin / Supervisor only) */}
         <RoleGate allow={['Admin', 'Supervisor']}>
           <TouchableOpacity
-            style={styles.fab}
-            onPress={() => router.push('/samples/create')}
+            style={[styles.fab, createMutation.isPending && styles.fabDisabled]}
+            onPress={() => createMutation.mutate()}
+            disabled={createMutation.isPending}
             activeOpacity={0.85}
           >
-            <Ionicons name="add" size={28} color="#FFFFFF" />
+            {createMutation.isPending ? (
+              <Spinner size="small" />
+            ) : (
+              <Ionicons name="add" size={28} color="#FFFFFF" />
+            )}
           </TouchableOpacity>
         </RoleGate>
       </View>
+
+      <BarcodeScanner
+        visible={scannerOpen}
+        onClose={() => setScannerOpen(false)}
+        onScan={handleScan}
+        title="Scan Sample"
+        expectedType="sample"
+      />
     </>
   );
 }
@@ -272,6 +349,33 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.background,
+  },
+
+  // Summary
+  summaryRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginHorizontal: 12,
+    marginTop: 12,
+  },
+  summaryCell: {
+    flex: 1,
+    backgroundColor: COLORS.surface,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    paddingVertical: 8,
+    alignItems: 'center',
+  },
+  summaryValue: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: COLORS.text,
+  },
+  summaryLabel: {
+    fontSize: 11,
+    color: COLORS.textSecondary,
+    marginTop: 1,
   },
 
   // Search
@@ -294,6 +398,9 @@ const styles = StyleSheet.create({
     height: 42,
     fontSize: 14,
     color: COLORS.text,
+  },
+  scanBtn: {
+    marginLeft: 10,
   },
 
   // Chips
@@ -406,5 +513,8 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 4,
+  },
+  fabDisabled: {
+    opacity: 0.7,
   },
 });

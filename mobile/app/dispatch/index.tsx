@@ -9,18 +9,23 @@ import {
   RefreshControl,
   ScrollView,
   Platform,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { Stack, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useInfiniteQuery } from '@tanstack/react-query';
-import { COLORS, CHILD_BOX_STATUS_COLORS } from '../../constants';
+import { COLORS, CHILD_BOX_STATUS_COLORS, RETURN_STATUS_COLORS } from '../../constants';
 import { dispatchService } from '../../services/dispatch.service';
+import { shareCsv } from '../../utils/exportCsv';
 import type { DispatchRecord, DispatchSourceType } from '../../types';
 import Card from '../../components/ui/Card';
 import EmptyState from '../../components/ui/EmptyState';
 import Spinner from '../../components/ui/Spinner';
 import RoleGate from '../../components/RoleGate';
 import { formatDate } from '../../utils';
+
+type ReturnStatusFilter = 'none' | 'partial' | 'full' | undefined;
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -53,6 +58,12 @@ export default function DispatchScreen() {
   // Validated dates sent to the API
   const [startDate, setStartDate] = useState<string | undefined>();
   const [endDate, setEndDate] = useState<string | undefined>();
+
+  // Return-status filter
+  const [returnStatus, setReturnStatus] = useState<ReturnStatusFilter>(undefined);
+
+  // Export
+  const [exporting, setExporting] = useState(false);
 
   // ── 300 ms debounce for search ─────────────────────────────────────────────
   useEffect(() => {
@@ -94,14 +105,15 @@ export default function DispatchScreen() {
 
   // ── Infinite query ─────────────────────────────────────────────────────────
   const query = useInfiniteQuery({
-    queryKey: ['dispatches', { search, startDate, endDate }],
+    queryKey: ['dispatches', { search, startDate, endDate, returnStatus }],
     queryFn: ({ pageParam }) =>
       dispatchService.getAll({
         page: pageParam,
         limit: PAGE_SIZE,
         search: search || undefined,
-        start_date: startDate,
-        end_date: endDate,
+        from_date: startDate,
+        to_date: endDate,
+        return_status: returnStatus || undefined,
       }),
     getNextPageParam: (last) =>
       last.page < last.totalPages ? last.page + 1 : undefined,
@@ -117,17 +129,42 @@ export default function DispatchScreen() {
     }
   }, [query]);
 
+  // ── Export CSV ─────────────────────────────────────────────────────────────
+  const handleExport = useCallback(async () => {
+    setExporting(true);
+    try {
+      const csv = await dispatchService.exportCsv({ from_date: startDate, to_date: endDate });
+      await shareCsv('dispatch-report.csv', csv);
+    } catch (err: any) {
+      Alert.alert(
+        'Export failed',
+        err?.response?.data?.message ?? err?.message ?? 'Could not export the dispatch report.'
+      );
+    } finally {
+      setExporting(false);
+    }
+  }, [startDate, endDate]);
+
   // ─── Row renderer ──────────────────────────────────────────────────────────
 
   const renderItem = useCallback(({ item: dispatch }: { item: DispatchRecord }) => {
     // Meta line: "12 boxes · ₹1,450.00 · LR 12345"
     const metaParts: string[] = [];
-    metaParts.push(`${dispatch.child_count ?? '?'} boxes`);
+    // total_box_count is the universal count (sample / e-commerce dispatches
+    // don't populate child_count, which only master-carton dispatches carry).
+    metaParts.push(`${dispatch.total_box_count ?? dispatch.child_count ?? '?'} boxes`);
     if (dispatch.mrp_summary != null) {
       metaParts.push(`₹${Number(dispatch.mrp_summary).toFixed(2)}`);
     }
     if (dispatch.lr_number) {
       metaParts.push(`LR ${dispatch.lr_number}`);
+    }
+    // Dispatch-time details captured for sample / e-commerce dispatches
+    if (dispatch.source_type === 'ecommerce') {
+      const ec = [dispatch.marketplace, dispatch.order_reference].filter(Boolean).join(' · ');
+      if (ec) metaParts.push(ec);
+    } else if (dispatch.source_type === 'sample' && dispatch.sample_recipient_name) {
+      metaParts.push(`To ${dispatch.sample_recipient_name}`);
     }
     const metaLine = metaParts.join(' · ');
 
@@ -157,6 +194,13 @@ export default function DispatchScreen() {
     // Display barcode: prefer source_label, then carton_barcode, else '—'
     const displayBarcode = dispatch.source_label ?? dispatch.carton_barcode ?? '—';
 
+    // Return-status pill (only shown when some/all of the dispatch has been returned)
+    const showReturnStatus = !!dispatch.return_status && dispatch.return_status !== 'none';
+    const returnStatusColor: string = dispatch.return_status
+      ? RETURN_STATUS_COLORS[dispatch.return_status]
+      : COLORS.textLight;
+    const returnStatusLabel = dispatch.return_status === 'full' ? 'Full Return' : 'Partial Return';
+
     return (
       <TouchableOpacity
         activeOpacity={0.7}
@@ -172,10 +216,24 @@ export default function DispatchScreen() {
             <View style={[styles.sourceChip, sourceChipStyle]}>
               <Text style={[styles.sourceChipText, sourceChipTextStyle]}>{sourceChipLabel}</Text>
             </View>
+            {showReturnStatus && (
+              <View style={[styles.returnPill, { backgroundColor: returnStatusColor + '18' }]}>
+                <Text style={[styles.returnPillText, { color: returnStatusColor }]}>
+                  {returnStatusLabel}
+                </Text>
+              </View>
+            )}
             <Text style={styles.dateText}>
               {formatDate(dispatch.dispatch_date)}
             </Text>
           </View>
+
+          {/* Return progress */}
+          {showReturnStatus && (
+            <Text style={styles.returnProgressLine}>
+              {dispatch.returned_box_count ?? 0} of {dispatch.total_box_count ?? dispatch.child_count ?? '?'} returned
+            </Text>
+          )}
 
           {/* Customer firm name */}
           <Text
@@ -337,8 +395,52 @@ export default function DispatchScreen() {
                 <Text style={[styles.chipText, styles.chipClearText]}>Clear</Text>
               </TouchableOpacity>
             )}
+            <TouchableOpacity
+              style={[styles.chip, styles.chipExport]}
+              onPress={handleExport}
+              activeOpacity={0.7}
+              disabled={exporting}
+            >
+              {exporting ? (
+                <ActivityIndicator size="small" color={COLORS.primary} />
+              ) : (
+                <>
+                  <Ionicons name="download-outline" size={14} color={COLORS.primary} />
+                  <Text style={[styles.chipText, styles.chipExportText]}>Export CSV</Text>
+                </>
+              )}
+            </TouchableOpacity>
           </ScrollView>
         </View>
+
+        {/* Return-status filter */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.returnFilterScroll}
+          contentContainerStyle={styles.chipsContent}
+        >
+          {(
+            [
+              { value: undefined, label: 'All' },
+              { value: 'none', label: 'Not Returned' },
+              { value: 'partial', label: 'Partial' },
+              { value: 'full', label: 'Full' },
+            ] as Array<{ value: ReturnStatusFilter; label: string }>
+          ).map((opt) => {
+            const active = returnStatus === opt.value;
+            return (
+              <TouchableOpacity
+                key={opt.label}
+                style={[styles.chip, active && styles.chipActive]}
+                onPress={() => setReturnStatus(opt.value)}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.chipText, active && styles.chipTextActive]}>{opt.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
 
         {/* List / loading / empty */}
         {query.isLoading && items.length === 0 ? (
@@ -484,6 +586,46 @@ const styles = StyleSheet.create({
   },
   chipClearText: {
     color: COLORS.error,
+  },
+  chipExport: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: COLORS.primary + '10',
+  },
+  chipExportText: {
+    color: COLORS.primary,
+  },
+  chipActive: {
+    backgroundColor: COLORS.primary,
+  },
+  chipTextActive: {
+    color: COLORS.surface,
+  },
+
+  // Return-status filter
+  returnFilterScroll: {
+    flexGrow: 0,
+    marginHorizontal: 12,
+    marginBottom: 8,
+  },
+
+  // Return-status pill (row card)
+  returnPill: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 10,
+    flexShrink: 0,
+  },
+  returnPillText: {
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  returnProgressLine: {
+    fontSize: 12,
+    color: COLORS.warning,
+    fontWeight: '600',
+    marginBottom: 3,
   },
 
   // List

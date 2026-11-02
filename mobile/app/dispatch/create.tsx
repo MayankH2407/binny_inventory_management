@@ -31,11 +31,19 @@ import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import EmptyState from '../../components/ui/EmptyState';
 import Input from '../../components/ui/Input';
+import {
+  buildMasterCartonPayload,
+  buildSamplePayload,
+  buildEcommercePayload,
+  ecItemKey,
+  type EcPoolHit,
+} from '../../utils/dispatchPayload';
 import type {
   Customer,
   MasterCarton,
   SampleRecord,
-  EcommerceRecord,
+  SampleItem,
+  Foot,
   DispatchRecord,
   DispatchSourceType,
   CreateDispatchRequest,
@@ -44,6 +52,9 @@ import type {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const CUSTOMER_PAGE_SIZE = 20;
+
+const FOOT_OPTIONS: Foot[] = ['LEFT', 'PAIR', 'RIGHT'];
+const FOOT_LABEL: Record<Foot, string> = { LEFT: 'Left', PAIR: 'Pair', RIGHT: 'Right' };
 
 // ─── Denied fallback ──────────────────────────────────────────────────────────
 
@@ -225,12 +236,24 @@ function DispatchCreateScreen() {
   const [scannerOpen, setScannerOpen] = useState(false);
 
   // ── Sample state ─────────────────────────────────────────────────────────────
+  // Scan the sample's own barcode, then tick the open items to ship. Anything
+  // left unticked simply stays in the sample (partial dispatch by construction).
   const [selectedSample, setSelectedSample] = useState<SampleRecord | null>(null);
+  const [selectedMappingIds, setSelectedMappingIds] = useState<Set<string>>(new Set());
+  const [footOverrides, setFootOverrides] = useState<Record<string, Foot>>({});
+  const [sampleRecipient, setSampleRecipient] = useState('');
+  const [samplePurpose, setSamplePurpose] = useState('');
+  const [sampleRefDate, setSampleRefDate] = useState('');
   const [sampleScannerOpen, setSampleScannerOpen] = useState(false);
   const [sampleManualInput, setSampleManualInput] = useState('');
 
-  // ── E-commerce state ─────────────────────────────────────────────────────────
-  const [selectedEcommerce, setSelectedEcommerce] = useState<EcommerceRecord | null>(null);
+  // ── E-commerce state (scan boxes / cartons straight out of the pool) ─────────
+  const [ecItems, setEcItems] = useState<EcPoolHit[]>([]);
+  const [ecReferenceName, setEcReferenceName] = useState('');
+  const [ecMarketplace, setEcMarketplace] = useState('');
+  const [ecOrderReference, setEcOrderReference] = useState('');
+  const [ecListingSku, setEcListingSku] = useState('');
+  const [ecOrderDate, setEcOrderDate] = useState('');
   const [ecommerceScannerOpen, setEcommerceScannerOpen] = useState(false);
   const [ecommerceManualInput, setEcommerceManualInput] = useState('');
 
@@ -250,8 +273,8 @@ function DispatchCreateScreen() {
     setSelectedSource(source);
     // Clear the other sources' selection state when switching
     if (source !== 'master_carton') setScannedCartons([]);
-    if (source !== 'sample') setSelectedSample(null);
-    if (source !== 'ecommerce') setSelectedEcommerce(null);
+    if (source !== 'sample') clearSampleSelection();
+    if (source !== 'ecommerce') setEcItems([]);
   };
 
   // ── Mutation ─────────────────────────────────────────────────────────────────
@@ -264,9 +287,17 @@ function DispatchCreateScreen() {
         ['masterCartons'],
         ['dispatches'],
         ['childBoxes'],
+        ['inventory'],
         ['inventory-summary'],
         ['inventory-hierarchy'],
         ['dashboard-stats'],
+        // Samples / e-commerce pool lists + counters (keys shared with those screens)
+        ['samples'],
+        ['sample'],
+        ['samples-summary'],
+        ['ecommerce-pool'],
+        ['ecommerce-pool-summary'],
+        ['ecommerce-stock-summary'],
       ],
       onSuccess: async () => {
         await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -319,23 +350,38 @@ function DispatchCreateScreen() {
 
   // ── Sample lookup ─────────────────────────────────────────────────────────────
 
+  const sampleItems: SampleItem[] = selectedSample?.items ?? [];
+  const sampleScopeIsPartial =
+    selectedSample !== null && selectedMappingIds.size < sampleItems.length;
+
+  function clearSampleSelection() {
+    setSelectedSample(null);
+    setSelectedMappingIds(new Set());
+    setFootOverrides({});
+    setSampleRecipient('');
+    setSamplePurpose('');
+    setSampleRefDate('');
+  }
+
   const lookupSample = async (raw: string) => {
     const code = raw.trim().toUpperCase();
     if (!code) return;
     setValidating(true);
     try {
       const record = await samplesService.getByBarcode(code);
-      if (record.status !== 'CLOSED') {
-        const msg =
-          record.status === 'DISPATCHED'
-            ? 'This sample has already been dispatched.'
-            : record.status === 'CREATED'
-            ? 'Sample has no boxes (CREATED status).'
-            : 'Only CLOSED samples can be dispatched.';
-        Alert.alert('Not dispatchable', msg);
+      const items = record.items ?? [];
+      if (items.length === 0) {
+        Alert.alert(
+          'Sample is empty',
+          record.state === 'DISPATCHED'
+            ? 'Everything in this sample has already been dispatched.'
+            : 'Add boxes or cartons to this sample before dispatching it.'
+        );
         return;
       }
       setSelectedSample(record);
+      setSelectedMappingIds(new Set(items.map((i) => i.mapping_id)));
+      setFootOverrides({});
       setSampleManualInput('');
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (err: any) {
@@ -354,47 +400,63 @@ function DispatchCreateScreen() {
     await lookupSample(code);
   };
 
-  // ── E-commerce lookup ─────────────────────────────────────────────────────────
+  const toggleSampleItem = (mappingId: string) => {
+    setSelectedMappingIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(mappingId)) next.delete(mappingId);
+      else next.add(mappingId);
+      return next;
+    });
+  };
 
-  const lookupEcommerce = async (raw: string) => {
-    const code = raw.trim().toUpperCase();
+  // ── E-commerce pool scan ──────────────────────────────────────────────────────
+  // Each scan is checked against the E-commerce Area pool; only items actually
+  // in the pool can be added. De-duped on TYPE:BARCODE.
+
+  const addEcommerceItem = async (raw: string) => {
+    const parsed = parseQRCode(raw);
+    const code = (parsed.type === 'child' || parsed.type === 'master' ? parsed.id : raw)
+      .trim()
+      .toUpperCase();
     if (!code) return;
+
     setValidating(true);
     try {
-      const record = await ecommerceService.getByBarcode(code);
-      if (record.status !== 'CLOSED') {
-        const msg =
-          record.status === 'DISPATCHED'
-            ? 'This e-commerce record has already been dispatched.'
-            : record.status === 'CREATED'
-            ? 'E-commerce record has no boxes (CREATED status).'
-            : 'Only CLOSED e-commerce records can be dispatched.';
-        Alert.alert('Not dispatchable', msg);
+      const result = await ecommerceService.lookupPoolItem(code);
+      if (!result.in_pool) {
+        Alert.alert(
+          'Not in the E-commerce Area',
+          result.reason || `${result.barcode ?? code} is not available in the E-commerce Area.`
+        );
         return;
       }
-      setSelectedEcommerce(record);
+      if (ecItems.some((i) => ecItemKey(i) === ecItemKey(result))) {
+        Alert.alert('Already added', `${result.barcode} is already in the list.`);
+        return;
+      }
+      setEcItems((prev) => [...prev, result]);
       setEcommerceManualInput('');
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (err: any) {
       Alert.alert(
-        'Lookup failed',
-        err?.response?.data?.message ?? err?.message ?? 'E-commerce record not found'
+        'Scan failed',
+        err?.response?.data?.message ?? err?.message ?? 'No box or carton found for that barcode'
       );
     } finally {
       setValidating(false);
     }
   };
 
-  const handleEcommerceScan = async (raw: string) => {
-    const parsed = parseQRCode(raw);
-    const code = parsed.type === 'ecommerce' ? parsed.id : raw.trim().toUpperCase();
-    await lookupEcommerce(code);
+  const removeEcommerceItem = (key: string) => {
+    setEcItems((prev) => prev.filter((i) => ecItemKey(i) !== key));
   };
 
   // ── Submit ────────────────────────────────────────────────────────────────────
 
   function submit() {
-    if (!customer) {
+    // A customer is required for master-carton dispatches only; sample and
+    // e-commerce dispatches may ship without one (same as the web app).
+    if (selectedSource === 'master_carton' && !customer) {
       Alert.alert('Select customer', 'Pick a customer before dispatching.');
       return;
     }
@@ -409,29 +471,44 @@ function DispatchCreateScreen() {
         Alert.alert('No sample', 'Scan or enter a sample barcode to dispatch.');
         return;
       }
-    } else {
-      if (!selectedEcommerce) {
-        Alert.alert('No e-commerce record', 'Scan or enter an e-commerce barcode to dispatch.');
+      if (selectedMappingIds.size === 0) {
+        Alert.alert('No items selected', 'Tick at least one item to dispatch.');
         return;
       }
+    } else if (ecItems.length === 0) {
+      Alert.alert('No items', 'Scan at least one box or carton from the E-commerce Area.');
+      return;
     }
 
-    const basePayload = {
-      customer_id: customer.id,
-      destination: destination.trim() || undefined,
-      transport_details: transportDetails.trim() || undefined,
-      lr_number: lrNumber.trim() || undefined,
-      vehicle_number: vehicleNumber.trim() || undefined,
-      notes: notes.trim() || undefined,
+    const base = {
+      customerId: customer?.id,
+      destination,
+      transportDetails,
+      lrNumber,
+      vehicleNumber,
+      notes,
     };
 
     let payload: CreateDispatchRequest;
     if (selectedSource === 'master_carton') {
-      payload = { ...basePayload, master_carton_ids: scannedCartons.map((c) => c.id) };
+      payload = buildMasterCartonPayload(base, scannedCartons.map((c) => c.id));
     } else if (selectedSource === 'sample') {
-      payload = { ...basePayload, sample_record_id: selectedSample!.id };
+      payload = buildSamplePayload(
+        base,
+        selectedSample!.id,
+        sampleItems,
+        selectedMappingIds,
+        footOverrides,
+        { recipientName: sampleRecipient, purpose: samplePurpose, referenceDate: sampleRefDate }
+      );
     } else {
-      payload = { ...basePayload, ecommerce_record_id: selectedEcommerce!.id };
+      payload = buildEcommercePayload(base, ecItems, {
+        referenceName: ecReferenceName,
+        marketplace: ecMarketplace,
+        orderReference: ecOrderReference,
+        listingSku: ecListingSku,
+        orderDate: ecOrderDate,
+      });
     }
 
     dispatchMutation.mutate(payload);
@@ -440,23 +517,25 @@ function DispatchCreateScreen() {
   // ── Submit button label + disabled ────────────────────────────────────────────
 
   const canSubmit =
-    !!customer &&
-    (selectedSource === 'master_carton'
-      ? scannedCartons.length > 0
+    selectedSource === 'master_carton'
+      ? !!customer && scannedCartons.length > 0
       : selectedSource === 'sample'
-      ? selectedSample !== null
-      : selectedEcommerce !== null);
+      ? selectedSample !== null && selectedMappingIds.size > 0
+      : ecItems.length > 0;
 
   let submitLabel: string;
   if (selectedSource === 'master_carton') {
     const n = scannedCartons.length;
     submitLabel = n === 0 ? 'Dispatch Cartons' : `Dispatch ${n} Carton${n === 1 ? '' : 's'}`;
   } else if (selectedSource === 'sample') {
-    submitLabel = selectedSample ? `Dispatch Sample — ${selectedSample.name}` : 'Dispatch Sample';
+    submitLabel = !selectedSample
+      ? 'Dispatch Sample'
+      : sampleScopeIsPartial
+      ? `Dispatch ${selectedMappingIds.size} of ${sampleItems.length} Items`
+      : `Dispatch Sample — ${selectedSample.sample_barcode}`;
   } else {
-    submitLabel = selectedEcommerce
-      ? `Dispatch E-commerce — ${selectedEcommerce.name}`
-      : 'Dispatch E-commerce';
+    const n = ecItems.length;
+    submitLabel = n === 0 ? 'Dispatch E-commerce' : `Dispatch ${n} Item${n === 1 ? '' : 's'}`;
   }
 
   // ── Render ────────────────────────────────────────────────────────────────────
@@ -614,32 +693,119 @@ function DispatchCreateScreen() {
             <Card style={styles.listCard}>
               {!selectedSample ? (
                 <View style={styles.listEmptyHint}>
-                  <Text style={styles.listEmptyText}>Scan a CLOSED sample to begin.</Text>
+                  <Text style={styles.listEmptyText}>Scan a sample that has items in it to begin.</Text>
                 </View>
               ) : (
-                <View style={styles.sourcePreviewRow}>
-                  <View style={styles.sourcePreviewInfo}>
-                    <Text style={styles.sourcePreviewName}>{selectedSample.name}</Text>
-                    <Text style={styles.sourcePreviewBarcode}>{selectedSample.sample_barcode}</Text>
-                    {(selectedSample.customer_firm_name || selectedSample.recipient_name) && (
-                      <Text style={styles.sourcePreviewMeta} numberOfLines={1}>
-                        {selectedSample.customer_firm_name ?? selectedSample.recipient_name}
+                <View>
+                  <View style={styles.sourcePreviewRow}>
+                    <View style={styles.sourcePreviewInfo}>
+                      <Text style={styles.sourcePreviewName}>
+                        {selectedSample.name || selectedSample.sample_barcode}
                       </Text>
-                    )}
-                    <Text style={styles.sourcePreviewMeta}>
-                      {selectedSample.child_count} box{selectedSample.child_count === 1 ? '' : 'es'} · {selectedSample.status}
-                    </Text>
+                      <Text style={styles.sourcePreviewBarcode}>{selectedSample.sample_barcode}</Text>
+                      <Text style={styles.sourcePreviewMeta}>
+                        {sampleItems.length} item{sampleItems.length === 1 ? '' : 's'} currently in this sample
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.trashBtn}
+                      onPress={clearSampleSelection}
+                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    >
+                      <Ionicons name="close-circle-outline" size={22} color={COLORS.error} />
+                    </TouchableOpacity>
                   </View>
-                  <TouchableOpacity
-                    style={styles.trashBtn}
-                    onPress={() => setSelectedSample(null)}
-                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                  >
-                    <Ionicons name="trash-outline" size={22} color={COLORS.error} />
-                  </TouchableOpacity>
+
+                  {sampleItems.map((item) => {
+                    const checked = selectedMappingIds.has(item.mapping_id);
+                    const foot = footOverrides[item.mapping_id] ?? item.foot;
+                    return (
+                      <View key={item.mapping_id} style={styles.sampleItemRow}>
+                        <TouchableOpacity
+                          style={styles.sampleItemMain}
+                          activeOpacity={0.7}
+                          onPress={() => toggleSampleItem(item.mapping_id)}
+                        >
+                          <Ionicons
+                            name={checked ? 'checkbox' : 'square-outline'}
+                            size={24}
+                            color={checked ? COLORS.primary : COLORS.textSecondary}
+                          />
+                          <View style={styles.cartonInfo}>
+                            <Text style={styles.cartonBarcode}>
+                              {item.barcode}
+                              {item.item_type === 'CARTON' ? '  · Carton' : ''}
+                            </Text>
+                            <Text style={styles.cartonMeta} numberOfLines={1}>
+                              {item.item_type === 'CARTON'
+                                ? `${item.box_count} box${item.box_count === 1 ? '' : 'es'}`
+                                : '1 box'}
+                              {item.article_summary ? ` · ${item.article_summary}` : ''}
+                              {item.colour_summary ? ` · ${item.colour_summary}` : ''}
+                              {item.size_summary ? ` · ${item.size_summary}` : ''}
+                            </Text>
+                          </View>
+                        </TouchableOpacity>
+                        {item.item_type === 'BOX' && checked && (
+                          <View style={styles.footRow}>
+                            {FOOT_OPTIONS.map((f) => (
+                              <TouchableOpacity
+                                key={f}
+                                style={[styles.footChip, foot === f && styles.footChipActive]}
+                                onPress={() =>
+                                  setFootOverrides((prev) => ({ ...prev, [item.mapping_id]: f }))
+                                }
+                                activeOpacity={0.75}
+                              >
+                                <Text style={[styles.footChipText, foot === f && styles.footChipTextActive]}>
+                                  {FOOT_LABEL[f]}
+                                </Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        )}
+                      </View>
+                    );
+                  })}
+
+                  {sampleScopeIsPartial && (
+                    <Text style={styles.partialHint}>
+                      Partial dispatch — unticked items stay in this sample for a later dispatch.
+                    </Text>
+                  )}
                 </View>
               )}
             </Card>
+
+            {selectedSample && (
+              <>
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.sectionTitle}>Sample Details (optional)</Text>
+                </View>
+                <Input
+                  label="Recipient"
+                  placeholder="Who is this sample going to?"
+                  value={sampleRecipient}
+                  onChangeText={setSampleRecipient}
+                  containerStyle={styles.inputGap}
+                />
+                <Input
+                  label="Purpose"
+                  placeholder="e.g. Trade show, retailer trial"
+                  value={samplePurpose}
+                  onChangeText={setSamplePurpose}
+                  containerStyle={styles.inputGap}
+                />
+                <Input
+                  label="Reference Date"
+                  placeholder="YYYY-MM-DD"
+                  value={sampleRefDate}
+                  onChangeText={setSampleRefDate}
+                  keyboardType="numbers-and-punctuation"
+                  containerStyle={styles.inputGap}
+                />
+              </>
+            )}
           </>
         )}
 
@@ -647,11 +813,14 @@ function DispatchCreateScreen() {
         {selectedSource === 'ecommerce' && (
           <>
             <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>E-commerce to Dispatch</Text>
+              <Text style={styles.sectionTitle}>
+                E-commerce Items{' '}
+                <Text style={styles.sectionCount}>({ecItems.length})</Text>
+              </Text>
             </View>
 
             <Button
-              title={validating ? 'Looking up…' : 'Scan E-commerce'}
+              title={validating ? 'Checking…' : 'Scan Box / Carton'}
               onPress={() => setEcommerceScannerOpen(true)}
               icon={<Ionicons name="cart-outline" size={18} color={COLORS.surface} />}
               fullWidth
@@ -662,13 +831,13 @@ function DispatchCreateScreen() {
             <View style={styles.manualRow}>
               <View style={styles.manualInputWrap}>
                 <Input
-                  label="Or enter e-commerce barcode manually"
-                  placeholder="BINNY-EC-..."
+                  label="Or enter a box / carton barcode"
+                  placeholder="CBxxxxxx / MCxxxxxx"
                   value={ecommerceManualInput}
                   onChangeText={setEcommerceManualInput}
                   autoCapitalize="characters"
                   returnKeyType="search"
-                  onSubmitEditing={() => lookupEcommerce(ecommerceManualInput)}
+                  onSubmitEditing={() => addEcommerceItem(ecommerceManualInput)}
                 />
               </View>
               <TouchableOpacity
@@ -676,59 +845,103 @@ function DispatchCreateScreen() {
                   styles.findBtn,
                   (!ecommerceManualInput.trim() || validating) && styles.findBtnDisabled,
                 ]}
-                onPress={() => lookupEcommerce(ecommerceManualInput)}
+                onPress={() => addEcommerceItem(ecommerceManualInput)}
                 disabled={!ecommerceManualInput.trim() || validating}
                 activeOpacity={0.75}
               >
-                <Text style={styles.findBtnText}>Find</Text>
+                <Text style={styles.findBtnText}>Add</Text>
               </TouchableOpacity>
             </View>
 
             <Card style={styles.listCard}>
-              {!selectedEcommerce ? (
+              {ecItems.length === 0 ? (
                 <View style={styles.listEmptyHint}>
-                  <Text style={styles.listEmptyText}>Scan a CLOSED e-commerce record to begin.</Text>
+                  <Text style={styles.listEmptyText}>
+                    Scan boxes or cartons that are in the E-commerce Area.
+                  </Text>
                 </View>
               ) : (
-                <View style={styles.sourcePreviewRow}>
-                  <View style={styles.sourcePreviewInfo}>
-                    <Text style={styles.sourcePreviewName}>{selectedEcommerce.name}</Text>
-                    <Text style={styles.sourcePreviewBarcode}>{selectedEcommerce.ecommerce_barcode}</Text>
-                    {!!selectedEcommerce.marketplace && (
-                      <Text style={styles.sourcePreviewMeta} numberOfLines={1}>
-                        {selectedEcommerce.marketplace}
-                      </Text>
-                    )}
-                    {!!selectedEcommerce.order_reference && (
-                      <Text style={styles.sourcePreviewMeta} numberOfLines={1}>
-                        Order: {selectedEcommerce.order_reference}
-                      </Text>
-                    )}
-                    {!!selectedEcommerce.listing_sku && (
-                      <Text style={styles.sourcePreviewMeta} numberOfLines={1}>
-                        SKU: {selectedEcommerce.listing_sku}
-                      </Text>
-                    )}
-                    <Text style={styles.sourcePreviewMeta}>
-                      {selectedEcommerce.child_count} box{selectedEcommerce.child_count === 1 ? '' : 'es'} · {selectedEcommerce.status}
-                    </Text>
-                  </View>
-                  <TouchableOpacity
-                    style={styles.trashBtn}
-                    onPress={() => setSelectedEcommerce(null)}
-                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                  >
-                    <Ionicons name="trash-outline" size={22} color={COLORS.error} />
-                  </TouchableOpacity>
+                <View>
+                  {ecItems.map((item, idx) => (
+                    <View
+                      key={ecItemKey(item)}
+                      style={[styles.cartonRow, idx < ecItems.length - 1 && styles.cartonRowBorder]}
+                    >
+                      <View style={styles.cartonInfo}>
+                        <Text style={styles.cartonBarcode}>
+                          {item.barcode}
+                          {item.item_type === 'CARTON' ? '  · Carton' : ''}
+                        </Text>
+                        <Text style={styles.cartonMeta} numberOfLines={1}>
+                          {item.item_type === 'CARTON'
+                            ? `${item.box_count} box${item.box_count === 1 ? '' : 'es'}`
+                            : '1 box'}
+                          {item.article_summary ? ` · ${item.article_summary}` : ''}
+                          {item.colour_summary ? ` · ${item.colour_summary}` : ''}
+                          {item.size_summary ? ` · ${item.size_summary}` : ''}
+                        </Text>
+                      </View>
+                      <TouchableOpacity
+                        style={styles.trashBtn}
+                        onPress={() => removeEcommerceItem(ecItemKey(item))}
+                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      >
+                        <Ionicons name="trash-outline" size={22} color={COLORS.error} />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
                 </View>
               )}
             </Card>
+
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Order Details (optional)</Text>
+            </View>
+            <Input
+              label="Reference Name"
+              placeholder="Internal reference"
+              value={ecReferenceName}
+              onChangeText={setEcReferenceName}
+              containerStyle={styles.inputGap}
+            />
+            <Input
+              label="Marketplace"
+              placeholder="e.g. Amazon, Flipkart"
+              value={ecMarketplace}
+              onChangeText={setEcMarketplace}
+              containerStyle={styles.inputGap}
+            />
+            <Input
+              label="Order Reference"
+              placeholder="Marketplace order no."
+              value={ecOrderReference}
+              onChangeText={setEcOrderReference}
+              containerStyle={styles.inputGap}
+            />
+            <Input
+              label="Listing SKU"
+              placeholder="Listing SKU"
+              value={ecListingSku}
+              onChangeText={setEcListingSku}
+              autoCapitalize="characters"
+              containerStyle={styles.inputGap}
+            />
+            <Input
+              label="Order Date"
+              placeholder="YYYY-MM-DD"
+              value={ecOrderDate}
+              onChangeText={setEcOrderDate}
+              keyboardType="numbers-and-punctuation"
+              containerStyle={styles.inputGap}
+            />
           </>
         )}
 
         {/* ── Customer section ── */}
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Customer</Text>
+          <Text style={styles.sectionTitle}>
+            Customer{selectedSource === 'master_carton' ? '' : ' (optional)'}
+          </Text>
         </View>
 
         {!customer ? (
@@ -850,9 +1063,9 @@ function DispatchCreateScreen() {
       <BarcodeScanner
         visible={ecommerceScannerOpen}
         onClose={() => setEcommerceScannerOpen(false)}
-        onScan={handleEcommerceScan}
-        expectedType="ecommerce"
-        title="Scan E-commerce"
+        onScan={addEcommerceItem}
+        expectedType="any"
+        title="Scan Box / Carton"
       />
 
       {/* ── Customer picker modal ── */}
@@ -976,6 +1189,47 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 8,
     marginBottom: 2,
+  },
+  sampleItemRow: {
+    paddingVertical: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: COLORS.border,
+  },
+  sampleItemMain: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  footRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 8,
+    marginLeft: 34,
+  },
+  footChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.surface,
+  },
+  footChipActive: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+  footChipText: {
+    fontSize: 13,
+    color: COLORS.textSecondary,
+    fontWeight: '600',
+  },
+  footChipTextActive: {
+    color: COLORS.surface,
+  },
+  partialHint: {
+    marginTop: 8,
+    fontSize: 12,
+    color: COLORS.textSecondary,
   },
   findBtnDisabled: {
     backgroundColor: COLORS.textLight,

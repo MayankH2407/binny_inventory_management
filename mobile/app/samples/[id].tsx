@@ -13,14 +13,13 @@ import {
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
-import { COLORS, SAMPLE_STATUS_COLORS } from '../../constants';
+import { COLORS } from '../../constants';
 import { samplesService } from '../../services/samples.service';
-import { childBoxService } from '../../services/childBox.service';
-import type { SampleRecord, AssortmentItem, ChildBoxWithProduct } from '../../types';
+import type { AssortmentItem, Foot, SampleItem, SampleRecord, SampleState } from '../../types';
 import { useApiQuery, useApiMutation } from '../../hooks/useApi';
 import { formatDate, parseQRCode } from '../../utils';
 
-import RoleGate, { useHasRole } from '../../components/RoleGate';
+import RoleGate from '../../components/RoleGate';
 import Card from '../../components/ui/Card';
 import Badge from '../../components/ui/Badge';
 import Button from '../../components/ui/Button';
@@ -30,25 +29,45 @@ import BarcodeScanner from '../../components/BarcodeScanner';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const CHILD_BOX_COLLAPSE_THRESHOLD = 5;
+const STATE_COLORS: Record<SampleState, string> = {
+  EMPTY: COLORS.textSecondary,
+  OPEN: COLORS.statusActive,
+  DISPATCHED: COLORS.statusDispatched,
+};
 
-const SAMPLE_INVALIDATE_KEYS = (id: string) => [
+const FOOT_OPTIONS: { value: Foot; label: string }[] = [
+  { value: 'PAIR', label: 'Pair' },
+  { value: 'LEFT', label: 'Left' },
+  { value: 'RIGHT', label: 'Right' },
+];
+
+const FOOT_LABEL: Record<Foot, string> = { PAIR: 'Pair', LEFT: 'Left shoe', RIGHT: 'Right shoe' };
+
+// Roles that can scan boxes in / out and unpack cartons; backend permissions still apply.
+const EDIT_ROLES = ['Admin', 'Supervisor', 'Warehouse Operator'] as const;
+
+const invalidateKeys = (id: string) => [
   ['samples'],
+  ['samples-summary'],
   ['sample', id],
+  ['sample-contents', id],
   ['sample-assortment', id],
-  ['childBoxes'],
   ['inventory-summary'],
   ['inventory-hierarchy'],
   ['dashboard-stats'],
 ];
 
+function errorMessage(err: any): string {
+  return err?.response?.data?.message ?? err?.message ?? 'Something went wrong';
+}
+
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function TimelineRow({ label, value }: { label: string; value: string }) {
+function InfoRow({ label, value }: { label: string; value: string }) {
   return (
-    <View style={styles.timelineRow}>
-      <Text style={styles.timelineLabel}>{label}</Text>
-      <Text style={styles.timelineValue}>{value}</Text>
+    <View style={styles.infoRow}>
+      <Text style={styles.infoLabel}>{label}</Text>
+      <Text style={styles.infoValue}>{value}</Text>
     </View>
   );
 }
@@ -60,486 +79,430 @@ function AssortmentRow({ item }: { item: AssortmentItem }) {
       <Text style={styles.assortmentLabel} numberOfLines={1} ellipsizeMode="tail">
         {label}
       </Text>
-      <View style={styles.assortmentCountPill}>
-        <Text style={styles.assortmentCountText}>x{item.count}</Text>
-      </View>
+      <Text style={styles.assortmentQty}>×{item.count}</Text>
     </View>
   );
 }
 
-interface ChildBoxRowProps {
-  box: ChildBoxWithProduct;
-  canRemove: boolean;
-  onRemove: () => void;
-}
-
-function ChildBoxRow({ box, canRemove, onRemove }: ChildBoxRowProps) {
+function SummaryLine({ item }: { item: SampleItem }) {
+  const parts = [item.article_summary, item.colour_summary, item.size_summary].filter(Boolean);
+  if (parts.length === 0) return null;
   return (
-    <View style={styles.childBoxRow}>
-      <View style={styles.childBoxTop}>
-        <Text style={styles.childBoxBarcode} numberOfLines={1}>
-          {box.barcode}
-        </Text>
-        <View style={styles.childBoxTopRight}>
-          <Badge label={box.status} type="childBox" />
-          {canRemove && (
-            <TouchableOpacity
-              style={styles.childBoxTrash}
-              onPress={onRemove}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <Ionicons name="trash-outline" size={18} color={COLORS.error} />
-            </TouchableOpacity>
-          )}
-        </View>
-      </View>
-      <Text style={styles.childBoxDesc} numberOfLines={1}>
-        {box.article_name} · {box.colour} · {box.size}
-      </Text>
-      <Text style={styles.childBoxMeta}>
-        {box.sku} · ₹{Number(box.mrp).toFixed(2)}
-      </Text>
-    </View>
+    <Text style={styles.itemSummary} numberOfLines={2}>
+      {parts.join(' · ')}
+      {item.mrp != null ? ` · ₹${Number(item.mrp).toFixed(2)}` : ''}
+    </Text>
   );
 }
 
-// ─── Main screen ──────────────────────────────────────────────────────────────
+// ─── Main component ───────────────────────────────────────────────────────────
 
 export default function SampleDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
 
-  // Role checks (called unconditionally)
-  const isManager = useHasRole(['Admin', 'Supervisor']);
-  const canDispatch = useHasRole(['Admin', 'Supervisor', 'Dispatch Operator']);
-
-  // ── Data queries ────────────────────────────────────────────────────────────
-  const sampleQ = useApiQuery(
-    ['sample', id ?? ''],
-    () => samplesService.getById(id!),
+  const sampleQ = useApiQuery<SampleRecord>(['sample', id!], () => samplesService.getById(id!), {
+    enabled: !!id,
+  });
+  const contentsQ = useApiQuery<SampleItem[]>(['sample-contents', id!], () => samplesService.getContents(id!), {
+    enabled: !!id,
+  });
+  const assortmentQ = useApiQuery<AssortmentItem[]>(
+    ['sample-assortment', id!],
+    () => samplesService.getAssortment(id!),
     { enabled: !!id },
   );
 
-  const assortmentQ = useApiQuery(
-    ['sample-assortment', id ?? ''],
-    () => samplesService.getAssortment(id!),
-    { enabled: !!id && !!sampleQ.data },
-  );
+  const sample = sampleQ.data;
+  const items = contentsQ.data ?? [];
+  const cartons = items.filter((i) => i.item_type === 'CARTON');
+  const boxes = items.filter((i) => i.item_type === 'BOX');
+  const state: SampleState = sample?.state ?? 'EMPTY';
 
-  const sample: SampleRecord | undefined = sampleQ.data;
-
-  // ── Child boxes collapsible ─────────────────────────────────────────────────
-  const childBoxCount = sample?.child_boxes?.length ?? 0;
-  const [childBoxesExpanded, setChildBoxesExpanded] = useState<boolean>(
-    childBoxCount <= CHILD_BOX_COLLAPSE_THRESHOLD,
-  );
-
-  // ── Pull-to-refresh ─────────────────────────────────────────────────────────
   const [refreshing, setRefreshing] = useState(false);
   const onRefresh = async () => {
     setRefreshing(true);
-    await Promise.all([sampleQ.refetch(), assortmentQ.refetch()]);
+    await Promise.all([sampleQ.refetch(), contentsQ.refetch(), assortmentQ.refetch()]);
     setRefreshing(false);
   };
 
-  // ── Add Box scan section ────────────────────────────────────────────────────
-  const [addBoxOpen, setAddBoxOpen] = useState(false);
+  // ── Scan / add ──────────────────────────────────────────────────────────────
   const [scannerOpen, setScannerOpen] = useState(false);
   const [manualBarcode, setManualBarcode] = useState('');
-  const [addingBox, setAddingBox] = useState(false);
+  const [scanFoot, setScanFoot] = useState<Foot>('PAIR');
 
-  const addBox = async (raw: string) => {
+  // Single scan input: the server works out whether it is a loose box or a whole
+  // carton. No errorMessage override so the API's own message (e.g. "already in
+  // another sample") reaches the operator.
+  const scanMutation = useApiMutation(
+    (barcode: string) => samplesService.scan(id!, { barcode, foot: scanFoot }),
+    {
+      invalidateKeys: invalidateKeys(id ?? ''),
+      onSuccess: (result) => {
+        const msg =
+          result.item_type === 'CARTON'
+            ? `Carton ${result.barcode} added (${result.boxes_added} box${result.boxes_added === 1 ? '' : 'es'})`
+            : `Box ${result.barcode} added${result.foot !== 'PAIR' ? ` (${FOOT_LABEL[result.foot].toLowerCase()})` : ''}`;
+        Alert.alert('Added', msg);
+      },
+    },
+  );
+
+  const submitScan = (raw: string) => {
     const parsed = parseQRCode(raw);
-    const barcode = parsed.type === 'child' ? parsed.id : raw.trim().toUpperCase();
-    setAddingBox(true);
-    try {
-      const box = await childBoxService.getByBarcode(barcode);
-      if (box.status !== 'FREE' && box.status !== 'GENERATED') {
-        Alert.alert(
-          'Box not available',
-          `Box ${barcode} is ${box.status} — only FREE or GENERATED boxes can be added.`,
-        );
-        return;
-      }
-      await samplesService.addBox({ child_box_id: box.id, sample_record_id: id! });
-      Alert.alert('Success', `Box ${barcode} added to sample.`);
-      sampleQ.refetch();
-      assortmentQ.refetch();
-    } catch (err: any) {
-      const msg = err?.response?.data?.message ?? err?.message ?? 'Failed to add box';
-      Alert.alert('Error', msg);
-    } finally {
-      setAddingBox(false);
-    }
+    const barcode = parsed.type === 'child' || parsed.type === 'master' ? parsed.id : raw.trim().toUpperCase();
+    if (!barcode) return;
+    scanMutation.mutate(barcode);
   };
 
-  const handleScan = (raw: string) => {
+  const handleCameraScan = (raw: string) => {
     setScannerOpen(false);
-    addBox(raw);
+    submitScan(raw);
   };
 
   const handleManualAdd = () => {
     const trimmed = manualBarcode.trim();
     if (!trimmed) return;
     setManualBarcode('');
-    addBox(trimmed);
+    submitScan(trimmed);
   };
 
-  // ── Close mutation ──────────────────────────────────────────────────────────
-  const closeMutation = useApiMutation<SampleRecord, string>(
-    (sampleId) => samplesService.close(sampleId),
+  // ── Foot / unpack / remove ──────────────────────────────────────────────────
+  const setFootMutation = useApiMutation(
+    (vars: { mapping_id: string; foot: Foot }) => samplesService.setFoot(id!, vars),
+    { invalidateKeys: invalidateKeys(id ?? '') },
+  );
+
+  const unpackMutation = useApiMutation(
+    (mapping_id: string) => samplesService.unpackCarton(id!, mapping_id),
     {
-      successMessage: 'Sample closed successfully.',
-      invalidateKeys: id ? SAMPLE_INVALIDATE_KEYS(id) : [],
+      invalidateKeys: invalidateKeys(id ?? ''),
+      onSuccess: (r) =>
+        Alert.alert(
+          'Carton unpacked',
+          `${r.carton_barcode} → ${r.boxes_unpacked} loose box${r.boxes_unpacked === 1 ? '' : 'es'} in this sample.`,
+        ),
     },
   );
 
-  function confirmClose() {
-    if (!sample) return;
+  const removeMutation = useApiMutation(
+    (vars: { item_type: 'BOX' | 'CARTON'; mapping_id: string }) => samplesService.remove(id!, vars),
+    { invalidateKeys: invalidateKeys(id ?? '') },
+  );
+
+  const clearMutation = useApiMutation(() => samplesService.clear(id!), {
+    invalidateKeys: invalidateKeys(id ?? ''),
+    onSuccess: (r) =>
+      Alert.alert('Sample emptied', `${r.released_boxes} box(es) and ${r.released_cartons} carton(s) are back in stock.`),
+  });
+
+  const deleteMutation = useApiMutation(() => samplesService.delete(id!), {
+    invalidateKeys: invalidateKeys(id ?? ''),
+    successMessage: 'Sample deleted',
+    onSuccess: () => router.back(),
+  });
+
+  function confirmUnpack(item: SampleItem) {
     Alert.alert(
-      'Close Sample?',
-      `This will close "${sample.name}" (${sample.child_count} boxes) and move it to closed status.`,
+      'Unpack carton?',
+      `All ${item.box_count} boxes in ${item.barcode} become loose items in this sample (each can be split left/right) and the carton itself becomes empty.`,
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Close', onPress: () => closeMutation.mutate(sample.id) },
+        { text: 'Unpack', onPress: () => unpackMutation.mutate(item.mapping_id) },
       ],
     );
   }
 
-  // ── Full Unpack mutation ────────────────────────────────────────────────────
-  const unpackMutation = useApiMutation<SampleRecord, string>(
-    (sampleId) => samplesService.fullUnpack(sampleId),
-    {
-      successMessage: 'Sample fully unpacked. All boxes returned to FREE.',
-      invalidateKeys: id ? SAMPLE_INVALIDATE_KEYS(id) : [],
-    },
-  );
-
-  function confirmUnpack() {
-    if (!sample) return;
+  function confirmRemove(item: SampleItem) {
     Alert.alert(
-      'Full Unpack?',
-      `This will release all ${sample.child_count} boxes from "${sample.name}" back to FREE status. This cannot be undone.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Unpack',
-          style: 'destructive',
-          onPress: () => unpackMutation.mutate(sample.id),
-        },
-      ],
-    );
-  }
-
-  // ── Remove Box mutation ─────────────────────────────────────────────────────
-  const removeBoxMutation = useApiMutation<any, { child_box_id: string; sample_record_id: string }>(
-    (vars) => samplesService.removeBox(vars),
-    {
-      successMessage: 'Box removed from sample.',
-      invalidateKeys: id ? SAMPLE_INVALIDATE_KEYS(id) : [],
-    },
-  );
-
-  function confirmRemoveBox(box: ChildBoxWithProduct) {
-    Alert.alert(
-      'Remove Box?',
-      `Remove ${box.barcode} from this sample?`,
+      'Remove from sample?',
+      item.item_type === 'CARTON'
+        ? `Carton ${item.barcode} (${item.box_count} boxes) goes back to available stock.`
+        : `Box ${item.barcode} goes back to available stock.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Remove',
           style: 'destructive',
-          onPress: () =>
-            removeBoxMutation.mutate({ child_box_id: box.id, sample_record_id: id! }),
+          onPress: () => removeMutation.mutate({ item_type: item.item_type, mapping_id: item.mapping_id }),
         },
       ],
     );
   }
 
-  // ─── Loading / not found ────────────────────────────────────────────────────
-  if (sampleQ.isLoading && !sample) {
+  function confirmClear() {
+    Alert.alert(
+      'Empty this sample?',
+      'Every box and carton in it goes back to available stock. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Empty Sample', style: 'destructive', onPress: () => clearMutation.mutate() },
+      ],
+    );
+  }
+
+  function confirmDelete() {
+    Alert.alert('Delete sample?', 'This permanently removes the empty sample record.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: () => deleteMutation.mutate() },
+    ]);
+  }
+
+  // ── Render guards ───────────────────────────────────────────────────────────
+  if (sampleQ.isLoading) {
     return (
       <>
-        <Stack.Screen options={{ title: 'Sample Details' }} />
-        <View style={styles.centeredContainer}>
+        <Stack.Screen options={{ title: 'Sample' }} />
+        <View style={styles.centered}>
           <Spinner />
         </View>
       </>
     );
   }
 
-  if (!sampleQ.isLoading && !sample) {
+  if (sampleQ.isError || !sample) {
     return (
       <>
-        <Stack.Screen options={{ title: 'Sample Details' }} />
-        <View style={styles.centeredContainer}>
-          <EmptyState
-            icon="flask-outline"
-            title="Sample not found"
-            message="This sample may have been removed."
-          />
-        </View>
+        <Stack.Screen options={{ title: 'Sample' }} />
+        <EmptyState icon="alert-circle-outline" title="Sample not found" message="It may have been deleted." />
       </>
     );
   }
 
-  // ── From here on sample is defined ─────────────────────────────────────────
-  const s = sample!;
-  const assortment: AssortmentItem[] = assortmentQ.data ?? [];
-  const childBoxes: ChildBoxWithProduct[] = s.child_boxes ?? [];
-
-  // Recipient display
-  const recipientDisplay =
-    s.customer_firm_name
-      ? `To: ${s.customer_firm_name}`
-      : s.recipient_name
-      ? `To: ${s.recipient_name}`
-      : null;
-
-  // Can remove boxes only for CREATED/ACTIVE
-  const boxRemovable = isManager && (s.status === 'CREATED' || s.status === 'ACTIVE');
-
-  // Can add box
-  const canAddBox = isManager && (s.status === 'CREATED' || s.status === 'ACTIVE');
-
-  // Can close
-  const canClose = isManager && s.status === 'ACTIVE';
-
-  // Can full unpack
-  const canUnpack =
-    isManager &&
-    (s.status === 'CREATED' || s.status === 'ACTIVE' || s.status === 'CLOSED');
-
-  // Dispatch visible
-  const dispatchVisible = canDispatch && s.status === 'CLOSED';
+  const canDelete = state === 'EMPTY' && !sample.shipped_box_count;
+  const busy = scanMutation.isPending;
+  const totalAssortmentQty = (assortmentQ.data ?? []).reduce((s, a) => s + a.count, 0);
 
   return (
     <>
-      <Stack.Screen options={{ title: 'Sample Details' }} />
+      <Stack.Screen options={{ title: sample.sample_barcode }} />
 
       <ScrollView
         style={styles.container}
         contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
             tintColor={COLORS.primary}
+            colors={[COLORS.primary]}
           />
         }
       >
-        {/* ── 1. Header card ─────────────────────────────────────────────────── */}
+        {/* Header */}
         <Card style={styles.card}>
-          <View style={styles.headerTopRow}>
-            <Text style={styles.sampleName} numberOfLines={2}>
-              {s.name}
+          <View style={styles.headerRow}>
+            <Text style={styles.barcode} numberOfLines={1}>
+              {sample.sample_barcode}
             </Text>
-            <Badge label={s.status} color={SAMPLE_STATUS_COLORS[s.status]} />
+            <Badge label={state} color={STATE_COLORS[state]} />
           </View>
+          {!!sample.name && <Text style={styles.name}>{sample.name}</Text>}
 
-          <Text style={styles.barcodeText} numberOfLines={1}>
-            {s.sample_barcode}
-          </Text>
+          <InfoRow label="Boxes in sample" value={`${sample.open_box_count ?? 0} (${sample.open_pairs ?? 0} pairs)`} />
+          <InfoRow label="Items" value={String(sample.open_item_count ?? items.length)} />
+          {!!sample.shipped_box_count && (
+            <InfoRow label="Already shipped" value={`${sample.shipped_box_count} boxes`} />
+          )}
+          {!!sample.last_dispatch_date && (
+            <InfoRow label="Last dispatch" value={formatDate(sample.last_dispatch_date)} />
+          )}
+          <InfoRow
+            label="Created"
+            value={`${formatDate(sample.created_at)}${sample.creator_name ? ` by ${sample.creator_name}` : ''}`}
+          />
 
-          <Text style={styles.headerMeta}>
-            {s.child_count} boxes
-            {recipientDisplay ? `  ·  ${recipientDisplay}` : ''}
+          <Text style={styles.hint}>
+            Recipient, purpose and date are entered when you dispatch this sample from the Dispatch screen.
           </Text>
         </Card>
 
-        {/* ── 2. Timeline card ───────────────────────────────────────────────── */}
-        <Card style={styles.card}>
-          <TimelineRow label="Created" value={formatDate(s.created_at)} />
-          {!!s.sample_date && (
-            <TimelineRow label="Sample Date" value={formatDate(s.sample_date)} />
-          )}
-          {!!s.closed_at && (
-            <TimelineRow label="Closed" value={formatDate(s.closed_at)} />
-          )}
-          {!!s.dispatched_at && (
-            <TimelineRow label="Dispatched" value={formatDate(s.dispatched_at)} />
-          )}
-          {!!s.creator && (
-            <TimelineRow label="Creator" value={s.creator.name ?? '—'} />
-          )}
-        </Card>
-
-        {/* ── 3. Action bar ──────────────────────────────────────────────────── */}
-        {s.status === 'DISPATCHED' ? (
-          <Text style={styles.dispatchedNote}>
-            This sample has been dispatched. No actions available.
-          </Text>
-        ) : (
-          <View style={styles.actionBar}>
-            {/* Add Box */}
-            {canAddBox && (
-              <Button
-                title={addBoxOpen ? 'Hide Add Box' : 'Add Box'}
-                variant={addBoxOpen ? 'outline' : 'primary'}
-                fullWidth
-                icon={
-                  <Ionicons
-                    name={addBoxOpen ? 'chevron-up' : 'add-circle-outline'}
-                    size={20}
-                    color={addBoxOpen ? COLORS.primary : COLORS.surface}
-                  />
-                }
-                onPress={() => setAddBoxOpen((v) => !v)}
-              />
-            )}
-
-            {/* Close */}
-            {canClose && (
-              <Button
-                title="Close Sample"
-                variant="primary"
-                fullWidth
-                icon={
-                  <Ionicons
-                    name="checkmark-circle-outline"
-                    size={20}
-                    color={COLORS.surface}
-                  />
-                }
-                onPress={confirmClose}
-                loading={closeMutation.isPending}
-                disabled={closeMutation.isPending || unpackMutation.isPending}
-              />
-            )}
-
-            {/* Full Unpack */}
-            {canUnpack && (
-              <Button
-                title="Full Unpack"
-                variant="outline"
-                fullWidth
-                icon={
-                  <Ionicons
-                    name="open-outline"
-                    size={20}
-                    color={COLORS.primary}
-                  />
-                }
-                onPress={confirmUnpack}
-                loading={unpackMutation.isPending}
-                disabled={closeMutation.isPending || unpackMutation.isPending}
-              />
-            )}
-
-            {/* Dispatch */}
-            {dispatchVisible && (
-              <Button
-                title="Dispatch"
-                variant="outline"
-                fullWidth
-                icon={
-                  <Ionicons
-                    name="paper-plane-outline"
-                    size={20}
-                    color={COLORS.primary}
-                  />
-                }
-                onPress={() => router.push('/dispatch/create' as never)}
-              />
-            )}
-          </View>
-        )}
-
-        {/* ── 3b. Add Box inline scan section ───────────────────────────────── */}
-        {canAddBox && addBoxOpen && (
+        {/* Scan section */}
+        <RoleGate allow={[...EDIT_ROLES]}>
           <Card style={styles.card}>
-            <Text style={styles.sectionTitle}>Add Child Box</Text>
+            <Text style={styles.sectionTitle}>Add to sample</Text>
+            <Text style={styles.hint}>Scan a child box or a whole master carton.</Text>
 
-            <Button
-              title={addingBox ? 'Adding…' : 'Scan Child Box'}
-              onPress={() => setScannerOpen(true)}
-              icon={<Ionicons name="qr-code-outline" size={18} color={COLORS.surface} />}
-              fullWidth
-              disabled={addingBox}
-              style={styles.scanBtn}
-            />
+            <View style={styles.footRow}>
+              <Text style={styles.footLabel}>Loose box as:</Text>
+              {FOOT_OPTIONS.map((o) => {
+                const active = scanFoot === o.value;
+                return (
+                  <TouchableOpacity
+                    key={o.value}
+                    onPress={() => setScanFoot(o.value)}
+                    style={[styles.footChip, active && styles.footChipActive]}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.footChipText, active && styles.footChipTextActive]}>{o.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
 
-            <View style={styles.manualRow}>
+            <View style={styles.scanRow}>
               <TextInput
-                style={styles.manualInput}
+                style={styles.scanInput}
                 value={manualBarcode}
                 onChangeText={setManualBarcode}
-                placeholder="Enter barcode manually…"
+                placeholder="Scan or type a box / carton barcode"
                 placeholderTextColor={COLORS.textLight}
-                autoCorrect={false}
                 autoCapitalize="characters"
+                autoCorrect={false}
                 returnKeyType="done"
                 onSubmitEditing={handleManualAdd}
+                editable={!busy}
               />
               <TouchableOpacity
-                style={styles.addBtn}
+                style={[styles.iconBtn, (!manualBarcode.trim() || busy) && styles.iconBtnDisabled]}
                 onPress={handleManualAdd}
-                activeOpacity={0.75}
-                disabled={!manualBarcode.trim() || addingBox}
+                disabled={!manualBarcode.trim() || busy}
               >
-                <Text style={styles.addBtnText}>Add</Text>
+                {busy ? <Spinner size="small" /> : <Ionicons name="add" size={22} color="#FFFFFF" />}
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.cameraBtn} onPress={() => setScannerOpen(true)} disabled={busy}>
+                <Ionicons name="scan-outline" size={22} color={COLORS.primary} />
               </TouchableOpacity>
             </View>
           </Card>
-        )}
+        </RoleGate>
 
-        {/* ── 4. Assortment card ─────────────────────────────────────────────── */}
-        <Card style={styles.card}>
-          <Text style={styles.sectionTitle}>Assortment</Text>
-          {assortmentQ.isLoading ? (
-            <View style={styles.inlineSpinner}>
-              <Spinner size="small" />
-            </View>
-          ) : assortment.length === 0 ? (
-            <Text style={styles.emptyText}>No items</Text>
-          ) : (
-            assortment.map((item, idx) => (
-              <AssortmentRow
-                key={`${item.article_name}-${item.colour}-${item.size}-${idx}`}
-                item={item}
-              />
-            ))
-          )}
-        </Card>
-
-        {/* ── 5. Child boxes (collapsible) ───────────────────────────────────── */}
-        {childBoxes.length > 0 && (
+        {/* Assortment */}
+        {(assortmentQ.data ?? []).length > 0 && (
           <Card style={styles.card}>
-            <TouchableOpacity
-              style={styles.collapsibleHeader}
-              onPress={() => setChildBoxesExpanded((v) => !v)}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.sectionTitle}>
-                Child Boxes ({childBoxes.length})
-              </Text>
-              <Ionicons
-                name={childBoxesExpanded ? 'chevron-up' : 'chevron-down'}
-                size={18}
-                color={COLORS.textSecondary}
-              />
-            </TouchableOpacity>
-
-            {childBoxesExpanded &&
-              childBoxes.map((box, idx) => (
-                <ChildBoxRow
-                  key={box.id ?? idx}
-                  box={box}
-                  canRemove={boxRemovable}
-                  onRemove={() => confirmRemoveBox(box)}
-                />
-              ))}
+            <Text style={styles.sectionTitle}>Assortment · {totalAssortmentQty} pairs</Text>
+            {(assortmentQ.data ?? []).map((a) => (
+              <AssortmentRow key={`${a.article_name}-${a.colour}-${a.size}-${a.mrp}`} item={a} />
+            ))}
           </Card>
         )}
+
+        {/* Contents */}
+        {contentsQ.isLoading ? (
+          <View style={styles.centered}>
+            <Spinner />
+          </View>
+        ) : items.length === 0 ? (
+          <Card style={styles.card}>
+            <EmptyState
+              icon="flask-outline"
+              title="Nothing in this sample"
+              message={state === 'DISPATCHED' ? 'Everything has been dispatched.' : 'Scan a box or carton above to add it.'}
+            />
+          </Card>
+        ) : (
+          <>
+            {cartons.length > 0 && (
+              <Card style={styles.card}>
+                <Text style={styles.sectionTitle}>Cartons ({cartons.length})</Text>
+                {cartons.map((c) => (
+                  <View key={c.mapping_id} style={styles.itemBlock}>
+                    <View style={styles.itemHeader}>
+                      <Text style={styles.itemBarcode}>{c.barcode}</Text>
+                      <Text style={styles.itemMeta}>
+                        {c.box_count} boxes · {c.pairs} pairs
+                      </Text>
+                    </View>
+                    <SummaryLine item={c} />
+                    <RoleGate allow={[...EDIT_ROLES]}>
+                      <View style={styles.actionRow}>
+                        <Button
+                          title="Unpack"
+                          size="sm"
+                          variant="outline"
+                          onPress={() => confirmUnpack(c)}
+                          loading={unpackMutation.isPending && unpackMutation.variables === c.mapping_id}
+                        />
+                        <Button title="Remove" size="sm" variant="danger" onPress={() => confirmRemove(c)} />
+                      </View>
+                    </RoleGate>
+                  </View>
+                ))}
+              </Card>
+            )}
+
+            {boxes.length > 0 && (
+              <Card style={styles.card}>
+                <Text style={styles.sectionTitle}>Loose boxes ({boxes.length})</Text>
+                {boxes.map((b) => (
+                  <View key={b.mapping_id} style={styles.itemBlock}>
+                    <View style={styles.itemHeader}>
+                      <Text style={styles.itemBarcode}>{b.barcode}</Text>
+                      {b.foot !== 'PAIR' ? (
+                        <Badge label={FOOT_LABEL[b.foot]} color={COLORS.statusClosed} />
+                      ) : (
+                        <Text style={styles.itemMeta}>Pair</Text>
+                      )}
+                    </View>
+                    <SummaryLine item={b} />
+                    {!!b.source_carton_barcode && (
+                      <Text style={styles.itemSource}>From carton {b.source_carton_barcode}</Text>
+                    )}
+                    <RoleGate allow={[...EDIT_ROLES]}>
+                      <View style={styles.actionRow}>
+                        <View style={styles.footToggle}>
+                          {FOOT_OPTIONS.map((o) => {
+                            const active = b.foot === o.value;
+                            return (
+                              <TouchableOpacity
+                                key={o.value}
+                                disabled={active || setFootMutation.isPending}
+                                onPress={() => setFootMutation.mutate({ mapping_id: b.mapping_id, foot: o.value })}
+                                style={[styles.footChip, active && styles.footChipActive]}
+                                activeOpacity={0.7}
+                              >
+                                <Text style={[styles.footChipText, active && styles.footChipTextActive]}>
+                                  {o.label}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                        <Button title="Remove" size="sm" variant="danger" onPress={() => confirmRemove(b)} />
+                      </View>
+                    </RoleGate>
+                  </View>
+                ))}
+              </Card>
+            )}
+          </>
+        )}
+
+        {/* Danger zone */}
+        <RoleGate allow={['Admin', 'Supervisor']}>
+          {(items.length > 0 || canDelete) && (
+            <View style={styles.dangerZone}>
+              {items.length > 0 && (
+                <Button
+                  title="Empty Sample"
+                  variant="outline"
+                  onPress={confirmClear}
+                  loading={clearMutation.isPending}
+                  fullWidth
+                />
+              )}
+              {canDelete && (
+                <Button
+                  title="Delete Sample"
+                  variant="danger"
+                  onPress={confirmDelete}
+                  loading={deleteMutation.isPending}
+                  fullWidth
+                  style={styles.dangerGap}
+                />
+              )}
+            </View>
+          )}
+        </RoleGate>
       </ScrollView>
 
-      {/* Scanner modal for Add Box */}
       <BarcodeScanner
         visible={scannerOpen}
         onClose={() => setScannerOpen(false)}
-        onScan={handleScan}
-        expectedType="child"
-        title="Scan Child Box"
+        onScan={handleCameraScan}
+        title="Scan Box or Carton"
+        expectedType="any"
       />
     </>
   );
@@ -547,205 +510,87 @@ export default function SampleDetailScreen() {
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
+const mono = Platform.OS === 'ios' ? 'Menlo' : 'monospace';
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: COLORS.background,
-  },
-  content: {
-    padding: 16,
-    gap: 12,
-    paddingBottom: 32,
-  },
-  centeredContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: COLORS.background,
-  },
+  container: { flex: 1, backgroundColor: COLORS.background },
+  content: { padding: 12, paddingBottom: 40 },
+  centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
+  card: { marginBottom: 12 },
 
-  // Cards
-  card: {
-    marginBottom: 0,
-  },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
+  barcode: { flex: 1, fontSize: 16, fontWeight: '700', color: COLORS.text, fontFamily: mono, marginRight: 8 },
+  name: { fontSize: 14, fontWeight: '600', color: COLORS.text, marginBottom: 8 },
 
-  // Header card
-  headerTopRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 6,
-    gap: 8,
-  },
-  sampleName: {
-    flex: 1,
-    fontSize: 18,
-    fontWeight: '700',
-    color: COLORS.text,
-  },
-  barcodeText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: COLORS.textSecondary,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    marginBottom: 4,
-  },
-  headerMeta: {
-    fontSize: 13,
-    color: COLORS.textSecondary,
-  },
+  infoRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3 },
+  infoLabel: { fontSize: 13, color: COLORS.textSecondary },
+  infoValue: { fontSize: 13, color: COLORS.text, fontWeight: '500', flexShrink: 1, textAlign: 'right', marginLeft: 12 },
+  hint: { fontSize: 12, color: COLORS.textSecondary, marginTop: 8 },
 
-  // Timeline card
-  timelineRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    paddingVertical: 6,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: COLORS.borderLight,
-  },
-  timelineLabel: {
-    fontSize: 13,
-    color: COLORS.textSecondary,
-    flex: 1,
-  },
-  timelineValue: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: COLORS.text,
-    flex: 2,
-    textAlign: 'right',
-  },
+  sectionTitle: { fontSize: 14, fontWeight: '700', color: COLORS.text, marginBottom: 6 },
 
-  // Action bar
-  actionBar: {
-    gap: 10,
-  },
-  dispatchedNote: {
-    fontSize: 13,
-    color: COLORS.textSecondary,
-    textAlign: 'center',
-    paddingVertical: 8,
-    fontStyle: 'italic',
-  },
-
-  // Add box scan section
-  scanBtn: {
-    marginBottom: 12,
-  },
-  manualRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  manualInput: {
-    flex: 1,
+  // Scan
+  footRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10, marginBottom: 10 },
+  footLabel: { fontSize: 12, color: COLORS.textSecondary },
+  footChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: COLORS.border,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: Platform.OS === 'ios' ? 10 : 8,
-    fontSize: 13,
-    color: COLORS.text,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     backgroundColor: COLORS.surface,
   },
-  addBtn: {
+  footChipActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
+  footChipText: { fontSize: 12, fontWeight: '600', color: COLORS.textSecondary },
+  footChipTextActive: { color: '#FFFFFF' },
+  scanRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  scanInput: {
+    flex: 1,
+    height: 42,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    fontSize: 14,
+    color: COLORS.text,
+    backgroundColor: COLORS.surface,
+    fontFamily: mono,
+  },
+  iconBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 10,
     backgroundColor: COLORS.primary,
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: Platform.OS === 'ios' ? 10 : 9,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  addBtnText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: COLORS.surface,
+  iconBtnDisabled: { opacity: 0.5 },
+  cameraBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 
-  // Assortment card
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: COLORS.text,
-    marginBottom: 10,
-  },
-  inlineSpinner: {
-    alignItems: 'center',
-    paddingVertical: 8,
-  },
-  emptyText: {
-    fontSize: 14,
-    color: COLORS.textSecondary,
-  },
-  assortmentRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 6,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: COLORS.borderLight,
-    gap: 8,
-  },
-  assortmentLabel: {
-    flex: 1,
-    fontSize: 13,
-    color: COLORS.text,
-  },
-  assortmentCountPill: {
-    backgroundColor: COLORS.primary + '15',
-    borderRadius: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    minWidth: 36,
-    alignItems: 'center',
-  },
-  assortmentCountText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: COLORS.primary,
-  },
+  // Assortment
+  assortmentRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3 },
+  assortmentLabel: { flex: 1, fontSize: 12, color: COLORS.text, marginRight: 8 },
+  assortmentQty: { fontSize: 12, fontWeight: '700', color: COLORS.text },
 
-  // Child boxes collapsible
-  collapsibleHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 0,
-  },
-  childBoxRow: {
-    paddingVertical: 10,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: COLORS.borderLight,
-    gap: 2,
-  },
-  childBoxTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 2,
-  },
-  childBoxTopRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  childBoxTrash: {
-    padding: 2,
-  },
-  childBoxBarcode: {
-    flex: 1,
-    fontSize: 13,
-    fontWeight: '600',
-    color: COLORS.text,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    marginRight: 8,
-  },
-  childBoxDesc: {
-    fontSize: 13,
-    color: COLORS.text,
-  },
-  childBoxMeta: {
-    fontSize: 12,
-    color: COLORS.textSecondary,
-    marginTop: 1,
-  },
+  // Items
+  itemBlock: { paddingVertical: 10, borderTopWidth: 1, borderTopColor: COLORS.border },
+  itemHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  itemBarcode: { fontSize: 14, fontWeight: '700', color: COLORS.text, fontFamily: mono },
+  itemMeta: { fontSize: 12, color: COLORS.textSecondary },
+  itemSummary: { fontSize: 12, color: COLORS.textSecondary, marginTop: 3 },
+  itemSource: { fontSize: 11, color: COLORS.textLight, marginTop: 2 },
+  actionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 8 },
+  footToggle: { flexDirection: 'row', gap: 6, flexShrink: 1 },
+
+  // Danger zone
+  dangerZone: { marginTop: 4 },
+  dangerGap: { marginTop: 8 },
 });
