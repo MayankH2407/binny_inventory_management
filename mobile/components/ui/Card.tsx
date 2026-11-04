@@ -18,12 +18,14 @@ export default function Card({ children, style, padded = true }: CardProps) {
 const styles = StyleSheet.create({
   card: {
     backgroundColor: COLORS.surface,
-    borderRadius: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 2,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: COLORS.borderLight,
+    shadowColor: '#1E1A5F',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.07,
+    shadowRadius: 8,
+    elevation: 3,
   },
   padded: {
     padding: 16,

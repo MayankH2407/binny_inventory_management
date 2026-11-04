@@ -1,5 +1,6 @@
 import { View, Text, ScrollView, StyleSheet, RefreshControl } from 'react-native';
 import { useState, useCallback } from 'react';
+import { useAuthStore } from '../../stores/authStore';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import type { IoniconName } from '../../utils/icons';
 import { COLORS } from '../../constants';
@@ -11,7 +12,7 @@ import type { DashboardStats } from '../../types';
 
 function StatCard({ icon, label, value, color }: { icon: IoniconName; label: string; value: number | string; color: string }) {
   return (
-    <Card style={styles.statCard}>
+    <Card style={{ ...styles.statCard, borderTopWidth: 3, borderTopColor: color }}>
       <View style={[styles.iconContainer, { backgroundColor: color + '15' }]}>
         <Ionicons name={icon} size={22} color={color} />
       </View>
@@ -23,6 +24,7 @@ function StatCard({ icon, label, value, color }: { icon: IoniconName; label: str
 
 export default function DashboardScreen() {
   const [refreshing, setRefreshing] = useState(false);
+  const user = useAuthStore((s) => s.user);
 
   const { data: stats, isLoading, refetch } = useApiQuery<DashboardStats>(
     ['dashboard-stats'],
@@ -43,7 +45,16 @@ export default function DashboardScreen() {
       contentContainerStyle={styles.content}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.primary} />}
     >
-      <Text style={styles.welcome}>Welcome to Binny Inventory</Text>
+      <View style={styles.hero}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.heroGreeting}>Welcome back,</Text>
+          <Text style={styles.heroName} numberOfLines={1}>{user?.name || 'Binny Inventory'}</Text>
+          <Text style={styles.heroSub}>Today's dispatches: {stats?.todayDispatches ?? 0}</Text>
+        </View>
+        <View style={styles.heroIcon}>
+          <Ionicons name="footsteps" size={30} color={COLORS.surface} />
+        </View>
+      </View>
 
       <View style={styles.grid}>
         <StatCard icon="cube-outline" label="Child Boxes" value={stats?.totalChildBoxes ?? 0} color={COLORS.primary} />
@@ -81,10 +92,18 @@ export default function DashboardScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
-  content: { padding: 16, paddingBottom: 32 },
-  welcome: { fontSize: 15, color: COLORS.textSecondary, marginBottom: 16 },
+  content: { padding: 16, paddingBottom: 24 },
+  hero: {
+    flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.primary,
+    borderRadius: 20, padding: 20, marginBottom: 18,
+    shadowColor: COLORS.primaryDark, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 10, elevation: 6,
+  },
+  heroGreeting: { fontSize: 13, color: '#C7C6EA' },
+  heroName: { fontSize: 22, fontWeight: '800', color: COLORS.surface, marginTop: 2 },
+  heroSub: { fontSize: 12, color: '#C7C6EA', marginTop: 8 },
+  heroIcon: { width: 56, height: 56, borderRadius: 28, backgroundColor: 'rgba(255,255,255,0.15)', alignItems: 'center', justifyContent: 'center' },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginBottom: 20 },
-  statCard: { width: '47%', alignItems: 'center', paddingVertical: 18 },
+  statCard: { width: '47.5%', alignItems: 'center', paddingVertical: 18 },
   iconContainer: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginBottom: 10 },
   statValue: { fontSize: 24, fontWeight: '800', color: COLORS.text },
   statLabel: { fontSize: 12, color: COLORS.textSecondary, marginTop: 2 },
