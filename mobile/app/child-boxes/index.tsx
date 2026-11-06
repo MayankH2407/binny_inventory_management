@@ -20,6 +20,7 @@ import Card from '../../components/ui/Card';
 import Badge from '../../components/ui/Badge';
 import EmptyState from '../../components/ui/EmptyState';
 import Spinner from '../../components/ui/Spinner';
+import { useCan } from '../../hooks/useCan';
 
 // ─── Aging helpers (ported from web) ─────────────────────────────────────────
 
@@ -54,6 +55,7 @@ const PAGE_SIZE = 20;
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function ChildBoxesScreen() {
+  const canGenerate = useCan('child_boxes:create');
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
@@ -290,6 +292,17 @@ export default function ChildBoxesScreen() {
             }
           />
         )}
+
+        {canGenerate && (
+          <TouchableOpacity
+            activeOpacity={0.85}
+            style={styles.fab}
+            onPress={() => router.push('/child-boxes/generate')}
+          >
+            <Ionicons name="add" size={22} color={COLORS.surface} />
+            <Text style={styles.fabText}>Generate</Text>
+          </TouchableOpacity>
+        )}
       </View>
     </>
   );
@@ -298,6 +311,12 @@ export default function ChildBoxesScreen() {
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
+  fab: {
+    position: 'absolute', right: 16, bottom: 16, flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: COLORS.primary, paddingHorizontal: 18, paddingVertical: 13, borderRadius: 28,
+    shadowColor: COLORS.primaryDark, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 8,
+  },
+  fabText: { color: COLORS.surface, fontSize: 15, fontWeight: '700' },
   container: {
     flex: 1,
     backgroundColor: COLORS.background,
