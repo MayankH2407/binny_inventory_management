@@ -70,7 +70,7 @@ export default function DashboardPage() {
     return (
       <div>
         <PageHeader title="Dashboard" description="Overview of your inventory operations" />
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 sm:gap-6 mb-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 mb-8">
           {[1, 2, 3, 4, 5].map((i) => <SkeletonCard key={i} />)}
         </div>
       </div>
@@ -79,15 +79,8 @@ export default function DashboardPage() {
 
   const statCards = [
     {
-      title: 'Generated',
-      value: stats?.generatedBoxes ?? 0,
-      icon: FileWarning,
-      color: 'text-gray-600',
-      accent: '#6B7280',
-      subtitle: 'Awaiting scan',
-    },
-    {
       title: 'Total Child Boxes',
+      wide: true,
       value: stats?.totalChildBoxes ?? 0,
       icon: Package,
       color: 'text-binny-navy',
@@ -100,12 +93,20 @@ export default function DashboardPage() {
       ],
     },
     {
+      title: 'Generated',
+      value: stats?.generatedBoxes ?? 0,
+      icon: FileWarning,
+      color: 'text-gray-600',
+      accent: '#6B7280',
+      subtitle: 'Awaiting scan',
+    },
+    {
       title: 'Active Master Cartons',
       value: stats?.activeMasterCartons ?? 0,
       icon: Boxes,
       color: 'text-blue-600',
       accent: '#2563EB',
-      subtitle: `${stats?.totalMasterCartons ?? 0} total`,
+      subtitle: `${(stats?.totalMasterCartons ?? 0).toLocaleString('en-IN')} total`,
     },
     {
       title: "Today's Dispatches",
@@ -113,7 +114,7 @@ export default function DashboardPage() {
       icon: Truck,
       color: 'text-brand-success',
       accent: '#16A34A',
-      subtitle: `${stats?.totalDispatches ?? 0} total`,
+      subtitle: `${(stats?.totalDispatches ?? 0).toLocaleString('en-IN')} total`,
     },
     {
       title: 'Pairs in Stock',
@@ -121,7 +122,7 @@ export default function DashboardPage() {
       icon: ShoppingBag,
       color: 'text-purple-600',
       accent: '#9333EA',
-      subtitle: `${stats?.totalPairsDispatched ?? 0} dispatched`,
+      subtitle: `${(stats?.totalPairsDispatched ?? 0).toLocaleString('en-IN')} dispatched`,
     },
   ];
 
@@ -176,38 +177,36 @@ export default function DashboardPage() {
       </div>
 
       {/* Stat Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 sm:gap-6 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 mb-8">
         {statCards.map((stat, index) => (
           <Card
             key={stat.title}
             accent={stat.accent}
-            className="p-6 animate-slide-up"
+            className={`p-5 min-w-0 flex flex-col animate-slide-up ${stat.wide ? 'sm:col-span-2' : ''}`}
             style={{ animationDelay: `${index * 60}ms` }}
           >
-            <div className="flex items-start justify-between mb-4">
-              <div>
-                <p className="text-sm font-medium text-brand-text-muted">{stat.title}</p>
-                <p className="text-3xl font-bold text-brand-text-dark mt-1" style={{ fontFeatureSettings: "'tnum'" }}>
-                  {stat.value.toLocaleString('en-IN')}
-                </p>
-                {stat.subtitle && (
-                  <p className="text-xs text-brand-text-muted mt-1">{stat.subtitle}</p>
-                )}
-              </div>
+            <div className="flex items-start justify-between gap-2">
+              <p className="text-sm font-medium text-brand-text-muted min-w-0">{stat.title}</p>
               <div
-                className="p-3.5 rounded-2xl shrink-0"
+                className="p-2.5 rounded-xl shrink-0"
                 style={{ background: `linear-gradient(135deg, ${stat.accent}18, ${stat.accent}08)` }}
               >
-                <stat.icon className={`h-6 w-6 ${stat.color}`} />
+                <stat.icon className={`h-5 w-5 ${stat.color}`} />
               </div>
             </div>
+            <p className="text-2xl sm:text-3xl font-bold text-brand-text-dark mt-1 mb-1" style={{ fontFeatureSettings: "'tnum'" }}>
+              {stat.value.toLocaleString('en-IN')}
+            </p>
+            {stat.subtitle && (
+              <p className="text-xs text-brand-text-muted mb-3">{stat.subtitle}</p>
+            )}
 
             {stat.breakdown && (
-              <div className="flex items-center gap-4 pt-3 border-t border-brand-border">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2 pt-3 border-t border-brand-border">
                 {stat.breakdown.map((item) => (
-                  <div key={item.label} className="flex items-center gap-1.5">
-                    <span className={`text-sm font-semibold ${item.color}`} style={{ fontFeatureSettings: "'tnum'" }}>{item.value}</span>
-                    <span className="text-xs text-brand-text-muted">{item.label}</span>
+                  <div key={item.label} className="flex flex-col min-w-0">
+                    <span className={`text-sm font-semibold ${item.color}`} style={{ fontFeatureSettings: "'tnum'" }}>{item.value.toLocaleString('en-IN')}</span>
+                    <span className="text-xs text-brand-text-muted truncate">{item.label}</span>
                   </div>
                 ))}
               </div>
