@@ -50,3 +50,12 @@ export function parseQRCode(raw: string): {
 
   return { type: 'unknown', id: trimmed };
 }
+
+/**
+ * True when `raw` is a well-formed Binny barcode (CB/MC/SR/EC + 6 chars, or the legacy long
+ * format). A scanner that drops or doubles a character fails this, so callers can ask for a
+ * re-scan instead of treating a misread as a real (but unknown) code.
+ */
+export function isValidBarcode(raw: string): boolean {
+  return parseQRCode(raw).type !== 'unknown';
+}

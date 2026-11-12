@@ -79,6 +79,16 @@ export default function BarcodeScanner({
 
     const parsed = parseQRCode(data);
 
+    // Not a Binny barcode at all (wrong length, foreign QR, or a misread): don't accept it as a
+    // scan. Tell the operator and keep the camera live for the next attempt.
+    if (parsed.type === 'unknown') {
+      showToast('Not a valid barcode — scan again');
+      setTimeout(() => {
+        scannedRef.current = false;
+      }, 1200);
+      return;
+    }
+
     if (expectedType !== 'any' && parsed.type !== expectedType) {
       const typeLabels: Record<string, string> = {
         child: 'child box',

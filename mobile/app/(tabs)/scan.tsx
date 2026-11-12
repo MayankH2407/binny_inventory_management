@@ -11,6 +11,7 @@ import BarcodeScanner from '../../components/BarcodeScanner';
 import { traceService } from '../../services/trace.service';
 import { childBoxService } from '../../services/childBox.service';
 import type { TraceabilityResult } from '../../types';
+import { isValidBarcode } from '../../utils';
 
 export default function ScanScreen() {
   const [barcode, setBarcode] = useState('');
@@ -22,6 +23,11 @@ export default function ScanScreen() {
   const handleTrace = async (code?: string) => {
     const trimmed = (code ?? barcode).trim();
     if (!trimmed) return;
+    if (!isValidBarcode(trimmed)) {
+      setResult(null);
+      setError(`"${trimmed}" is not a valid barcode — it should be 2 letters + 6 characters (8 total). Please re-enter or scan again.`);
+      return;
+    }
     setLoading(true);
     setError('');
     setResult(null);
