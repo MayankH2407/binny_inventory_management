@@ -4,7 +4,9 @@ import { useRef, useState, useEffect, useCallback } from 'react';
 import { Barcode, CheckCircle2 } from 'lucide-react';
 import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
+import toast from 'react-hot-toast';
 import { cn } from '@/lib/utils';
+import { isValidBarcode, BARCODE_MISREAD_MESSAGE } from '@/lib/barcode';
 
 export interface HIDScannerInputProps {
   onScan: (code: string) => void | Promise<void>;
@@ -16,6 +18,8 @@ export interface HIDScannerInputProps {
   className?: string;
   /** Minimum length before triggering onScan. Default 1. */
   minLength?: number;
+  /** Set true only for inputs that accept something other than a Binny barcode. Default false. */
+  skipFormatCheck?: boolean;
 }
 
 export default function HIDScannerInput({
@@ -27,6 +31,7 @@ export default function HIDScannerInput({
   disabled = false,
   className,
   minLength = 1,
+  skipFormatCheck = false,
 }: HIDScannerInputProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [value, setValue] = useState('');
@@ -36,10 +41,12 @@ export default function HIDScannerInput({
   // every render and always sees the latest props.
   const onScanRef = useRef(onScan);
   const minLengthRef = useRef(minLength);
+  const skipFormatCheckRef = useRef(skipFormatCheck);
   useEffect(() => {
     onScanRef.current = onScan;
     minLengthRef.current = minLength;
-  }, [onScan, minLength]);
+    skipFormatCheckRef.current = skipFormatCheck;
+  }, [onScan, minLength, skipFormatCheck]);
 
   // Submit helper. Reads the DOM value at call time and clears both state
   // and DOM so the next scan starts fresh.
@@ -48,6 +55,17 @@ export default function HIDScannerInput({
     // because HID scanners + Windows Caps Lock can flip output to lowercase.
     const trimmed = code.trim().toUpperCase();
     if (trimmed.length < minLengthRef.current) return;
+    // Reject malformed reads (e.g. a scanner that dropped a repeated character) instead of
+    // passing them on as if they were real scans. Clear the field so the next scan starts clean.
+    if (!skipFormatCheckRef.current && !isValidBarcode(trimmed)) {
+      toast.error(BARCODE_MISREAD_MESSAGE(trimmed), { id: 'barcode-misread', duration: 5000 });
+      if (inputRef.current) inputRef.current.value = '';
+      setValue('');
+      requestAnimationFrame(() => {
+        inputRef.current?.focus();
+      });
+      return;
+    }
     if (inputRef.current) {
       inputRef.current.value = '';
     }

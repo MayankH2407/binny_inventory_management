@@ -16,6 +16,7 @@ import { useApiMutation } from '@/hooks/useApi';
 import { useScanStore } from '@/store/scanStore';
 import { formatCurrency } from '@/lib/utils';
 import toast from 'react-hot-toast';
+import { isValidBarcode, BARCODE_MISREAD_MESSAGE } from '@/lib/barcode';
 import Link from 'next/link';
 import type { ChildBoxWithProduct } from '@/types';
 
@@ -46,6 +47,11 @@ export default function CreateMasterCartonPage() {
 
   const handleScan = useCallback(
     async (qrCode: string) => {
+      // Also guards the camera path, which does not go through HIDScannerInput.
+      if (!isValidBarcode(qrCode)) {
+        toast.error(BARCODE_MISREAD_MESSAGE(qrCode), { id: 'barcode-misread', duration: 5000 });
+        return;
+      }
       const added = addItem(qrCode);
       if (!added) {
         toast.error('Already scanned');
@@ -58,11 +64,16 @@ export default function CreateMasterCartonPage() {
       try {
         const details = await childBoxService.getByBarcode(qrCode);
         setItemDetails((prev) => ({ ...prev, [qrCode]: details }));
-      } catch {
-        // Details fetch failed — barcode is still added, just no details shown
+      } catch (err) {
+        // A 404 means no such child box: drop it now instead of letting carton creation fail later.
+        // Any other failure (network etc.): keep the barcode, just without details.
+        if ((err as { response?: { status?: number } })?.response?.status === 404) {
+          removeItem(qrCode);
+          toast.error(`${qrCode} was not found — removed from the list`);
+        }
       }
     },
-    [addItem]
+    [addItem, removeItem]
   );
 
   const handleRemoveItem = useCallback(
